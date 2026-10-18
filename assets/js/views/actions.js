@@ -1,12 +1,12 @@
 import { confirmDialog, toast } from '../lib/dom.js';
 import { snapshotOf } from '../lib/diff.js';
 import { KINDS, statusLabel } from '../schema.js';
-import { archiveItem, getItem, restoreItem } from '../store.js';
+import { archiveItem, getItem, isExample, restoreItem } from '../store.js';
 import { saveWithMerge } from './merge.js';
 import { navigate } from '../router.js';
 
 export async function changeStatus(item, status) {
-  if (!item || item.status === status) return null;
+  if (!item || isExample(item) || item.status === status) return null;
   const base = snapshotOf(item);
   const message = `Stato: ${statusLabel(item.kind, item.status)} → ${statusLabel(item.kind, status)}`;
   try {

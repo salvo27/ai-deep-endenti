@@ -50,38 +50,37 @@ function passwordCard() {
   );
   form.addEventListener('submit', busy(save, async (event) => {
     event.preventDefault();
-    error.replaceChildren();
+    mount(error);
     const problem = passwordProblem(password.value, confirm.value);
-    if (problem) return error.replaceChildren(errorBox({ message: problem }));
+    if (problem) return mount(error, errorBox({ message: problem }));
     try {
       await api.updatePassword(password.value);
       password.value = '';
       confirm.value = '';
       toast('Password cambiata.', { type: 'success' });
     } catch (e) {
-      error.replaceChildren(errorBox(e));
+      mount(error, errorBox(e));
     }
   }));
   return form;
 }
 
 function factorsCard() {
-  const host = h('div', null, loading());
-  const card = h('section', { class: 'card' }, h('h2', null, 'Verifica in due passaggi'), h('p', { class: 'muted small' }, 'Aggiungi un secondo dispositivo: se perdi il telefono potrai ancora entrare.'), host);
+  const host = h('div', { class: 'card-stack' }, loading());
+  const card = h('section', { class: 'card card-stack' }, h('h2', null, 'Verifica in due passaggi'), h('p', { class: 'muted small' }, 'Aggiungi un secondo dispositivo: se perdi il telefono potrai ancora entrare.'), host);
 
   const load = async () => {
     try {
       const factors = verifiedTotp(await api.listFactors());
-      host.replaceChildren(
+      mount(host,
         h(
           'ul',
           { class: 'list' },
           factors.map((f) =>
             h(
               'li',
-              null,
-              h('strong', null, f.friendly_name || 'Dispositivo'),
-              h('span', { class: 'muted small' }, ` aggiunto il ${fmtDateTime(f.created_at)}`),
+              { class: 'factor' },
+              h('div', null, h('strong', null, f.friendly_name || 'Dispositivo'), h('div', { class: 'muted small' }, `Aggiunto il ${fmtDateTime(f.created_at)}`)),
               factors.length > 1
                 ? button('Rimuovi', {
                     onClick: async () => {
@@ -96,7 +95,7 @@ function factorsCard() {
                       }
                     },
                   })
-                : h('span', { class: 'muted small' }, ' (l\'unico dispositivo non si può rimuovere)'),
+                : h('span', { class: 'muted small' }, 'È l\'unico dispositivo: non si può rimuovere'),
             ),
           ),
         ),
@@ -118,7 +117,7 @@ function factorsCard() {
         }),
       );
     } catch (error) {
-      host.replaceChildren(errorBox(error));
+      mount(host, errorBox(error));
     }
   };
   load();
@@ -130,7 +129,7 @@ function sessionCard() {
   api.aiUsageLastDay(state.user.id).then((n) => (usage.textContent = String(n))).catch(() => (usage.textContent = '-'));
   return h(
     'section',
-    { class: 'card' },
+    { class: 'card card-stack' },
     h('h2', null, 'Sessioni e uso'),
     h('p', null, 'Richieste a Claude nelle ultime 24 ore: ', usage),
     button('Esci da tutti i dispositivi', {

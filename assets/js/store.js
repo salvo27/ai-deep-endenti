@@ -2,6 +2,7 @@ import { api, AppError } from './lib/api.js';
 import { KINDS, sanitizeSnapshot, snapshotProblem } from './schema.js';
 import { LIMITS, cleanLine, isUuid } from './lib/validate.js';
 import { debounce } from './lib/format.js';
+import { EXAMPLES } from './examples.js';
 
 export const state = {
   user: null,
@@ -150,7 +151,12 @@ export function trackPresence({ route, editing = false }) {
   presence?.track({ route: cleanLine(route, 200), editing: editing === true });
 }
 
-export const getItem = (id) => state.items.get(id) || null;
+const EXAMPLE_BY_ID = new Map(EXAMPLES.map((item) => [item.id, item]));
+
+// Gli esempi si raggiungono solo dalle loro pagine: le liste generali vedono solo i dati del team.
+export const isExample = (item) => item?.example === true;
+export const exampleIdeas = () => EXAMPLES.filter((item) => item.kind === 'idea');
+export const getItem = (id) => state.items.get(id) || EXAMPLE_BY_ID.get(id) || null;
 export const memberById = (id) => state.members.find((m) => m.user_id === id) || null;
 export const memberName = (id) => memberById(id)?.display_name || (id ? 'Ex membro' : 'Sistema');
 export const canWrite = () => state.me?.role === 'admin' || state.me?.role === 'member';
@@ -161,8 +167,10 @@ function parentDeleted(item) {
   return Boolean(state.items.get(item.idea_id)?.deleted_at);
 }
 
+const sourceFor = (ideaId) => (ideaId !== undefined && EXAMPLE_BY_ID.has(ideaId) ? EXAMPLES : [...state.items.values()]);
+
 export function itemsOf(kind, { ideaId, includeDeleted = false } = {}) {
-  return [...state.items.values()].filter(
+  return sourceFor(ideaId).filter(
     (i) =>
       i.kind === kind &&
       (includeDeleted || (!i.deleted_at && !parentDeleted(i))) &&
@@ -171,6 +179,8 @@ export function itemsOf(kind, { ideaId, includeDeleted = false } = {}) {
 }
 
 export const ideas = (opts) => itemsOf('idea', opts);
+export const decisionsFor = (ideaId) =>
+  sourceFor(ideaId).filter((i) => i.kind === 'decision' && !i.deleted_at && Array.isArray(i.data.ideas) && i.data.ideas.includes(ideaId));
 export const singleton = (kind) => [...state.items.values()].find((i) => i.kind === kind) || null;
 export const scoreItems = () => itemsOf('score');
 export const myScoreItem = () => [...state.items.values()].find((i) => i.kind === 'score' && i.created_by === state.user?.id) || null;

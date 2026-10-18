@@ -5,7 +5,9 @@ import { api } from '../lib/api.js';
 import {
   canWrite,
   criteriaList,
+  decisionsFor,
   getItem,
+  isExample,
   itemsOf,
   labelContext,
   on,
@@ -27,6 +29,7 @@ import {
   commitmentBadge,
   emptyState,
   errorBox,
+  exampleBanner,
   fieldsGrid,
   itemLink,
   loading,
@@ -36,6 +39,8 @@ import {
   statusPill,
   tabs,
 } from './components.js';
+
+const EXAMPLE_TABS = new Set(['panoramica', 'canvas', 'esperimenti', 'interviste']);
 
 const TABS = [
   ['panoramica', 'Panoramica'],
@@ -63,8 +68,27 @@ function originNote(idea) {
   return h('p', { class: 'muted small' }, 'Nata nel generatore: ', h('a', { href: '#/generatore' }, `${labelContext.axisLabel(rowId) || rowId} × ${labelContext.axisLabel(colId) || colId}`));
 }
 
+function decisionsSection(idea) {
+  const decisions = decisionsFor(idea.id).sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''));
+  if (!decisions.length) return null;
+  return h(
+    'section',
+    { class: 'idea-decisions' },
+    h('h2', null, 'Decisioni'),
+    decisions.map((d) =>
+      h(
+        'article',
+        { class: 'card' },
+        h('div', { class: 'card-head' }, itemLink(d), statusPill('decision', d.status)),
+        d.data.decision ? h('p', null, d.data.decision) : null,
+        d.data.date ? h('p', { class: 'muted small' }, fmtDate(d.data.date)) : null,
+      ),
+    ),
+  );
+}
+
 function overviewTab(idea) {
-  return h('div', null, originNote(idea), fieldsGrid(idea));
+  return h('div', { class: 'stack' }, originNote(idea), fieldsGrid(idea), decisionsSection(idea));
 }
 
 function canvasTab(idea, writable) {
@@ -77,7 +101,7 @@ function canvasTab(idea, writable) {
   }
   return h(
     'div',
-    null,
+    { class: 'stack' },
     canvases.map((canvas) =>
       h(
         'section',
@@ -89,9 +113,9 @@ function canvasTab(idea, writable) {
           h(
             'div',
             { class: 'row' },
-            aiButton('critique', () => ({ ...ideaContext(idea.id), item: canvas }), { item: canvas, label: 'Critica il canvas' }),
+            isExample(idea) ? null : aiButton('critique', () => ({ ...ideaContext(idea.id), item: canvas }), { item: canvas, label: 'Critica il canvas' }),
             writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${canvas.id}` }) : null,
-            button('Versioni', { iconName: 'history', href: `#/storico/${canvas.id}` }),
+            isExample(idea) ? null : button('Versioni', { iconName: 'history', href: `#/storico/${canvas.id}` }),
             h('a', { class: 'btn btn-ghost', href: `#/elemento/${canvas.id}` }, 'Apri'),
           ),
         ),
@@ -107,12 +131,12 @@ function experimentsTab(idea, writable) {
   const experiments = itemsOf('experiment', { ideaId: idea.id });
   return h(
     'div',
-    null,
+    { class: 'stack' },
     h(
       'div',
       { class: 'row' },
       writable ? button('Nuovo esperimento', { kind: 'primary', iconName: 'plus', href: `#/nuovo/experiment?idea=${idea.id}` }) : null,
-      aiButton('next_experiment', () => ideaContext(idea.id), { item: idea, label: 'Proponi il prossimo esperimento' }),
+      isExample(idea) ? null : aiButton('next_experiment', () => ideaContext(idea.id), { item: idea, label: 'Proponi il prossimo esperimento' }),
     ),
     experiments.length
       ? h(
@@ -126,7 +150,7 @@ function experimentsTab(idea, writable) {
               e.data.assumption ? h('p', null, h('strong', null, 'Assunzione: '), e.data.assumption) : null,
               e.data.success_criterion ? h('p', { class: 'muted small' }, h('strong', null, 'Criterio: '), e.data.success_criterion) : null,
               e.data.result ? h('p', { class: 'small' }, h('strong', null, 'Risultato: '), e.data.result) : null,
-              h('div', { class: 'card-foot' }, e.data.owner ? avatar(e.data.owner, 20) : null, e.data.end_date ? h('span', { class: 'muted small' }, `Scadenza ${fmtDate(e.data.end_date)}`) : null),
+              h('div', { class: 'card-foot' }, e.data.owner && !isExample(e) ? avatar(e.data.owner, 20) : null, e.data.end_date ? h('span', { class: 'muted small' }, `Scadenza ${fmtDate(e.data.end_date)}`) : null),
             ),
           ),
         )
@@ -138,13 +162,13 @@ function interviewsTab(idea, writable) {
   const interviews = itemsOf('interview', { ideaId: idea.id }).sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''));
   return h(
     'div',
-    null,
+    { class: 'stack' },
     h(
       'div',
       { class: 'row' },
       writable ? button('Nuova intervista', { kind: 'primary', iconName: 'plus', href: `#/nuovo/interview?idea=${idea.id}` }) : null,
-      aiButton('interview_questions', () => ideaContext(idea.id), { item: idea, label: 'Domande per le interviste' }),
-      interviews.length ? aiButton('interview_synthesis', () => ideaContext(idea.id), { item: idea, label: 'Sintesi delle interviste' }) : null,
+      isExample(idea) ? null : aiButton('interview_questions', () => ideaContext(idea.id), { item: idea, label: 'Domande per le interviste' }),
+      interviews.length && !isExample(idea) ? aiButton('interview_synthesis', () => ideaContext(idea.id), { item: idea, label: 'Sintesi delle interviste' }) : null,
     ),
     interviews.length
       ? h(
@@ -177,7 +201,7 @@ function votesTab(idea) {
   const result = ideaScore(idea.id, criteria, scoreItems());
   return h(
     'div',
-    null,
+    { class: 'stack' },
     h('p', null, 'Punteggio del team: ', h('strong', null, result.score === null ? 'nessun voto' : `${result.score}/100`), ` · ${result.voters.length} votanti`),
     h(
       'table',
@@ -204,19 +228,20 @@ function votesTab(idea) {
 }
 
 function historyTab(idea) {
-  const host = h('div', null, loading());
+  const host = h('div', { class: 'stack' }, loading());
   api
     .listRevisions({ ideaId: idea.id, limit: 100 })
-    .then((revs) => host.replaceChildren(revs.length ? h('ul', { class: 'log' }, revs.map(revisionLine)) : emptyState('Nessuna modifica.'), button('Versioni dell\'idea', { iconName: 'history', href: `#/storico/${idea.id}` })))
-    .catch((error) => host.replaceChildren(errorBox(error)));
+    .then((revs) => mount(host, revs.length ? h('ul', { class: 'log' }, revs.map(revisionLine)) : emptyState('Nessuna modifica.'), button('Versioni dell\'idea', { iconName: 'history', href: `#/storico/${idea.id}` })))
+    .catch((error) => mount(host, errorBox(error)));
   return host;
 }
 
 export function ideaView(outlet, params) {
-  const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'panoramica';
+  const example = isExample(getItem(params.id));
+  const tab = TABS.some(([key]) => key === params.tab) && (!example || EXAMPLE_TABS.has(params.tab)) ? params.tab : 'panoramica';
   let commentsEl = null;
   const hereHost = h('span', { class: 'here-host' });
-  const renderHere = () => hereHost.replaceChildren(onlineHere(`/idea/${params.id}`) || '');
+  const renderHere = () => mount(hereHost, onlineHere(`/idea/${params.id}`) || '');
 
   const render = () => {
     const idea = getItem(params.id);
@@ -224,7 +249,7 @@ export function ideaView(outlet, params) {
       mount(outlet, errorBox({ message: 'Idea non trovata.' }));
       return;
     }
-    const writable = canWrite() && !idea.deleted_at;
+    const writable = canWrite() && !idea.deleted_at && !example;
     const statusSelect = writable
       ? h(
           'select',
@@ -253,19 +278,19 @@ export function ideaView(outlet, params) {
     mount(
       outlet,
       idea.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questa idea è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
+      example ? exampleBanner(idea) : null,
       pageHeader({
-        back: { href: '#/idee', label: 'Idee' },
         title: idea.title,
         subtitle: h('span', { class: 'row' }, statusSelect, idea.data.sector ? h('span', { class: 'muted' }, idea.data.sector) : null, metaLine(idea), hereHost),
         actions: [
-          aiButton('critique', () => ideaContext(idea.id), { item: idea, label: 'Critica l\'idea' }),
+          example ? null : aiButton('critique', () => ideaContext(idea.id), { item: idea, label: 'Critica l\'idea' }),
           writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${idea.id}` }) : null,
           button('', { iconName: 'file', title: 'Esporta in Markdown', onClick: () => exportIdeaMarkdown(idea) }),
           writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(idea, { backTo: '/idee' }) }) : null,
         ],
       }),
       tabs(
-        TABS.map(([key, label]) => [key, label, counts[key]]),
+        TABS.filter(([key]) => !example || EXAMPLE_TABS.has(key)).map(([key, label]) => [key, label, counts[key]]),
         tab,
         (key) => `#/idea/${idea.id}/${key}`,
       ),

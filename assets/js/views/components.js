@@ -2,7 +2,7 @@ import { h } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate, fmtDateTime, fmtRelative, initials } from '../lib/format.js';
 import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
-import { getItem, labelContext, memberById, memberName, state } from '../store.js';
+import { getItem, isExample, labelContext, memberById, memberName, state } from '../store.js';
 
 export function avatar(userId, size = 28) {
   const member = memberById(userId);
@@ -34,17 +34,16 @@ export function timeAgo(iso) {
   return h('time', { datetime: iso, title: fmtDateTime(iso) }, fmtRelative(iso));
 }
 
-export function pageHeader({ title, subtitle, actions = [], back, eyebrow }) {
+export function pageHeader({ title, subtitle, actions = [], eyebrow }) {
   return h(
     'header',
     { class: 'page-header' },
     h(
       'div',
       { class: 'page-title' },
-      back ? h('a', { class: 'back-link', href: back.href }, icon('back', 16), back.label) : null,
       eyebrow || null,
       h('h1', null, title),
-      subtitle ? h('div', { class: 'page-subtitle' }, subtitle) : null,
+      subtitle && !(Array.isArray(subtitle) && !subtitle.length) ? h('div', { class: 'page-subtitle' }, subtitle) : null,
     ),
     actions.length ? h('div', { class: 'page-actions' }, actions.filter(Boolean)) : null,
   );
@@ -91,9 +90,12 @@ export function commitmentBadge(value) {
   return h('span', { class: ['badge', STRONG_COMMITMENTS.has(value) ? 'badge-strong' : 'badge-soft'] }, optionLabel(def, value));
 }
 
-export function fieldValue(kind, def, value) {
+export function fieldValue(kind, def, value, item = null) {
   if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) {
     return h('span', { class: 'muted' }, '-');
+  }
+  if (isExample(item) && (def.type === 'member' || def.type === 'members')) {
+    return h('div', { class: 'chips' }, [value].flat().map((role) => h('span', { class: 'chip' }, role)));
   }
   switch (def.type) {
     case 'textarea':
@@ -131,13 +133,24 @@ export function fieldsGrid(item, { skip = [] } = {}) {
           'div',
           { class: ['field-view', (f.wide || f.type === 'textarea') && 'is-wide'] },
           h('dt', null, f.label),
-          h('dd', null, fieldValue(item.kind, f, item.data?.[f.key])),
+          h('dd', null, fieldValue(item.kind, f, item.data?.[f.key], item)),
         ),
       ),
   );
 }
 
+export function exampleBanner(item) {
+  const idea = item.kind === 'idea' ? item : getItem(item.idea_id) || getItem(item.data?.ideas?.[0]);
+  return h(
+    'div',
+    { class: 'banner banner-example' },
+    h('strong', null, 'Esempio in sola lettura. '),
+    idea?.exampleNote || 'Mostra come si compila questa parte della board.',
+  );
+}
+
 export function metaLine(item) {
+  if (isExample(item)) return h('span', { class: 'meta-line' }, h('span', { class: 'badge badge-example' }, 'Esempio'));
   return h(
     'span',
     { class: 'meta-line' },

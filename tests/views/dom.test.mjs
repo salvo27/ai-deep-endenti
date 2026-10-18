@@ -103,3 +103,17 @@ test('every icon renders as an inline SVG', () => {
   }
   assert.ok(icons.icon('inesistente').children.length > 0);
 });
+
+test('a modal without actions adds no stray text such as "null"', () => {
+  const modal = dom.openModal({ title: 'Prova', body: dom.h('p', null, 'Corpo') });
+  const strayText = [...modal.dialog.childNodes].filter((n) => n.nodeType === 3);
+  assert.equal(strayText.length, 0);
+  assert.doesNotMatch(modal.dialog.textContent, /null|undefined/);
+  modal.close();
+});
+
+test('mount skips empty children instead of printing them', () => {
+  const host = dom.h('div');
+  dom.mount(host, 'a', null, undefined, false, dom.h('span', null, 'b'));
+  assert.equal(host.textContent, 'ab');
+});

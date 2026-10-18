@@ -57,7 +57,7 @@ export function passwordInput(attrs = {}) {
     toggle.setAttribute('aria-pressed', String(show));
     toggle.setAttribute('aria-label', label);
     toggle.title = label;
-    toggle.replaceChildren(icon(show ? 'eyeOff' : 'eye', 18));
+    mount(toggle, icon(show ? 'eyeOff' : 'eye', 18));
     input.focus();
   });
   return { input, field: h('div', { class: 'pw-field' }, input, toggle) };

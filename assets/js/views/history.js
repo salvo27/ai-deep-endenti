@@ -112,10 +112,10 @@ export function logView(outlet, params, query) {
 
   const render = () => {
     if (!revisions.length) {
-      listHost.replaceChildren(emptyState('Nessuna modifica con questi filtri.'));
+      mount(listHost, emptyState('Nessuna modifica con questi filtri.'));
       return;
     }
-    listHost.replaceChildren(
+    mount(listHost,
       ...[...groupByDay(revisions)].map(([day, revs]) =>
         h('section', { class: 'log-day' }, h('h2', null, dayLabel(day)), h('ul', { class: 'log' }, revs.map(revisionLine))),
       ),
@@ -129,7 +129,7 @@ export function logView(outlet, params, query) {
       more.hidden = page.length < 50;
       render();
     } catch (error) {
-      listHost.replaceChildren(errorBox(error));
+      mount(listHost, errorBox(error));
     }
   };
   more.addEventListener('click', busy(more, () => load(revisions[revisions.length - 1]?.id)));
@@ -285,7 +285,6 @@ export async function diffView(outlet, params) {
         memberName(target.author_id),
         ` ${VERBS[target.op] || ''} · ${fmtDateTime(target.created_at)}`,
       ),
-      back: { href: item ? routeFor(item) : '#/storico', label: item ? 'Torna all\'elemento' : 'Storico' },
       actions: [revertButton],
     }),
     h('div', { class: 'commit-box' }, avatar(target.author_id, 32), h('div', null, h('strong', null, revisionSummary(target)), h('div', { class: 'diff-stats' }, h('span', { class: 'add' }, `+${stats.add}`), ' ', h('span', { class: 'del' }, `−${stats.del}`)))),
@@ -338,7 +337,7 @@ export async function itemHistoryView(outlet, params) {
     }
     const owners = blame(history);
     const current = flatten(snapshotOf(latest));
-    blameHost.replaceChildren(
+    mount(blameHost,
       h('h2', null, 'Chi ha scritto cosa'),
       h(
         'table',
@@ -371,7 +370,6 @@ export async function itemHistoryView(outlet, params) {
       eyebrow: kindBadge(latest.kind),
       title: `Versioni di «${latest.title}»`,
       subtitle: `${history.length} versioni`,
-      back: { href: item ? routeFor(item) : '#/storico', label: item ? 'Torna all\'elemento' : 'Storico' },
       actions: [
         button('Confronta le versioni scelte', {
           kind: 'primary',

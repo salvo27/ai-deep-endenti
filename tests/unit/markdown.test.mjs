@@ -1,0 +1,68 @@
+import { test, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { setupDom } from '../setup/dom.mjs';
+import { XSS } from '../setup/fixtures.mjs';
+
+let md;
+
+before(async () => {
+  setupDom();
+  md = await import('../../assets/js/lib/markdown.js');
+});
+
+const render = (text) => {
+  const host = document.createElement('div');
+  host.append(...md.renderMarkdown(text));
+  return host;
+};
+
+test('headings, paragraphs and inline styles become elements', () => {
+  const host = render('# Titolo\n\n## Sezione\nTesto **in grassetto** e *corsivo* con `codice`.\nSeconda riga');
+  assert.equal(host.querySelector('h3').textContent, 'Titolo');
+  assert.equal(host.querySelector('h4').textContent, 'Sezione');
+  assert.equal(host.querySelector('strong').textContent, 'in grassetto');
+  assert.equal(host.querySelector('em').textContent, 'corsivo');
+  assert.equal(host.querySelector('code').textContent, 'codice');
+  assert.equal(host.querySelectorAll('p br').length, 1);
+  assert.doesNotMatch(host.textContent, /\*\*|#/);
+});
+
+test('ordered and nested lists keep their structure', () => {
+  const host = render('1. **Prima**\n   - sotto uno\n   - sotto due\n2. Seconda\n\n- altro');
+  const ol = host.querySelector('ol');
+  assert.equal(ol.children.length, 2);
+  assert.equal(ol.querySelectorAll('li > ul > li').length, 2);
+  assert.equal(ol.querySelector('strong').textContent, 'Prima');
+  assert.equal(host.querySelectorAll(':scope > ul').length, 1);
+});
+
+test('an ordered list keeps its starting number', () => {
+  const host = render('3. terzo\n4. quarto');
+  assert.equal(host.querySelector('ol').getAttribute('start'), '3');
+});
+
+test('tables, quotes, rules and code blocks are rendered', () => {
+  const host = render('| A | B |\n|---|:-:|\n| 1 | **2** |\n\n> citazione\n\n---\n\n```\nlet x = 1;\n```');
+  assert.equal(host.querySelectorAll('th').length, 2);
+  assert.equal(host.querySelector('td strong').textContent, '2');
+  assert.equal(host.querySelector('blockquote').textContent, 'citazione');
+  assert.ok(host.querySelector('hr'));
+  assert.equal(host.querySelector('pre code').textContent, 'let x = 1;');
+});
+
+test('links show their address as text instead of becoming clickable', () => {
+  const host = render('Vedi [la guida](https://esempio.it/guida).');
+  assert.equal(host.querySelector('a'), null);
+  assert.match(host.textContent, /la guida \(https:\/\/esempio\.it\/guida\)/);
+});
+
+test('HTML inside the answer stays text', () => {
+  const host = render(`# ${XSS}\n\n- ${XSS}\n\n**${XSS}**`);
+  assert.equal(host.querySelector('img, script'), null);
+  assert.match(host.textContent, /<img src=x/);
+});
+
+test('empty or missing text renders nothing', () => {
+  assert.deepEqual(md.renderMarkdown(''), []);
+  assert.deepEqual(md.renderMarkdown(null), []);
+});

@@ -7,7 +7,8 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Sezione | A cosa serve |
 |---|---|
 | Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare, novità dall'ultima visita |
-| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica, Lean Canvas, Esperimenti, Interviste, Voti, Commenti, Storico |
+| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con le decisioni collegate), Lean Canvas, Esperimenti, Interviste, Voti, Commenti, Storico |
+| Esempi | Un'idea compilata per ogni fase, ispirata alla storia di startup note (Uber, Airbnb, Dropbox, Spotify, Netflix, Odeo); in sola lettura, nascondibili, fuori da statistiche e backup |
 | Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
 | Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione |
 | Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
@@ -18,7 +19,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Cestino | Niente si cancella davvero |
 | Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, backup |
 
-Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore.
+Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore. Le risposte sono formattate (titoli, elenchi, tabelle) senza mai interpretare HTML.
 
 Ruoli: **admin** gestisce il team, **membro** crea e modifica, **advisor** legge, commenta e vota.
 
@@ -34,6 +35,7 @@ assets/js/
   schema.js                 definizione di ogni board: campi, stati, validazione
   store.js                  stato condiviso, aggiornamenti dal vivo, salvataggi
   router.js                 rotte con hash (#/idee, #/idea/:id, ...)
+  examples.js               idee di esempio in sola lettura, una per fase
   scoring.js, ai.js, export.js
   lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
   views/                    una pagina per file
@@ -159,6 +161,15 @@ Al login successivo gli verrà chiesto di attivare un nuovo dispositivo. Convien
 **Rimuovere qualcuno.** Dal sito (Team) perde subito l'accesso ai dati. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
 
 **Backup.** Team › Esporta un backup completo scarica idee, storico e commenti in JSON. I file di backup sono esclusi da git.
+
+**Svuotare il cestino per sempre.** Il sito non cancella mai davvero. Se serve, l'admin fa prima un backup e poi, dal SQL Editor, elimina gli elementi nel cestino insieme a quelli delle idee archiviate; storico e commenti collegati spariscono con loro:
+
+```sql
+begin;
+delete from public.items where idea_id in (select id from public.items where deleted_at is not null);
+delete from public.items where deleted_at is not null;
+commit;
+```
 
 **Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza, visibile agli admin nella pagina Team.
 

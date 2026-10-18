@@ -17,6 +17,7 @@ import {
   createItem,
   getItem,
   ideas,
+  isExample,
   itemsOf,
   memberName,
   on,
@@ -33,7 +34,8 @@ import { errorBox, pageHeader } from './components.js';
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function initialSnapshot(kind, query = new URLSearchParams()) {
-  const ideaId = isUuid(query.get('idea')) && getItem(query.get('idea'))?.kind === 'idea' ? query.get('idea') : null;
+  const parent = isUuid(query.get('idea')) ? getItem(query.get('idea')) : null;
+  const ideaId = parent?.kind === 'idea' && !isExample(parent) ? parent.id : null;
   const idea = ideaId ? getItem(ideaId) : null;
   const snapshot = { title: '', status: defaultStatus(kind), idea_id: ideaId, data: {} };
   if (kind === 'canvas' && idea) {
@@ -65,7 +67,7 @@ function tagInput(def, working, onChange) {
   const input = h('input', { class: 'input', type: 'text', list: listId, placeholder: 'Scrivi e premi Invio', maxlength: LIMITS.tag });
   const render = () => {
     const tags = working.data[def.key] || [];
-    chips.replaceChildren(
+    mount(chips,
       ...tags.map((tag) =>
         h(
           'span',
@@ -187,6 +189,10 @@ export function editorView(outlet, params, query) {
     mount(outlet, errorBox({ message: 'Solo i membri del team possono modificare le board. Gli advisor possono commentare e votare.' }));
     return null;
   }
+  if (isExample(editing)) {
+    mount(outlet, errorBox({ message: 'Gli esempi sono in sola lettura: crea una nuova idea e usali come traccia.' }));
+    return null;
+  }
   if (editing?.deleted_at) {
     mount(outlet, errorBox({ message: 'Questo elemento è archiviato: ripristinalo dal cestino per modificarlo.' }));
     return null;
@@ -226,7 +232,7 @@ export function editorView(outlet, params, query) {
   const draft = readLocal(draftKey);
   if (draft?.snapshot && !deepEqual(draft.snapshot, base)) {
     banner.hidden = false;
-    banner.replaceChildren(
+    mount(banner,
       h('span', null, `Hai una bozza non salvata del ${fmtDateTime(draft.savedAt)}.`),
       h('button', {
         type: 'button',
@@ -302,12 +308,12 @@ export function editorView(outlet, params, query) {
   }
 
   async function save() {
-    error.replaceChildren();
+    mount(error);
     let snapshot = sanitizeSnapshot(kind, working);
     if (kind === 'interview' && !snapshot.title) snapshot = { ...snapshot, title: autoInterviewTitle(snapshot.data) };
     const problem = snapshotProblem(kind, snapshot);
     if (problem) {
-      error.replaceChildren(errorBox({ message: problem }));
+      mount(error, errorBox({ message: problem }));
       return;
     }
     try {
@@ -326,7 +332,7 @@ export function editorView(outlet, params, query) {
       toast(editing ? 'Modifiche salvate.' : `${def.label} creata.`, { type: 'success' });
       navigate(routeFor(saved).slice(1));
     } catch (e) {
-      error.replaceChildren(errorBox(e));
+      mount(error, errorBox(e));
     }
   }
 
@@ -354,7 +360,7 @@ export function editorView(outlet, params, query) {
       on('item', ({ item, byMe }) => {
         if (item.id !== editing.id || byMe) return;
         banner.hidden = false;
-        banner.replaceChildren(
+        mount(banner,
           h('span', null, `${memberName(item.updated_by)} ha salvato una nuova versione mentre modificavi. Al salvataggio unirò le vostre modifiche e ti chiederò solo dove si sovrappongono.`),
         );
       }),
@@ -367,7 +373,6 @@ export function editorView(outlet, params, query) {
     outlet,
     pageHeader({
       title: editing ? `Modifica: ${editing.title}` : `Nuovo: ${def.label}`,
-      back: { href: editing ? routeFor(editing) : '#/', label: editing ? 'Torna all\'elemento' : 'Annulla' },
     }),
     banner,
     formHost,

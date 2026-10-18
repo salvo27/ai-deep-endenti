@@ -43,10 +43,10 @@ function addMemberForm() {
   );
   form.addEventListener('submit', busy(submit, async (event) => {
     event.preventDefault();
-    error.replaceChildren();
+    mount(error);
     const cleanName = cleanLine(name.value, LIMITS.displayName);
     if (!isEmail(email.value.trim()) || !cleanName) {
-      error.replaceChildren(errorBox({ message: 'Inserisci email e nome.' }));
+      mount(error, errorBox({ message: 'Inserisci email e nome.' }));
       return;
     }
     try {
@@ -56,7 +56,7 @@ function addMemberForm() {
       await reloadMembers();
       toast('Membro aggiunto.', { type: 'success' });
     } catch (e) {
-      error.replaceChildren(errorBox(e));
+      mount(error, errorBox(e));
     }
   }));
   return form;
@@ -158,16 +158,16 @@ export function teamView(outlet) {
 
   const loadAudit = async () => {
     if (!isAdmin()) return;
-    auditHost.replaceChildren(loading());
+    mount(auditHost, loading());
     try {
       const rows = await api.auditLog(50);
-      auditHost.replaceChildren(
+      mount(auditHost,
         rows.length
           ? h('ul', { class: 'log' }, rows.map((r) => h('li', { class: 'log-entry' }, h('div', { class: 'log-main' }, h('strong', null, memberName(r.actor_id)), ` ${EVENTS[r.event] || r.event} `, h('strong', null, memberName(r.target_id)), r.event === 'member_role_changed' ? ` (${roleLabel(r.details?.from)} → ${roleLabel(r.details?.to)})` : r.details?.role ? ` (${roleLabel(r.details.role)})` : ''), h('div', { class: 'log-side', title: fmtDateTime(r.created_at) }, timeAgo(r.created_at)))))
           : h('p', { class: 'muted' }, 'Nessun evento registrato.'),
       );
     } catch (error) {
-      auditHost.replaceChildren(errorBox(error));
+      mount(auditHost, errorBox(error));
     }
   };
 

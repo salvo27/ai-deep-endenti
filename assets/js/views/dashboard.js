@@ -130,14 +130,14 @@ export function dashboardView(outlet) {
     try {
       const revisions = await api.listRevisions({ sinceIso: lastSeen || undefined, limit: 15 });
       const others = revisions.filter((r) => r.author_id !== state.user.id || !lastSeen);
-      news.replaceChildren(
+      mount(news,
         others.length
           ? h('ul', { class: 'log' }, others.map((r) => revisionLine(r)))
           : h('p', { class: 'muted' }, lastSeen ? 'Nessuna novità dagli altri dalla tua ultima visita.' : 'Ancora nessuna modifica.'),
         h('a', { class: 'link-btn', href: '#/storico' }, 'Apri lo storico completo'),
       );
     } catch (error) {
-      news.replaceChildren(errorBox(error));
+      mount(news, errorBox(error));
     }
   };
 

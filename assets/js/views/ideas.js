@@ -2,7 +2,7 @@ import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';
 import { KINDS } from '../schema.js';
-import { canWrite, criteriaList, getItem, ideas, itemsOf, on, scoreItems, state } from '../store.js';
+import { canWrite, criteriaList, exampleIdeas, getItem, ideas, itemsOf, on, readLocal, scoreItems, state, writeLocal } from '../store.js';
 import { ranking } from '../scoring.js';
 import { navigate } from '../router.js';
 import { avatar, button, emptyState, itemLink, pageHeader, statusPill, timeAgo } from './components.js';
@@ -48,9 +48,26 @@ function ideaCard(row, writable) {
   return card;
 }
 
+function exampleCard(idea) {
+  const counts = ideaCounts(idea.id);
+  return h(
+    'article',
+    { class: 'idea-card is-example', dataset: { id: idea.id } },
+    h('div', { class: 'idea-card-head' }, itemLink(idea), h('span', { class: 'badge badge-example' }, 'Esempio')),
+    idea.data.pitch ? h('p', { class: 'muted small' }, truncate(idea.data.pitch, 140)) : null,
+    h(
+      'div',
+      { class: 'idea-card-foot' },
+      h('span', { class: 'counter', title: 'Esperimenti' }, icon('experiment', 14), String(counts.experiments)),
+      h('span', { class: 'counter', title: 'Interviste' }, icon('interview', 14), String(counts.interviews)),
+    ),
+  );
+}
+
 export function ideasView(outlet, params, query) {
   const mode = query.get('vista') === 'tabella' ? 'table' : 'board';
   const writable = canWrite();
+  let showExamples = readLocal('esempi', true) !== false;
 
   const render = () => {
     const rows = ranking(ideas(), criteriaList(), scoreItems());
@@ -59,9 +76,27 @@ export function ideasView(outlet, params, query) {
       { class: 'toolbar' },
       h('a', { class: ['btn', 'btn-small', mode === 'board' ? 'btn-primary' : 'btn-ghost'], href: '#/idee' }, icon('columns', 16), 'Colonne'),
       h('a', { class: ['btn', 'btn-small', mode === 'table' ? 'btn-primary' : 'btn-ghost'], href: '#/idee?vista=tabella' }, icon('list', 16), 'Tabella'),
+      mode === 'board'
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: ['btn', 'btn-small', showExamples ? 'btn-example' : 'btn-ghost'],
+              'aria-pressed': String(showExamples),
+              title: showExamples ? 'Nascondi le idee di esempio' : 'Mostra le idee di esempio',
+              onClick: () => {
+                showExamples = !showExamples;
+                writeLocal('esempi', showExamples);
+                render();
+              },
+            },
+            icon('idea', 16),
+            'Esempi',
+          )
+        : null,
     );
     let body;
-    if (!rows.length) {
+    if (!rows.length && (mode === 'table' || !showExamples)) {
       body = emptyState('Nessuna idea ancora.', writable ? button('Crea la prima idea', { kind: 'primary', href: '#/nuovo/idea' }) : null);
     } else if (mode === 'board') {
       body = h(
@@ -73,6 +108,7 @@ export function ideasView(outlet, params, query) {
             { class: 'kanban-col', dataset: { status } },
             h('header', null, statusPill('idea', status), h('span', { class: 'muted small' }, String(rows.filter((r) => r.idea.status === status).length))),
             rows.filter((r) => r.idea.status === status).map((r) => ideaCard(r, writable)),
+            showExamples ? exampleIdeas().filter((idea) => idea.status === status).map(exampleCard) : null,
           );
           if (writable) {
             column.addEventListener('dragover', (event) => {
@@ -120,7 +156,10 @@ export function ideasView(outlet, params, query) {
       outlet,
       pageHeader({
         title: 'Idee',
-        subtitle: writable ? 'Per cambiare lo stato trascina una scheda in un\'altra colonna, oppure usa il menu nella pagina dell\'idea.' : null,
+        subtitle: [
+          writable ? 'Per cambiare lo stato trascina una scheda in un\'altra colonna, oppure usa il menu nella pagina dell\'idea. ' : null,
+          mode === 'board' && showExamples ? 'Le schede tratteggiate sono esempi da startup note: mostrano come si compila un\'idea in ogni stato.' : null,
+        ].filter(Boolean),
         actions: [toolbar, writable ? button('Nuova idea', { kind: 'primary', iconName: 'plus', href: '#/nuovo/idea' }) : null],
       }),
       body,

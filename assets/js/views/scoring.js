@@ -26,7 +26,7 @@ export function criteriaEditor(current, onSave) {
   const host = h('div');
   const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: 'Perché cambiano i criteri? (facoltativo)' });
   const render = () => {
-    host.replaceChildren(
+    mount(host,
       h(
         'table',
         { class: 'table criteria-table' },
@@ -229,7 +229,7 @@ export function scoringView(outlet, params, query) {
   saveButton.addEventListener(
     'click',
     busy(saveButton, async () => {
-      errorHost.replaceChildren();
+      mount(errorHost);
       const mine = myScoreItem();
       const title = `Voti di ${state.me?.display_name || 'membro'}`;
       try {
@@ -246,7 +246,7 @@ export function scoringView(outlet, params, query) {
         toast('Voti salvati.', { type: 'success' });
         render();
       } catch (error) {
-        errorHost.replaceChildren(errorBox(error));
+        mount(errorHost, errorBox(error));
       }
     }),
   );

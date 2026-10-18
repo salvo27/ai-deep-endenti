@@ -46,7 +46,7 @@ function globalSearch() {
     const found = searchItems(input.value);
     if (!input.value.trim()) return close();
     results.hidden = false;
-    results.replaceChildren(
+    mount(results,
       ...(found.length
         ? found.map((item) =>
             h('a', { class: 'search-result', href: routeFor(item), role: 'option', onClick: close }, kindBadge(item.kind), h('span', null, truncate(item.title, 80))),
@@ -116,7 +116,7 @@ export function buildShell(root, { onSignOut }) {
 
   const renderPresence = () => {
     const others = state.online.filter((p) => p.userId !== state.user.id);
-    presence.replaceChildren(...others.slice(0, 6).map((p) => avatar(p.userId, 26)));
+    mount(presence, ...others.slice(0, 6).map((p) => avatar(p.userId, 26)));
     presence.title = others.length ? `${others.length} online` : '';
   };
   const renderLive = (status) => {

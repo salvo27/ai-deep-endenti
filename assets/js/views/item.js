@@ -1,12 +1,12 @@
 import { h, mount } from '../lib/dom.js';
 import { BOARD_KINDS, KINDS } from '../schema.js';
-import { canWrite, getItem, on, state, trackPresence } from '../store.js';
+import { canWrite, getItem, isExample, on, state, trackPresence } from '../store.js';
 import { canvasView } from './canvas.js';
 import { commentsPanel } from './comments.js';
 import { aiButton } from './ai-panel.js';
 import { archiveWithConfirm, changeStatus } from './actions.js';
 import { ideaContext } from './idea.js';
-import { button, errorBox, fieldsGrid, itemLink, metaLine, onlineHere, pageHeader, statusPill, tabs } from './components.js';
+import { button, errorBox, exampleBanner, fieldsGrid, itemLink, metaLine, onlineHere, pageHeader, statusPill, tabs } from './components.js';
 
 const TABS = [
   ['dettagli', 'Dettagli'],
@@ -16,10 +16,11 @@ const TABS = [
 const LIST_ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
 
 export function itemView(outlet, params) {
-  const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'dettagli';
+  const example = isExample(getItem(params.id));
+  const tab = TABS.some(([key]) => key === params.tab) && !example ? params.tab : 'dettagli';
   let commentsEl = null;
   const hereHost = h('span', { class: 'here-host' });
-  const renderHere = () => hereHost.replaceChildren(onlineHere(`/elemento/${params.id}`) || '');
+  const renderHere = () => mount(hereHost, onlineHere(`/elemento/${params.id}`) || '');
 
   const render = () => {
     const item = getItem(params.id);
@@ -29,8 +30,7 @@ export function itemView(outlet, params) {
     }
     const def = KINDS[item.kind];
     const idea = item.idea_id ? getItem(item.idea_id) : null;
-    const writable = canWrite() && !item.deleted_at;
-    const back = idea ? { href: `#/idea/${idea.id}`, label: idea.title } : { href: `#${LIST_ROUTES[item.kind] || '/'}`, label: def.plural };
+    const writable = canWrite() && !item.deleted_at && !example;
     const statusControl = def.statuses
       ? writable
         ? h(
@@ -40,7 +40,7 @@ export function itemView(outlet, params) {
           )
         : statusPill(item.kind, item.status)
       : null;
-    const critique = ['canvas', 'experiment'].includes(item.kind) && idea
+    const critique = ['canvas', 'experiment'].includes(item.kind) && idea && !example
       ? aiButton('critique', () => ({ ...ideaContext(idea.id), item }), { item, label: 'Critica' })
       : null;
 
@@ -53,19 +53,19 @@ export function itemView(outlet, params) {
     mount(
       outlet,
       item.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questo elemento è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
+      example ? exampleBanner(item) : null,
       pageHeader({
-        back,
         eyebrow: h('span', { class: 'kind-eyebrow' }, def.label, idea ? [' di ', itemLink(idea)] : null),
         title: item.title,
         subtitle: h('span', { class: 'row' }, statusControl, metaLine(item), hereHost),
         actions: [
           critique,
           writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
-          button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
+          example ? null : button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
           writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(item, { backTo: idea ? `/idea/${idea.id}` : LIST_ROUTES[item.kind] || '/' }) }) : null,
         ],
       }),
-      tabs(TABS.map(([key, label]) => [key, label, key === 'commenti' ? state.commentCounts.get(item.id) : 0]), tab, (key) => `#/elemento/${item.id}/${key}`),
+      example ? null : tabs(TABS.map(([key, label]) => [key, label, key === 'commenti' ? state.commentCounts.get(item.id) : 0]), tab, (key) => `#/elemento/${item.id}/${key}`),
       h('div', { class: 'tab-body' }, body),
     );
   };

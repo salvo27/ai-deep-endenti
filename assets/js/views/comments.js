@@ -1,6 +1,7 @@
-import { h, busy, confirmDialog, toast } from '../lib/dom.js';
+import { h, busy, confirmDialog, mount, toast } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { LIMITS, cleanText } from '../lib/validate.js';
+import { renderMarkdown } from '../lib/markdown.js';
 import { AI_TASKS } from '../ai.js';
 import { memberName, on, state } from '../store.js';
 import { avatar, errorBox, loading, timeAgo } from './components.js';
@@ -13,15 +14,15 @@ export function commentsPanel(item) {
 
   const render = () => {
     if (!comments.length) {
-      list.replaceChildren(h('p', { class: 'muted' }, 'Ancora nessun commento.'));
+      mount(list, h('p', { class: 'muted' }, 'Ancora nessun commento.'));
       return;
     }
-    list.replaceChildren(...comments.map(commentView));
+    mount(list, ...comments.map(commentView));
   };
 
   const commentView = (c) => {
     const mine = c.author_id === state.user?.id;
-    const body = h('div', { class: 'text-block' }, c.body);
+    const body = c.ai_task ? h('div', { class: 'markdown' }, renderMarkdown(c.body)) : h('div', { class: 'text-block' }, c.body);
     const actions = mine
       ? h(
           'div',
@@ -56,7 +57,7 @@ export function commentsPanel(item) {
       comments = await api.listComments(item.id);
       render();
     } catch (error) {
-      list.replaceChildren(errorBox(error));
+      mount(list, errorBox(error));
     }
   };
 
@@ -73,7 +74,7 @@ export function commentsPanel(item) {
         toast(error.message, { type: 'error' });
       }
     }));
-    bodyEl.replaceChildren(area, h('div', { class: 'row' }, save, h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: render }, 'Annulla')));
+    mount(bodyEl, area, h('div', { class: 'row' }, save, h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: render }, 'Annulla')));
   };
 
   const remove = async (c) => {

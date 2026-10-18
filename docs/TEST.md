@@ -7,7 +7,7 @@ Numeri al 18 ottobre 2026:
 | | Test | Copertura |
 |---|---|---|
 | Database (PostgreSQL 16, script SQL) | 25 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza |
-| Sito e funzione di Claude (`node:test`, jsdom) | 176 | 96% delle righe e 85% dei rami del codice dell'app |
+| Sito e funzione di Claude (`node:test`, jsdom) | 195 | 96% delle righe e 85% dei rami del codice dell'app |
 
 ## 1. Come sono stati scritti
 
@@ -27,9 +27,9 @@ I test sono **white-box**: scritti leggendo il codice, nella stessa sessione in 
 | Livello | Come | Esempi |
 |---|---|---|
 | Database | Postgres temporaneo con un ambiente che imita Supabase (`auth.uid()`, `auth.jwt()`, ruoli). Lo schema viene installato due volte per verificare che sia rieseguibile | 2FA obbligatoria, advisor in sola lettura, conflitti di versione, storico immutabile, registro di sicurezza |
-| Librerie | Funzioni pure | differenze tra versioni, unione a tre vie, "chi ha scritto cosa", validazione, classifica |
+| Librerie | Funzioni pure | differenze tra versioni, unione a tre vie, "chi ha scritto cosa", validazione, classifica, Markdown delle risposte di Claude |
 | Accesso ai dati e stato | Client Supabase finto | traduzione degli errori, paginazione, filtri, dati dal vivo malformati, bozze locali |
-| Interfaccia | jsdom, interazioni simulate | ogni pagina, form, conflitti, ripristino di versioni, login e 2FA, generatore, profilo, team |
+| Interfaccia | jsdom, interazioni simulate | ogni pagina, form, conflitti, ripristino di versioni, login e 2FA, generatore, profilo, team, idee di esempio valide e in sola lettura |
 | Sicurezza | Test sul DOM e controlli statici sul codice | testo malevolo in ogni campo e in ogni pagina, divieto di `innerHTML` ed `eval`, CSP, versioni fissate delle librerie, solo la chiave anon nel codice, RLS su ogni tabella |
 | Funzione di Claude | Handler con dipendenze finte | CORS, autenticazione, limiti di dimensione, compiti ammessi, limite giornaliero, rifiuti e risposte troncate, log senza contenuti |
 

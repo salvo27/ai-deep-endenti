@@ -1,6 +1,7 @@
-import { h, openModal, toast } from '../lib/dom.js';
+import { append, h, mount, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { api } from '../lib/api.js';
+import { renderMarkdown } from '../lib/markdown.js';
 import { AI_TASKS, askClaude, buildContext } from '../ai.js';
 import { errorBox, loading } from './components.js';
 
@@ -52,16 +53,16 @@ export function openAiPanel(task, getInput, { item, onAccept, acceptLabel } = {}
     try {
       const context = buildContext(task, await getInput());
       result = await askClaude(task, context);
-      body.replaceChildren(
-        h('div', { class: 'ai-result text-block' }, result.text),
+      mount(body,
+        h('div', { class: 'ai-result markdown' }, renderMarkdown(result.text)),
         result.truncated ? h('p', { class: 'muted small' }, 'La risposta è stata interrotta perché troppo lunga.') : null,
         result.remaining !== null ? h('p', { class: 'muted small' }, `Richieste a Claude ancora disponibili: ${result.remaining}`) : null,
         h('p', { class: 'muted small' }, 'Claude può sbagliare: verifica i fatti prima di usarli.'),
       );
-      footer.append(copyButton, saveButton || '', acceptButton || '');
+      append(footer, [copyButton, saveButton, acceptButton]);
       modal.dialog.append(footer);
     } catch (error) {
-      body.replaceChildren(errorBox(error));
+      mount(body, errorBox(error));
     }
   })();
   return modal;

@@ -10,6 +10,8 @@
   --primary-text: #ffffff;
   --ai: #b4532a;
   --ai-soft: #fbece4;
+  --example: #0f766e;
+  --example-soft: #dff3f0;
   --ok: #18794e;
   --ok-soft: #dcf3e6;
   --warn: #a35a00;
@@ -40,6 +42,8 @@
     --primary-text: #0d0f17;
     --ai: #f09a6e;
     --ai-soft: #3a2519;
+    --example: #5ccfbf;
+    --example-soft: #14302d;
     --ok: #5fd39a;
     --ok-soft: #173326;
     --warn: #f3b453;
@@ -234,6 +238,12 @@ del {
   outline: none;
 }
 
+/* Spazio uniforme tra i blocchi di una pagina e di una scheda */
+.content > * + *,
+.stack > * + * {
+  margin-top: 1rem;
+}
+
 .search {
   position: relative;
   display: flex;
@@ -313,6 +323,17 @@ del {
   color: var(--warn);
 }
 
+.banner-example {
+  display: block;
+  background: var(--example-soft);
+  color: var(--text);
+  border-left: 4px solid var(--example);
+}
+
+.banner-example strong {
+  color: var(--example);
+}
+
 .main > .banner {
   margin: 0;
   border-radius: 0;
@@ -372,6 +393,12 @@ del {
   background: var(--ai-soft);
   border-color: transparent;
   color: var(--ai);
+}
+
+.btn-example {
+  background: var(--example-soft);
+  border-color: var(--example);
+  color: var(--example);
 }
 
 .btn-small {
@@ -516,6 +543,20 @@ textarea.input {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+}
+
+.form > *,
+.card-stack > * {
+  margin: 0;
+}
+
+.form > div:empty,
+.card-stack > div:empty {
+  display: none;
+}
+
+.card.form > .btn {
+  align-self: flex-start;
 }
 
 .form-top {
@@ -754,15 +795,6 @@ textarea.input {
   gap: 0.5rem;
 }
 
-.back-link {
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  gap: 0.25rem;
-  margin-bottom: 0.4rem;
-  font-size: 0.85rem;
-}
-
 .kind-eyebrow {
   display: block;
   margin-bottom: 0.25rem;
@@ -946,6 +978,12 @@ textarea.input {
   color: var(--warn);
 }
 
+.badge-example {
+  margin-left: 0;
+  background: var(--example-soft);
+  color: var(--example);
+}
+
 .item-link.is-deleted {
   text-decoration: line-through;
   color: var(--muted);
@@ -1022,6 +1060,25 @@ textarea.input {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.list li.factor {
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.card-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.card-stack > .list,
+.card-stack > .card-stack {
+  align-self: stretch;
 }
 
 .table-scroll {
@@ -1266,6 +1323,31 @@ textarea.input {
 
 .idea-card[draggable='true'] {
   cursor: grab;
+}
+
+.idea-card.is-example {
+  background: var(--example-soft);
+  border: 1px dashed var(--example);
+  box-shadow: none;
+}
+
+.idea-card.is-example .item-link {
+  color: var(--example);
+}
+
+.idea-decisions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.idea-decisions h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.idea-decisions .card p {
+  margin: 0.4rem 0 0;
 }
 
 .idea-card p {
@@ -1691,6 +1773,99 @@ dialog::backdrop {
   padding: 0.75rem 1rem;
   border-radius: var(--radius);
   background: var(--ai-soft);
+}
+
+.markdown {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre,
+.markdown .table-wrap {
+  margin: 0 0 0.75rem;
+}
+
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 1.25rem 0 0.5rem;
+  line-height: 1.3;
+}
+
+.markdown h3 {
+  font-size: 1.15rem;
+}
+
+.markdown h4 {
+  font-size: 1.05rem;
+}
+
+.markdown h5,
+.markdown h6 {
+  font-size: 1rem;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.4rem;
+}
+
+.markdown li + li {
+  margin-top: 0.3rem;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 0.3rem 0 0;
+}
+
+.markdown blockquote {
+  padding-left: 0.85rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.markdown code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.markdown pre {
+  padding: 0.75rem;
+  overflow-x: auto;
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.markdown .table-wrap {
+  overflow-x: auto;
 }
 
 /* Scoring */

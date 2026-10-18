@@ -114,7 +114,7 @@ export function openModal({ title, body, actions = [], wide = false, onClose } =
       ),
     );
   }
-  dialog.append(
+  append(dialog, [
     h(
       'header',
       { class: 'modal-header' },
@@ -123,7 +123,7 @@ export function openModal({ title, body, actions = [], wide = false, onClose } =
     ),
     h('div', { class: 'modal-body' }, body),
     actions.length ? footer : null,
-  );
+  ]);
   dialog.addEventListener('cancel', (event) => {
     event.preventDefault();
     close(undefined);
