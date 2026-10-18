@@ -1,0 +1,65 @@
+import { svg } from './dom.js';
+
+const p = (d) => ['path', { d }];
+const c = (cx, cy, r) => ['circle', { cx, cy, r }];
+const r = (x, y, width, height, rx = 1.5) => ['rect', { x, y, width, height, rx }];
+
+const ICONS = {
+  dashboard: [r(3, 3, 7, 9), r(14, 3, 7, 5), r(14, 12, 7, 9), r(3, 16, 7, 5)],
+  idea: [p('M9 18h6'), p('M10 21h4'), p('M12 3a6.5 6.5 0 0 0-3.8 11.8c.5.4.8 1 .8 1.7V17h6v-.5c0-.7.3-1.3.8-1.7A6.5 6.5 0 0 0 12 3z')],
+  canvas: [r(3, 4, 18, 16), p('M3 15h18'), p('M8 4v11'), p('M12 4v11'), p('M16 4v11'), p('M12 15v5')],
+  experiment: [p('M9 3h6'), p('M10 3v6.5L4.6 18.6A1.6 1.6 0 0 0 6 21h12a1.6 1.6 0 0 0 1.4-2.4L14 9.5V3'), p('M7.5 15h9')],
+  interview: [p('M21 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z'), p('M8 9h9'), p('M8 12h6')],
+  scoring: [p('M4 20h16'), p('M7 20v-7'), p('M12 20V5'), p('M17 20v-10')],
+  generator: [p('M12 3l1.9 4.8L18.7 9.7l-4.8 1.9L12 16.4l-1.9-4.8L5.3 9.7l4.8-1.9z'), p('M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z')],
+  decision: [p('M5 21V4'), p('M5 4h11l-2 4 2 4H5')],
+  history: [c(12, 12, 9), p('M12 7v5l3 2')],
+  trash: [p('M4 7h16'), p('M9 7V4h6v3'), p('M6.5 7l1 13h9l1-13'), p('M10 11v6'), p('M14 11v6')],
+  users: [c(9, 8, 3.5), p('M2.5 20a6.5 6.5 0 0 1 13 0'), p('M16 4.5a3.5 3.5 0 0 1 0 7'), p('M18 20a6.5 6.5 0 0 0-2.5-5')],
+  user: [c(12, 8, 4), p('M4 21a8 8 0 0 1 16 0')],
+  plus: [p('M12 5v14'), p('M5 12h14')],
+  edit: [p('M4 20h4L19 9l-4-4L4 16z'), p('M13 7l4 4')],
+  check: [p('M5 12.5l4.5 4.5L19 7')],
+  close: [p('M6 6l12 12'), p('M18 6L6 18')],
+  restore: [p('M3.5 12a8.5 8.5 0 1 0 2.6-6.1'), p('M3.5 4v5h5')],
+  diff: [c(6, 6, 2.5), c(18, 18, 2.5), p('M6 8.5V15a3 3 0 0 0 3 3h6.5'), p('M18 15.5V9a3 3 0 0 0-3-3H8.5')],
+  logout: [p('M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4'), p('M10 17l-5-5 5-5'), p('M5 12h11')],
+  download: [p('M12 3v12'), p('M7 10l5 5 5-5'), p('M4 21h16')],
+  shield: [p('M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6z'), p('M9 12l2 2 4-4')],
+  claude: [p('M12 2.5v4'), p('M12 17.5v4'), p('M2.5 12h4'), p('M17.5 12h4'), p('M5.3 5.3l2.8 2.8'), p('M15.9 15.9l2.8 2.8'), p('M5.3 18.7l2.8-2.8'), p('M15.9 8.1l2.8-2.8')],
+  comment: [p('M21 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z')],
+  search: [c(11, 11, 7), p('M20 20l-4-4')],
+  menu: [p('M4 6h16'), p('M4 12h16'), p('M4 18h16')],
+  commit: [c(12, 12, 3.5), p('M3 12h5.5'), p('M15.5 12H21')],
+  eye: [p('M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z'), c(12, 12, 3)],
+  copy: [r(9, 9, 11, 11), p('M5 15V5a1 1 0 0 1 1-1h10')],
+  back: [p('M19 12H5'), p('M11 18l-6-6 6-6')],
+  key: [c(7.5, 15.5, 4), p('M10.5 12.5L20 3'), p('M16.5 6.5l3 3')],
+  file: [p('M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z'), p('M14 3v5h5')],
+  columns: [r(3, 4, 5, 16), r(10, 4, 5, 11), r(17, 4, 4, 7)],
+  list: [p('M9 6h12'), p('M9 12h12'), p('M9 18h12'), c(4.5, 6, 1), c(4.5, 12, 1), c(4.5, 18, 1)],
+  flag: [p('M5 21V4'), p('M5 4h11l-2 4 2 4H5')],
+  clock: [c(12, 12, 9), p('M12 7v5h4')],
+};
+
+export function icon(name, size = 18) {
+  const shapes = ICONS[name] || ICONS.commit;
+  return svg(
+    'svg',
+    {
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': 1.8,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+      'aria-hidden': 'true',
+      class: 'icon',
+    },
+    ...shapes.map(([tag, attrs]) => svg(tag, attrs)),
+  );
+}
+
+export const ICON_NAMES = Object.keys(ICONS);

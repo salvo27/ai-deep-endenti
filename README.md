@@ -1,1 +1,155 @@
-Ciao merde
+# ai-deep-endenti
+
+Board condivise per generare, validare e confrontare idee di startup. È un sito statico pubblicato su GitHub Pages; i dati stanno su Supabase e gli aiuti di Claude passano da una Edge Function.
+
+## Cosa c'è
+
+| Sezione | A cosa serve |
+|---|---|
+| Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare, novità dall'ultima visita |
+| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica, Lean Canvas, Esperimenti, Interviste, Voti, Commenti, Storico |
+| Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
+| Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione |
+| Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
+| Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi |
+| Generatore | Griglia capacità del team × settori; ogni cella è uno spunto da cui nasce un'idea |
+| Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
+| Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
+| Cestino | Niente si cancella davvero |
+| Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, backup |
+
+Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore.
+
+Ruoli: **admin** gestisce il team, **membro** crea e modifica, **advisor** legge, commenta e vota.
+
+## Struttura
+
+```
+index.html                  pagina unica con Content Security Policy
+assets/css/app.css          stile (tema chiaro e scuro)
+assets/js/
+  config.js                 URL del progetto e chiave anon (pubbliche per costruzione)
+  main.js, app.js           avvio, controllo di accesso, rotte
+  auth.js                   login, 2FA, recupero password
+  schema.js                 definizione di ogni board: campi, stati, validazione
+  store.js                  stato condiviso, aggiornamenti dal vivo, salvataggi
+  router.js                 rotte con hash (#/idee, #/idea/:id, ...)
+  scoring.js, ai.js, export.js
+  lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
+  views/                    una pagina per file
+supabase/
+  schema.sql                tabelle, regole di accesso, storico, registro di sicurezza
+  functions/claude/         Edge Function che chiama Claude
+tests/                      test del database, delle librerie, dell'interfaccia e della funzione
+docs/SICUREZZA.md           principi e misure di sicurezza
+docs/TEST.md                come sono scritti i test e cosa coprono
+```
+
+Per aggiungere una board basta una nuova definizione in `schema.js`, il tipo nel vincolo `kind` di `schema.sql` e una voce nel menu.
+
+## Messa in funzione
+
+Il progetto Supabase `ai-deep-endenti` (ref `ixhnqeabctkpflwkdarj`) è già configurato: schema applicato, autenticazione impostata, funzione di Claude pubblicata. I comandi qui sotto servono per rifarlo o per applicare modifiche future, dalla cartella della repo e con la [Supabase CLI](https://supabase.com/docs/guides/cli) collegata al tuo account (`supabase login`).
+
+```bash
+supabase link --project-ref ixhnqeabctkpflwkdarj
+```
+
+### 1. Database
+
+```bash
+supabase db query --linked -f supabase/schema.sql
+```
+
+Lo schema si può rieseguire senza perdere dati. Se una tabella pubblica non ha la Row Level Security, lo script si ferma con un errore. Dopo ogni modifica conviene lanciare i controlli di Supabase:
+
+```bash
+supabase db advisors --linked
+```
+
+Restano tre avvisi voluti: `add_member`, `members_overview` e `my_role` sono chiamabili da chi ha fatto login, e ognuna controlla i permessi al suo interno.
+
+### 2. Autenticazione
+
+La configurazione sta in `supabase/config.toml`: registrazioni pubbliche disattivate, password di almeno 12 caratteri con minuscole, maiuscole e numeri, verifica in due passaggi con app di autenticazione, indirizzi del sito. Si applica con:
+
+```bash
+supabase config push --project-ref ixhnqeabctkpflwkdarj
+```
+
+Attenzione: il comando applica subito le modifiche senza chiedere conferma, e per i valori che non sono nel file usa i predefiniti della CLI. Prima di aggiungere impostazioni, controlla che il file contenga tutto ciò che vuoi mantenere.
+
+Il servizio email predefinito di Supabase ha limiti molto bassi: per il recupero password configura un SMTP, oppure reimposta le password dalla dashboard.
+
+### 3. Account
+
+1. **Authentication › Users › Add user › Create new user**: email, password temporanea, "Auto Confirm User".
+2. Il primo admin si aggiunge dal SQL Editor:
+
+   ```sql
+   select public.add_member('email-dell-admin', 'Nome Cognome', 'admin');
+   ```
+
+3. Gli altri li aggiunge l'admin dal sito (Team), dopo averli creati come al punto 1.
+4. Al primo accesso ognuno attiva la verifica in due passaggi: senza, il database non restituisce nulla, e cambia la password temporanea dal Profilo.
+
+### 4. Claude
+
+La funzione legge il segreto `ANTHROPIC_API_KEY`: si modifica in **Edge Functions › Secrets** nella dashboard. `ALLOWED_ORIGINS` contiene le origini da cui il sito può chiamarla (`https://salvo27.github.io,http://localhost:8080`).
+
+Per ripubblicare la funzione dopo una modifica:
+
+```bash
+supabase functions deploy claude --project-ref ixhnqeabctkpflwkdarj --use-api
+```
+
+Variabili facoltative: `AI_DAILY_LIMIT` (richieste per persona nelle ultime 24 ore, predefinito 40), `CLAUDE_MODEL` (predefinito `claude-opus-5-5`), `CLAUDE_EFFORT` (predefinito `medium`). Le risposte rifiutate dai filtri di sicurezza di Claude vengono ripetute automaticamente su un modello alternativo (`fallbacks: "default"`).
+
+### 5. GitHub Pages
+
+**Settings › Pages › Deploy from a branch**, branch `main`, cartella `/ (root)`. Il sito sarà su `https://salvo27.github.io/ai-deep-endenti/`.
+
+### 6. Primo avvio
+
+Le idee discusse finora (con criteri, generatore, Lean Canvas, esperimenti e la prima decisione) sono già state importate direttamente nel database. Non stanno nel codice, perché la repo è pubblica: in generale, nessun contenuto delle board va scritto nei file della repo.
+
+## Sviluppo in locale
+
+```bash
+npm install
+```
+
+```bash
+npm test
+```
+
+```bash
+npm run test:db
+```
+
+```bash
+npm run serve
+```
+
+Il sito locale è su `http://localhost:8080`. `npm run test:db` richiede PostgreSQL 15 o successivo installato (per esempio `brew install postgresql@16`).
+
+## Operazioni frequenti
+
+**Qualcuno ha perso il telefono.** Se ha un secondo dispositivo, entra con quello e rimuove il vecchio dal Profilo. Altrimenti l'admin, dal SQL Editor:
+
+```sql
+delete from auth.mfa_factors where user_id = (select id from auth.users where email = 'email-della-persona');
+```
+
+Al login successivo gli verrà chiesto di attivare un nuovo dispositivo. Conviene anche chiudere le sue sessioni da Authentication › Users.
+
+**Rimuovere qualcuno.** Dal sito (Team) perde subito l'accesso ai dati. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
+
+**Backup.** Team › Esporta un backup completo scarica idee, storico e commenti in JSON. I file di backup sono esclusi da git.
+
+**Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza, visibile agli admin nella pagina Team.
+
+## Documenti
+
+- [Sicurezza](docs/SICUREZZA.md)
+- [Test](docs/TEST.md)

@@ -1,0 +1,133 @@
+import { h, mount } from '../lib/dom.js';
+import { icon } from '../lib/icons.js';
+import { truncate } from '../lib/format.js';
+import { KINDS } from '../schema.js';
+import { canWrite, criteriaList, getItem, ideas, itemsOf, on, scoreItems, state } from '../store.js';
+import { ranking } from '../scoring.js';
+import { navigate } from '../router.js';
+import { avatar, button, emptyState, itemLink, pageHeader, statusPill, timeAgo } from './components.js';
+import { changeStatus } from './actions.js';
+
+export function ideaCounts(ideaId) {
+  return {
+    experiments: itemsOf('experiment', { ideaId }).length,
+    interviews: itemsOf('interview', { ideaId }).length,
+    comments: state.commentCounts.get(ideaId) || 0,
+  };
+}
+
+function scoreBadge(score) {
+  if (score === null || score === undefined) return null;
+  return h('span', { class: 'score-badge', title: 'Punteggio del team (0-100)' }, String(score));
+}
+
+function ideaCard(row, writable) {
+  const { idea, score } = row;
+  const counts = ideaCounts(idea.id);
+  const card = h(
+    'article',
+    { class: 'idea-card', draggable: writable ? 'true' : undefined, dataset: { id: idea.id } },
+    h('div', { class: 'idea-card-head' }, itemLink(idea), scoreBadge(score)),
+    idea.data.pitch ? h('p', { class: 'muted small' }, truncate(idea.data.pitch, 140)) : null,
+    idea.data.technologies?.length ? h('div', { class: 'chips' }, idea.data.technologies.slice(0, 3).map((t) => h('span', { class: 'chip' }, t))) : null,
+    h(
+      'div',
+      { class: 'idea-card-foot' },
+      idea.data.owner ? avatar(idea.data.owner, 22) : null,
+      h('span', { class: 'counter', title: 'Esperimenti' }, icon('experiment', 14), String(counts.experiments)),
+      h('span', { class: 'counter', title: 'Interviste' }, icon('interview', 14), String(counts.interviews)),
+      h('span', { class: 'counter', title: 'Commenti' }, icon('comment', 14), String(counts.comments)),
+    ),
+  );
+  if (writable) {
+    card.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData('text/plain', idea.id);
+      event.dataTransfer.effectAllowed = 'move';
+    });
+  }
+  return card;
+}
+
+export function ideasView(outlet, params, query) {
+  const mode = query.get('vista') === 'tabella' ? 'table' : 'board';
+  const writable = canWrite();
+
+  const render = () => {
+    const rows = ranking(ideas(), criteriaList(), scoreItems());
+    const toolbar = h(
+      'div',
+      { class: 'toolbar' },
+      h('a', { class: ['btn', 'btn-small', mode === 'board' ? 'btn-primary' : 'btn-ghost'], href: '#/idee' }, icon('columns', 16), 'Colonne'),
+      h('a', { class: ['btn', 'btn-small', mode === 'table' ? 'btn-primary' : 'btn-ghost'], href: '#/idee?vista=tabella' }, icon('list', 16), 'Tabella'),
+    );
+    let body;
+    if (!rows.length) {
+      body = emptyState('Nessuna idea ancora.', writable ? button('Crea la prima idea', { kind: 'primary', href: '#/nuovo/idea' }) : null);
+    } else if (mode === 'board') {
+      body = h(
+        'div',
+        { class: 'kanban' },
+        KINDS.idea.statuses.map(([status]) => {
+          const column = h(
+            'section',
+            { class: 'kanban-col', dataset: { status } },
+            h('header', null, statusPill('idea', status), h('span', { class: 'muted small' }, String(rows.filter((r) => r.idea.status === status).length))),
+            rows.filter((r) => r.idea.status === status).map((r) => ideaCard(r, writable)),
+          );
+          if (writable) {
+            column.addEventListener('dragover', (event) => {
+              event.preventDefault();
+              column.classList.add('is-drop');
+            });
+            column.addEventListener('dragleave', () => column.classList.remove('is-drop'));
+            column.addEventListener('drop', async (event) => {
+              event.preventDefault();
+              column.classList.remove('is-drop');
+              const idea = getItem(event.dataTransfer.getData('text/plain'));
+              if (idea?.kind === 'idea') await changeStatus(idea, status);
+            });
+          }
+          return column;
+        }),
+      );
+    } else {
+      body = h(
+        'table',
+        { class: 'table' },
+        h('thead', null, h('tr', null, ['Idea', 'Stato', 'Settore', 'Responsabile', 'Punteggio', 'Esperimenti', 'Interviste', 'Aggiornata'].map((t) => h('th', null, t)))),
+        h(
+          'tbody',
+          null,
+          rows.map(({ idea, score }) => {
+            const counts = ideaCounts(idea.id);
+            return h(
+              'tr',
+              { class: 'clickable', onClick: (e) => { if (e.target.tagName !== 'A') navigate(`/idea/${idea.id}`); } },
+              h('td', null, itemLink(idea)),
+              h('td', null, statusPill('idea', idea.status)),
+              h('td', null, idea.data.sector || '-'),
+              h('td', null, idea.data.owner ? avatar(idea.data.owner, 22) : '-'),
+              h('td', null, score === null ? '-' : String(score)),
+              h('td', null, String(counts.experiments)),
+              h('td', null, String(counts.interviews)),
+              h('td', null, timeAgo(idea.updated_at)),
+            );
+          }),
+        ),
+      );
+    }
+    mount(
+      outlet,
+      pageHeader({
+        title: 'Idee',
+        subtitle: writable ? 'Per cambiare lo stato trascina una scheda in un\'altra colonna, oppure usa il menu nella pagina dell\'idea.' : null,
+        actions: [toolbar, writable ? button('Nuova idea', { kind: 'primary', iconName: 'plus', href: '#/nuovo/idea' }) : null],
+      }),
+      body,
+    );
+  };
+
+  render();
+  const offs = [on('item', render), on('comment-counts', render)];
+  return () => offs.forEach((off) => off());
+}

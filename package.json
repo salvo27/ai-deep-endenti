@@ -1,0 +1,19 @@
+{
+  "name": "ai-deep-endenti",
+  "private": true,
+  "type": "module",
+  "description": "ai-deep-endenti: board condivise per generare, validare e confrontare idee di startup",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "test": "node --import ./tests/setup/register.mjs --test tests/unit/*.test.mjs tests/views/*.test.mjs tests/functions/*.test.mjs",
+    "test:coverage": "node --import ./tests/setup/register.mjs --test --experimental-test-coverage tests/unit/*.test.mjs tests/views/*.test.mjs tests/functions/*.test.mjs",
+    "test:db": "bash tests/db/run.sh",
+    "test:all": "npm test && npm run test:db",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "jsdom": "27.4.0"
+  }
+}

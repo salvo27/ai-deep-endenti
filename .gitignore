@@ -1,61 +1,52 @@
-### macOS
-# Finder metadata
-.DS_Store
+# Segreti: chiavi e password non vanno mai nella repo (è pubblica)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+supabase/.env
+supabase/functions/.env
+supabase/functions/**/.env
 
-# Thumbnails
-._*
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
 
-# Custom folder icons
-Icon
+# Node e test
+node_modules/
+coverage/
+npm-debug.log*
+.npm/
+*.tgz
 
-# Volume root files
-.DocumentRevisions-V100
-.fseventsd
-.Spotlight-V100
-.TemporaryItems
-.Trashes
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
+# Backup esportati dal sito: contengono tutte le idee del team
+ai-deep-endenti-backup-*.json
 
-### Windows
-# Windows thumbnail cache files
-Thumbs.db
-
-# Folder config file
-[Dd]esktop.ini
-
-# Recycle Bin used on file shares
-$RECYCLE.BIN/
-
-# Windows shortcuts
-*.lnk
-
-### Linux
-# Backup files
+# Log e file temporanei
+*.log
+*.tmp
 *~
 
-# Temporary files from deleted open files
-.fuse_hidden*
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
 
-# KDE directory preferences
-.directory
+# Windows
+Thumbs.db
+[Dd]esktop.ini
 
-# Linux trash folder
-.Trash-*
-
-# NFS temporary files
-.nfs*
-
-### VS Code
-# VSCode settings (keep shared configuration)
+# Editor
+.idea/
 .vscode/*
 !.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
 !.vscode/extensions.json
-
-# Local History for Visual Studio Code
 .history/
+*.swp
 
-# Built Visual Studio Code Extensions
-*.vsix
+# Configurazione locale di Claude Code
+.claude/
+
+# Anteprima locale con dati finti
+dev/
