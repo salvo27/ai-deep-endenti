@@ -2091,6 +2091,11 @@ dialog::backdrop {
   opacity: 0.85;
 }
 
+.concept-list {
+  display: grid;
+  gap: 2rem;
+}
+
 .concept-chapter h2 {
   margin-bottom: 0.75rem;
 }
