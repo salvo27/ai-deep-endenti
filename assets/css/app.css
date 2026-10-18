@@ -493,8 +493,31 @@ textarea.input {
 .input-small {
   width: auto;
   min-height: 30px;
-  padding: 0.2rem 0.5rem;
+  padding: 0.25rem 0.6rem;
   font-size: 0.85rem;
+}
+
+/* Menu a tendina uguali in ogni browser: freccia nostra e stessi margini dei campi */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.1rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8f98' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+
+select.input-small {
+  field-sizing: content;
+  min-width: 6rem;
+  padding-right: 1.8rem;
+  background-position: right 0.55rem center;
+}
+
+select.input:disabled {
+  cursor: default;
 }
 
 .input-code {
