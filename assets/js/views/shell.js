@@ -6,6 +6,7 @@ import { BOARD_KINDS, routeFor } from '../schema.js';
 import { on, state } from '../store.js';
 import { navigate, onRouteChange } from '../router.js';
 import { avatar, kindBadge } from './components.js';
+import { notificationBell } from './notifications.js';
 
 export const NAV = [
   ['/', 'Dashboard', 'dashboard'],
@@ -113,7 +114,7 @@ export function buildShell(root, { onSignOut }) {
       'div',
       { class: 'app' },
       sidebar,
-      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, userButton), offline, outlet),
+      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, notificationBell(), userButton), offline, outlet),
     ),
   );
 

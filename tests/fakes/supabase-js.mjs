@@ -18,7 +18,7 @@ class Query {
   }
 }
 
-for (const name of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'or', 'lt', 'gt', 'gte', 'order', 'limit', 'range', 'single', 'maybeSingle']) {
+for (const name of ['select', 'insert', 'update', 'delete', 'eq', 'in', 'is', 'or', 'lt', 'gt', 'gte', 'order', 'limit', 'range', 'single', 'maybeSingle']) {
   Query.prototype[name] = function chain(...args) {
     this.ops.push([name, ...args]);
     return this;

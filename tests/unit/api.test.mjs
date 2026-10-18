@@ -150,6 +150,7 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   assert.deepEqual(await api.getRevision(ID, 1), [{ id: 1 }]);
   assert.deepEqual(await api.activitySince('2026-01-01'), [{ id: 1 }]);
   assert.deepEqual(await api.listComments(ID), [{ id: ID }]);
+  assert.deepEqual(await api.listComments([ID, ID]), [{ id: ID }]);
   await api.addComment(ID, 'ciao', 'critique');
   await api.editComment(ID, 'ciao 2');
   await api.deleteComment(ID);

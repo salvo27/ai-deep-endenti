@@ -4,6 +4,7 @@ import { fmtDateTime } from '../lib/format.js';
 import { LIMITS, cleanLine, isHexColor, passwordProblem } from '../lib/validate.js';
 import { enrollFlow, passwordInput, verifiedTotp } from '../auth.js';
 import { reloadMembers, state } from '../store.js';
+import { browserAlertsEnabled, enableBrowserAlerts } from '../notifications.js';
 import { button, errorBox, loading, pageHeader } from './components.js';
 import { roleLabel } from './team.js';
 
@@ -124,6 +125,37 @@ function factorsCard() {
   return card;
 }
 
+function notificationsCard() {
+  const supported = typeof Notification !== 'undefined';
+  const status = h('p', { class: 'muted small' });
+  const describe = () => {
+    if (!supported) status.textContent = 'Questo browser non supporta gli avvisi.';
+    else if (Notification.permission === 'denied') status.textContent = 'Il browser ha bloccato gli avvisi per questo sito: riattivali dalle impostazioni del sito nel browser.';
+    else status.textContent = browserAlertsEnabled() ? 'Attivi su questo browser.' : 'Spenti su questo browser.';
+  };
+  const box = h('input', {
+    type: 'checkbox',
+    checked: browserAlertsEnabled(),
+    disabled: !supported,
+    onChange: async (event) => {
+      const wanted = event.target.checked;
+      const enabled = await enableBrowserAlerts(wanted);
+      event.target.checked = enabled;
+      if (wanted && !enabled) toast('Il browser non ha concesso il permesso.', { type: 'error' });
+      describe();
+    },
+  });
+  describe();
+  return h(
+    'section',
+    { class: 'card card-stack' },
+    h('h2', null, 'Notifiche'),
+    h('p', { class: 'muted small' }, 'La campanella in alto raccoglie le novità degli altri: nuove idee, cambi di fase, decisioni, esperimenti conclusi, nuove schede e commenti.'),
+    h('label', { class: 'check' }, box, 'Avvisami anche quando il sito è aperto in un\'altra scheda'),
+    status,
+  );
+}
+
 function sessionCard() {
   const usage = h('span', null, '…');
   api.aiUsageLastDay(state.user.id).then((n) => (usage.textContent = String(n))).catch(() => (usage.textContent = '-'));
@@ -148,6 +180,6 @@ export function profileView(outlet) {
     mount(outlet, errorBox({ message: 'Profilo non disponibile.' }));
     return null;
   }
-  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), passwordCard(), factorsCard(), sessionCard()));
+  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), passwordCard(), factorsCard(), notificationsCard(), sessionCard()));
   return null;
 }

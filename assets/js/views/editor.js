@@ -468,6 +468,7 @@ export function editorView(outlet, params, query) {
   mount(
     outlet,
     pageHeader({
+      back: { href: `#${backTo()}` },
       title: editing ? `Modifica: ${editing.title}` : `Nuovo: ${def.label}`,
     }),
     banner,

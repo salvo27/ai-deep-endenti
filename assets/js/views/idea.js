@@ -1,7 +1,7 @@
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate } from '../lib/format.js';
-import { KINDS, optionLabel, statusLabel } from '../schema.js';
+import { IDEA_CHILD_KINDS, KINDS, optionLabel, statusLabel } from '../schema.js';
 import { phaseChecklist, phaseOf } from '../guide.js';
 import { api } from '../lib/api.js';
 import {
@@ -61,6 +61,11 @@ const TABS = [
   ['commenti', 'Commenti'],
   ['storico', 'Storico'],
 ];
+
+// Tutte le schede collegate all'idea: i loro commenti compaiono anche nella sezione Commenti dell'idea.
+function childIds(ideaId) {
+  return IDEA_CHILD_KINDS.flatMap((kind) => itemsOf(kind, { ideaId })).map((child) => child.id);
+}
 
 const BOARD_VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView };
 const EXTRA_KINDS = ['persona', 'vpc', 'market', 'competitors', 'deeptech'];
@@ -175,6 +180,9 @@ function boardSection(item, idea, writable) {
         example ? null : aiButton('critique', () => ({ ...ideaContext(idea.id), item }), { item, label: 'Critica' }),
         writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
         example ? null : button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
+        state.commentCounts.get(item.id)
+          ? h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}/commenti`, title: 'Commenti su questa scheda' }, icon('comment', 16), h('span', null, String(state.commentCounts.get(item.id))))
+          : null,
         h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}` }, 'Apri'),
       ),
     ),
@@ -469,7 +477,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       deeptech: count('deeptech'),
       esperimenti: itemsOf('experiment', { ideaId: idea.id }).length,
       interviste: count('interview', 'contact'),
-      commenti: state.commentCounts.get(idea.id) || 0,
+      commenti: [idea.id, ...childIds(idea.id)].reduce((sum, id) => sum + (state.commentCounts.get(id) || 0), 0),
     };
 
     commentsEl?.cleanup?.();
@@ -483,7 +491,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     else if (tab === 'esperimenti') body = experimentsTab(idea, writable, query.get('vista') === 'javelin');
     else if (tab === 'interviste') body = interviewsTab(idea, writable);
     else if (tab === 'voti') body = votesTab(idea);
-    else if (tab === 'commenti') body = commentsEl = commentsPanel(idea);
+    else if (tab === 'commenti') body = commentsEl = commentsPanel(idea, { related: childIds(idea.id) });
     else body = historyTab(idea);
 
     mount(
@@ -491,6 +499,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       idea.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questa idea è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
       example ? exampleBanner(idea) : null,
       pageHeader({
+        back: { href: '#/idee' },
         title: idea.title,
         subtitle: h('span', { class: 'row' }, statusSelect, idea.data.sector ? h('span', { class: 'muted' }, idea.data.sector) : null, metaLine(idea), hereHost),
         actions: [
@@ -521,6 +530,9 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       if (item.id === params.id || item.idea_id === params.id || ['score', 'criteria', 'decision', 'teamcanvas', 'equity'].includes(item.kind)) render();
     }),
     on('presence', renderHere),
+    on('comment-counts', () => {
+      if (tab !== 'commenti') render();
+    }),
   ];
   return () => {
     commentsEl?.cleanup?.();

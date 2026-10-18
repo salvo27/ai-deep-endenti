@@ -811,6 +811,15 @@ select.input:disabled {
   color: var(--muted);
 }
 
+.back-link {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+}
+
 .page-actions {
   display: flex;
   align-items: center;
@@ -1798,6 +1807,10 @@ dialog::backdrop {
   background: var(--ai-soft);
 }
 
+.comment-on .item-link {
+  font-weight: 500;
+}
+
 .markdown {
   overflow-wrap: anywhere;
   line-height: 1.55;
@@ -2052,6 +2065,104 @@ dialog::backdrop {
 }
 
 /* Responsive */
+
+/* Notifiche */
+
+.bell-box {
+  position: relative;
+}
+
+.bell {
+  position: relative;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.bell-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(380px, calc(100vw - 2rem));
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 0.5rem 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.bell-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.9rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.bell-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bell-item a {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.9rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.bell-item a:hover {
+  background: var(--surface-2);
+}
+
+.bell-item.is-unread a {
+  background: var(--primary-soft);
+}
+
+.bell-item .avatar {
+  flex: none;
+}
+
+.bell-text {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.bell-empty,
+.bell-foot {
+  margin: 0;
+  padding: 0.75rem 0.9rem 0.25rem;
+}
+
+@media (max-width: 600px) {
+  .bell-panel {
+    position: fixed;
+    top: 3.6rem;
+    right: 1rem;
+    left: 1rem;
+    width: auto;
+  }
+}
 
 /* Concetti e aiuto in linea */
 

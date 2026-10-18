@@ -98,11 +98,10 @@ test('no source file builds HTML from strings or evaluates code', () => {
   }
 });
 
-test('views fill elements through the null-safe helpers and draw no back links', () => {
+test('views fill elements through the null-safe helpers', () => {
   for (const file of sourceFiles(join(ROOT, 'assets/js'))) {
     const source = readFileSync(file, 'utf8');
     if (!file.endsWith('lib/dom.js') && !file.endsWith('router.js')) assert.doesNotMatch(source, /\.replaceChildren\(/, `${file}: usa mount()`);
-    assert.doesNotMatch(source, /back-link/, file);
   }
 });
 

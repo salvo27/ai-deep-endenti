@@ -212,6 +212,8 @@ test('profile shows devices and Claude usage', async () => {
   assert.match(body, /iPhone/);
   assert.match(body, /unico dispositivo/);
   assert.match(text(outlet), /ultime 24 ore: 3/);
+  assert.match(body, /Notifiche/);
+  assert.match(body, /Avvisami anche quando il sito è aperto in un'altra scheda/);
 });
 
 test('unknown pages show a way back', async () => {

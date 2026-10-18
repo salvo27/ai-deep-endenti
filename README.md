@@ -23,7 +23,8 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Guida e Concetti | Cosa fare in ogni fase dell'idea e circa novanta concetti del manuale spiegati in breve, collegati ai campi con il pulsante «?» |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
-| Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, backup |
+| Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, avvisi del browser, backup |
+| Notifiche | Campanella con le novità degli altri (nuove idee, cambi di fase, decisioni, esperimenti conclusi, nuove schede, persone, commenti), avviso a comparsa in tempo reale e, se attivati, avvisi del browser |
 
 Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore. Le risposte sono formattate (titoli, elenchi, tabelle) senza mai interpretare HTML.
 

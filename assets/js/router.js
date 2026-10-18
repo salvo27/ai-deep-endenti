@@ -65,6 +65,28 @@ export function currentPath() {
   return current.path;
 }
 
+// Ogni voce della cronologia del sito ricorda la sua posizione: così «Indietro» sa se c'è una pagina del sito a cui tornare.
+let navIndex = 0;
+
+function markHistory() {
+  const st = history.state;
+  if (st && Number.isInteger(st.navIndex)) {
+    navIndex = st.navIndex;
+    return;
+  }
+  navIndex = current.path === null ? 0 : navIndex + 1;
+  history.replaceState({ ...(st && typeof st === 'object' ? st : {}), navIndex }, '', location.href);
+}
+
+export function canGoBack() {
+  return Number.isInteger(history.state?.navIndex) && history.state.navIndex > 0;
+}
+
+export function goBack(fallback) {
+  if (canGoBack()) history.back();
+  else if (fallback) location.hash = fallback.replace(/^#/, '');
+}
+
 export async function render(hash = location.hash) {
   const { path, query } = parseHash(hash);
   if (current.path !== null && path !== current.path && leaveGuard) {
@@ -75,6 +97,7 @@ export async function render(hash = location.hash) {
     }
     leaveGuard = null;
   }
+  markHistory();
   const found = match(path);
   current.cleanup?.();
   current = { path, cleanup: null };

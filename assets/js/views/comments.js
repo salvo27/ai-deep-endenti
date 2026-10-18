@@ -3,10 +3,12 @@ import { api } from '../lib/api.js';
 import { LIMITS, cleanText } from '../lib/validate.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { AI_TASKS } from '../ai.js';
-import { memberName, on, state } from '../store.js';
-import { avatar, errorBox, loading, timeAgo } from './components.js';
+import { getItem, memberName, on, state } from '../store.js';
+import { avatar, errorBox, itemLink, loading, timeAgo } from './components.js';
 
-export function commentsPanel(item) {
+// Con «related» il pannello mostra anche i commenti di altri elementi, per esempio le schede di un'idea.
+export function commentsPanel(item, { related = [] } = {}) {
+  const ids = [item.id, ...related.filter((id) => id !== item.id)];
   const list = h('div', { class: 'comments' }, loading());
   const textarea = h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, placeholder: 'Scrivi un commento', 'aria-label': 'Nuovo commento' });
   const send = h('button', { type: 'button', class: 'btn btn-primary' }, 'Commenta');
@@ -45,6 +47,7 @@ export function commentsPanel(item) {
           c.ai_task ? h('span', { class: 'badge badge-soft' }, `Claude · ${AI_TASKS[c.ai_task] || 'risposta'}`) : null,
           timeAgo(c.created_at),
           c.edited_at ? h('span', { class: 'muted small' }, '(modificato)') : null,
+          c.item_id !== item.id ? h('span', { class: 'comment-on muted small' }, 'su ', itemLink(getItem(c.item_id))) : null,
         ),
         body,
         actions,
@@ -54,7 +57,7 @@ export function commentsPanel(item) {
 
   const load = async () => {
     try {
-      comments = await api.listComments(item.id);
+      comments = await api.listComments(ids);
       render();
     } catch (error) {
       mount(list, errorBox(error));
@@ -103,7 +106,7 @@ export function commentsPanel(item) {
   );
 
   const off = on('comment', (row) => {
-    if (row.item_id === item.id) load();
+    if (ids.includes(row.item_id)) load();
   });
   load();
   const el = h('section', { class: 'comments-panel' }, list, h('div', { class: 'comment-form' }, textarea, h('div', { class: 'row' }, send)));

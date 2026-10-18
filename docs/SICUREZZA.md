@@ -15,7 +15,7 @@ L'approccio è quello della progettazione sicura (Secure by Design): molti probl
 | **Nessuna fiducia nei dati esterni** | I dati che arrivano dal vivo vengono applicati solo se ben formati e più recenti. Le risposte di Claude sono accettate solo come testo, con lunghezza limitata. Il codice QR della 2FA è accettato solo come immagine SVG inline. |
 | **Errori senza dati personali** | All'esterno solo messaggi generici in italiano; i dettagli tecnici non arrivano all'interfaccia e i log della funzione non contengono il contenuto delle board. |
 | **Tracciabilità** | Ogni modifica è una revisione immutabile, con autore, messaggio e differenze. Ingressi, uscite e cambi di ruolo nel team finiscono in un registro di sicurezza leggibile solo dagli admin. |
-| **Resilienza** | Se Claude, la presenza o gli aggiornamenti dal vivo non funzionano, il resto del sito continua a funzionare. Le bozze restano sul dispositivo se la connessione cade durante una modifica. |
+| **Resilienza** | Se Claude, la presenza o gli aggiornamenti dal vivo non funzionano, il resto del sito continua a funzionare. I dati si riallineano col database entrando nelle pagine, al ritorno sulla scheda, dopo una riconnessione e ogni minuto; una risposta vuota inattesa non svuota il sito. Le bozze restano sul dispositivo se la connessione cade durante una modifica. |
 | **Minimizzazione dei dati** | A Claude vanno solo i contenuti delle board, mai nomi delle persone del team, la lista delle persone con cui interfacciarsi, contatti degli intervistati o identificativi. L'esportazione Markdown esclude contatti e persone; la divisione delle quote resta solo nel database. |
 
 ## Minacce considerate

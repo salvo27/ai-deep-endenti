@@ -276,6 +276,7 @@ export async function diffView(outlet, params) {
   mount(
     outlet,
     pageHeader({
+      back: { href: `#/storico/${params.id}` },
       eyebrow: kindBadge(target.kind),
       title: target.title,
       subtitle: h(
@@ -367,6 +368,7 @@ export async function itemHistoryView(outlet, params) {
   mount(
     outlet,
     pageHeader({
+      back: { href: item ? routeFor(item) : '#/storico' },
       eyebrow: kindBadge(latest.kind),
       title: `Versioni di «${latest.title}»`,
       subtitle: `${history.length} versioni`,

@@ -58,6 +58,7 @@ export function dashboardView(outlet) {
     mount(
       outlet,
       pageHeader({
+        back: false,
         title: `Ciao, ${state.me?.display_name || ''}`,
         subtitle: 'Le idee del team, gli esperimenti in corso e cosa è cambiato.',
         actions: [button('Nuova idea', { kind: 'primary', iconName: 'plus', href: '#/nuovo/idea' })],

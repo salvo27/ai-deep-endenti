@@ -82,6 +82,72 @@ export async function loadAll() {
   setMembers(members);
   state.items = new Map(items.filter(isValidItemRow).map((i) => [i.id, i]));
   state.commentCounts = counts;
+  lastSync = Date.now();
+}
+
+// Gli aggiornamenti dal vivo possono perdersi (rete, computer in stop, scheda in secondo piano):
+// per questo i dati si riallineano col database entrando nelle pagine, al ritorno sulla scheda e ogni minuto.
+const SYNC_MIN_INTERVAL = 3000;
+let lastSync = 0;
+let syncing = null;
+
+export async function syncItems({ force = false } = {}) {
+  if (syncing) return syncing;
+  if (!force && Date.now() - lastSync < SYNC_MIN_INTERVAL) return null;
+  syncing = (async () => {
+    try {
+      const rows = (await api.listItems()).filter(isValidItemRow);
+      // Una risposta vuota quando abbiamo dei dati è più probabilmente un problema momentaneo che una board svuotata.
+      if (!rows.length && state.items.size) return false;
+      const seen = new Set();
+      for (const row of rows) {
+        seen.add(row.id);
+        applyItem(row);
+      }
+      for (const [id, prev] of [...state.items]) {
+        if (seen.has(id)) continue;
+        state.items.delete(id);
+        emit('item', { item: { ...prev, deleted_at: prev.deleted_at || new Date().toISOString() }, prev, byMe: false });
+      }
+      lastSync = Date.now();
+      refreshCommentCounts();
+      emit('synced');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      syncing = null;
+    }
+  })();
+  return syncing;
+}
+
+let stopSyncTriggers = null;
+
+export function startSync({ everyMs = 60000 } = {}) {
+  stopSync();
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') syncItems({ force: true });
+  };
+  const onFocus = () => syncItems();
+  const onOnline = () => syncItems({ force: true });
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onFocus);
+  window.addEventListener('online', onOnline);
+  const timer = setInterval(() => {
+    if (document.visibilityState !== 'hidden') syncItems();
+  }, everyMs);
+  stopSyncTriggers = () => {
+    document.removeEventListener('visibilitychange', onVisible);
+    window.removeEventListener('focus', onFocus);
+    window.removeEventListener('online', onOnline);
+    clearInterval(timer);
+  };
+}
+
+export function stopSync() {
+  stopSyncTriggers?.();
+  stopSyncTriggers = null;
 }
 
 export async function reloadMembers() {
@@ -101,6 +167,7 @@ const refreshCommentCounts = debounce(async () => {
 
 let unsubscribeDb = null;
 let presence = null;
+let everSubscribed = false;
 
 export function startRealtime() {
   stopRealtime();
@@ -116,8 +183,12 @@ export function startRealtime() {
     },
     onMembers: () => reloadMembers().catch(() => {}),
     onStatus: (status) => {
+      const reconnected = status === 'SUBSCRIBED' && everSubscribed && state.realtime !== 'SUBSCRIBED';
+      if (status === 'SUBSCRIBED') everSubscribed = true;
       state.realtime = status;
       emit('realtime', status);
+      // Dopo una riconnessione si recupera ciò che è cambiato mentre la connessione era giù.
+      if (reconnected) syncItems({ force: true });
     },
   });
   presence = api.joinPresence(state.user.id, (presenceState) => {

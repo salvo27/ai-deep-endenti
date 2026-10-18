@@ -4,6 +4,7 @@ import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/fo
 import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
 import { getItem, isExample, labelContext, memberById, memberName, state } from '../store.js';
 import { conceptButton } from './concept-help.js';
+import { canGoBack, goBack } from '../router.js';
 
 export function avatar(userId, size = 28) {
   const member = memberById(userId);
@@ -35,13 +36,32 @@ export function timeAgo(iso) {
   return h('time', { datetime: iso, title: fmtDateTime(iso) }, fmtRelative(iso));
 }
 
-export function pageHeader({ title, subtitle, actions = [], eyebrow }) {
+// «Indietro» torna alla pagina da cui si arriva; aperta da un link diretto, porta alla pagina superiore (back.href).
+function backLink(back) {
+  if (back === false || (!back?.href && !canGoBack())) return null;
+  return h(
+    'a',
+    {
+      class: 'back-link',
+      href: back?.href || '#/',
+      onClick: (event) => {
+        event.preventDefault();
+        goBack(back?.href || '#/');
+      },
+    },
+    icon('back', 16),
+    'Indietro',
+  );
+}
+
+export function pageHeader({ title, subtitle, actions = [], eyebrow, back }) {
   return h(
     'header',
     { class: 'page-header' },
     h(
       'div',
       { class: 'page-title' },
+      backLink(back),
       eyebrow || null,
       h('h1', null, title),
       subtitle && !(Array.isArray(subtitle) && !subtitle.length) ? h('div', { class: 'page-subtitle' }, subtitle) : null,

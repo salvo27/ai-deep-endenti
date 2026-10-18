@@ -37,7 +37,7 @@ export function openAiPanel(task, getInput, { item, onAccept, acceptLabel } = {}
         saveButton.disabled = true;
         try {
           await api.addComment(item.id, result.text, task);
-          toast('Salvato tra i commenti.', { type: 'success' });
+          toast(`Salvato tra i commenti di «${item.title}».`, { type: 'success' });
           modal.close();
         } catch (error) {
           saveButton.disabled = false;

@@ -59,6 +59,7 @@ export function itemView(outlet, params) {
       item.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questo elemento è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
       example ? exampleBanner(item) : null,
       pageHeader({
+        back: { href: idea ? `#/idea/${idea.id}` : `#${LIST_ROUTES[item.kind] || '/'}` },
         eyebrow: h('span', { class: 'kind-eyebrow' }, def.label, idea ? [' di ', itemLink(idea)] : null),
         title: item.title,
         subtitle: h('span', { class: 'row' }, statusControl, metaLine(item), hereHost),

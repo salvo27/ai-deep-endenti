@@ -223,14 +223,40 @@ export const api = {
     );
   },
 
+  // Novità per le notifiche: revisioni e commenti più recenti di una data, in ordine dal più nuovo.
+  async activityFeed(sinceIso, limit = 60) {
+    const [revisions, comments] = await Promise.all([
+      unwrap(
+        supabase
+          .from('revisions')
+          .select('id,item_id,kind,op,title,status,changed,author_id,created_at')
+          .gt('created_at', sinceIso)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+      ),
+      unwrap(
+        supabase
+          .from('comments')
+          .select('id,item_id,author_id,ai_task,created_at,edited_at,deleted_at')
+          .gt('created_at', sinceIso)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+      ),
+    ]);
+    return { revisions: revisions || [], comments: comments || [] };
+  },
+
   async activitySince(sinceIso) {
     return unwrap(supabase.from('revisions').select('author_id,created_at').gt('created_at', sinceIso).limit(5000));
   },
 
-  async listComments(itemId) {
-    return unwrap(
-      supabase.from('comments').select('*').eq('item_id', requireUuid(itemId)).is('deleted_at', null).order('created_at'),
-    );
+  // Commenti di un elemento o di più elementi insieme (un'idea e le sue schede).
+  async listComments(itemIds) {
+    const ids = [itemIds].flat().map(requireUuid);
+    const query = supabase.from('comments').select('*');
+    const filtered = ids.length === 1 ? query.eq('item_id', ids[0]) : query.in('item_id', ids);
+    return unwrap(filtered.is('deleted_at', null).order('created_at'));
   },
 
   async commentCounts() {

@@ -2,9 +2,10 @@ import { api } from './lib/api.js';
 import { h, mount, toast } from './lib/dom.js';
 import { CONFIG } from './config.js';
 import { notMemberScreen, errorScreen } from './auth.js';
-import { loadAll, on, startRealtime, state, stopRealtime, trackPresence } from './store.js';
+import { loadAll, on, startRealtime, startSync, state, stopRealtime, stopSync, syncItems, trackPresence } from './store.js';
 import { addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
+import { startNotifications, stopNotifications } from './notifications.js';
 import { dashboardView } from './views/dashboard.js';
 import { ideasView } from './views/ideas.js';
 import { ideaView } from './views/idea.js';
@@ -74,6 +75,8 @@ export function stopApp() {
   stopIdle?.();
   stopIdle = null;
   stopRealtime();
+  stopSync();
+  stopNotifications();
   stopRouter();
 }
 
@@ -99,6 +102,8 @@ export async function startApp(root) {
   const { outlet } = buildShell(root, { onSignOut: () => api.signOut() });
   await api.setRealtimeAuth().catch(() => {});
   startRealtime();
+  startSync();
+  startNotifications();
   stopIdle = startIdleLogout();
   on('removed', () => {
     stopApp();
@@ -111,7 +116,10 @@ export async function startApp(root) {
     }
     if (event === 'TOKEN_REFRESHED' && session) api.setRealtimeAuth().catch(() => {});
   });
-  onRouteChange((path) => trackPresence({ route: path }));
+  onRouteChange((path) => {
+    trackPresence({ route: path });
+    syncItems();
+  });
   registerRoutes();
   await startRouter(outlet, { fallback: notFoundView });
   return true;

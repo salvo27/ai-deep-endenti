@@ -264,3 +264,58 @@ test('examples of the new boards are valid and stay read-only', async () => {
   assert.equal(outlet.querySelector('a[href^="#/nuovo/"]'), null);
   assert.equal(outlet.querySelector('a[href^="#/modifica/"]'), null);
 });
+
+test('the idea comments include the comments on its boards, with the board named', async () => {
+  const requested = [];
+  api.listComments = async (ids) => {
+    requested.push(ids);
+    return [
+      { id: 'c0000000-0000-4000-8000-000000000011', item_id: IDS.idea, author_id: ME, body: 'Sull\'idea', created_at: '2026-10-17T10:00:00Z', ai_task: null },
+      { id: 'c0000000-0000-4000-8000-000000000012', item_id: IDS.canvas, author_id: ME, body: '## Critica\n- manca il cliente', created_at: '2026-10-17T11:00:00Z', ai_task: 'critique' },
+    ];
+  };
+  store.state.commentCounts = new Map([[IDS.idea, 1], [IDS.canvas, 1]]);
+  let body = await visit(`#/idea/${IDS.idea}/canvas`);
+  assert.ok(outlet.querySelector(`a[href="#/elemento/${IDS.canvas}/commenti"]`), 'la scheda mostra i suoi commenti');
+  body = await visit(`#/idea/${IDS.idea}/commenti`);
+  assert.ok(requested[0].includes(IDS.idea) && requested[0].includes(IDS.canvas) && requested[0].includes(MARKET));
+  assert.match(body, /su Lean Canvas: Idea alfa/);
+  assert.ok(outlet.querySelector('.comment-ai .markdown h4'), 'la risposta di Claude è formattata');
+  const tab = [...outlet.querySelectorAll('.tab')].find((t) => /Commenti/.test(t.textContent));
+  assert.equal(text(tab), 'Commenti2');
+});
+
+test('entering a page shows the latest version even if a live update was lost', async () => {
+  await visit(`#/idea/${IDS.idea}/canvas`);
+  assert.match(text(outlet), /Problema di prova/);
+  const newer = { ...store.getItem(IDS.canvas), version: 2, data: { problem: 'Problema aggiornato da Bruno' } };
+  const rows = [...store.state.items.values()].filter((i) => !i.example).map((i) => (i.id === IDS.canvas ? newer : i)).filter((i) => i.id !== MARKET);
+  api.listItems = async () => rows;
+  api.commentCounts = async () => new Map();
+  assert.equal(await store.syncItems({ force: true }), true);
+  await flush();
+  assert.match(text(outlet), /Problema aggiornato da Bruno/);
+  assert.equal(store.getItem(MARKET), null, 'un elemento sparito dal database sparisce anche dal sito');
+  assert.equal(await store.syncItems(), null, 'due sincronizzazioni ravvicinate non rifanno la richiesta');
+  api.listItems = async () => [];
+  assert.equal(await store.syncItems({ force: true }), false);
+  assert.ok(store.getItem(IDS.canvas), 'una risposta vuota non svuota il sito');
+});
+
+test('back returns to the previous page of the site, or to the parent page on a direct link', async () => {
+  history.replaceState({ navIndex: 0 }, '', '#/idee');
+  await visit('#/idee');
+  assert.equal(outlet.querySelector('.back-link'), null, 'link diretto a una pagina del menu: niente «Indietro»');
+  history.replaceState({ navIndex: 0 }, '', `#/idea/${IDS.idea}`);
+  await visit(`#/idea/${IDS.idea}`);
+  const back = outlet.querySelector('.back-link');
+  assert.equal(back.getAttribute('href'), '#/idee');
+  history.pushState(null, '', `#/elemento/${IDS.canvas}`);
+  await visit(`#/elemento/${IDS.canvas}`);
+  assert.equal(router.canGoBack(), true);
+  assert.equal(outlet.querySelector('.back-link').getAttribute('href'), `#/idea/${IDS.idea}`);
+  await visit(`#/modifica/${IDS.canvas}`);
+  assert.ok(outlet.querySelector('.back-link'));
+  await visit('#/');
+  assert.equal(outlet.querySelector('.back-link'), null, 'la dashboard non ha «Indietro»');
+});
