@@ -1,5 +1,5 @@
 import { api } from './lib/api.js';
-import { downloadFile, fmtDate, slugFile } from './lib/format.js';
+import { downloadFile, fmtDate, fmtMoney, slugFile } from './lib/format.js';
 import { CANVAS_BLOCKS, KINDS, optionLabel, statusLabel } from './schema.js';
 import { criteriaList, itemsOf, labelContext, scoreItems, state } from './store.js';
 import { ideaScore } from './scoring.js';
@@ -9,11 +9,12 @@ function mdValue(def, value) {
   if (def.type === 'member') return labelContext.memberName(value);
   if (def.type === 'members') return value.map(labelContext.memberName).join(', ');
   if (def.type === 'ideas') return value.map((id) => labelContext.ideaTitle(id) || 'Idea').join(', ');
-  if (def.type === 'experiment') return labelContext.itemTitle(value) || 'Esperimento';
+  if (def.type === 'experiment' || def.type === 'interview') return labelContext.itemTitle(value) || KINDS[def.type].label;
   if (Array.isArray(value)) return value.join(', ');
   if (def.type === 'select') return optionLabel(def, value);
   if (def.type === 'date') return fmtDate(value);
   if (def.type === 'scale') return `${value}/5`;
+  if (def.type === 'money') return fmtMoney(value);
   return String(value);
 }
 
@@ -26,6 +27,18 @@ function mdFields(item, skip = []) {
     lines.push(value.includes('\n') ? `**${def.label}**\n\n${value}\n` : `**${def.label}:** ${value}  `);
   }
   return lines.join('\n');
+}
+
+function competitorsTable(data) {
+  const columns = [{ id: 'noi', name: 'Noi' }, ...(data.rivals || [])];
+  if (!data.features?.length) return '';
+  const cell = (text) => String(text).replace(/\|/g, '/');
+  const rows = [
+    `| Funzionalità | Importanza | ${columns.map((c) => cell(c.name)).join(' | ')} |`,
+    `|---|---|${columns.map(() => '---').join('|')}|`,
+    ...data.features.map((f) => `| ${cell(f.label)} | ${f.importance} | ${columns.map((c) => (data.cells?.[`${f.id}:${c.id}`] ? 'sì' : '-')).join(' | ')} |`),
+  ];
+  return rows.join('\n');
 }
 
 export function ideaMarkdown(idea) {
@@ -42,6 +55,16 @@ export function ideaMarkdown(idea) {
     for (const block of CANVAS_BLOCKS) {
       if (!canvas.data[block.key]) continue;
       out.push(`**${block.label}**${canvas.data.validated?.[block.key] ? ' (validato)' : ''}`, '', canvas.data[block.key], '');
+    }
+  }
+
+  for (const kind of ['persona', 'vpc', 'market', 'competitors', 'deeptech']) {
+    const items = itemsOf(kind, { ideaId: idea.id });
+    if (!items.length) continue;
+    out.push(`## ${KINDS[kind].plural}`, '');
+    for (const item of items) {
+      out.push(`### ${item.title}`, '', mdFields(item), '');
+      if (kind === 'competitors') out.push(competitorsTable(item.data), '');
     }
   }
 

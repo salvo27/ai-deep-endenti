@@ -171,9 +171,7 @@ create policy members_delete on public.members
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
-  kind text not null check (
-    kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'criteria', 'score', 'generator')
-  ),
+  kind text not null,
   idea_id uuid references public.items (id),
   title text not null default '' check (char_length(title) <= 200),
   status text check (status is null or char_length(status) <= 40),
@@ -187,10 +185,20 @@ create table if not exists public.items (
   constraint items_data_size check (octet_length(data::text) < 500000)
 );
 
+-- Il vincolo sui tipi si ricrea a ogni installazione, così aggiungere un tipo basta rieseguire lo schema.
+alter table public.items drop constraint if exists items_kind_check;
+alter table public.items add constraint items_kind_check check (
+  kind in (
+    'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
+    'teamcanvas', 'equity', 'criteria', 'score', 'generator'
+  )
+);
+
 create index if not exists items_kind_idx on public.items (kind);
 create index if not exists items_idea_idx on public.items (idea_id);
-create unique index if not exists items_singleton_idx on public.items (kind)
-  where kind in ('criteria', 'generator');
+drop index if exists public.items_singleton_idx;
+create unique index items_singleton_idx on public.items (kind)
+  where kind in ('criteria', 'generator', 'teamcanvas', 'equity');
 create unique index if not exists items_one_score_per_member_idx on public.items (created_by)
   where kind = 'score';
 
@@ -233,17 +241,20 @@ begin
     or (new.kind = 'experiment' and new.status in ('pianificato', 'in_corso', 'concluso'))
     or (new.kind = 'interview' and new.status in ('da_fare', 'fatta', 'analizzata'))
     or (new.kind = 'decision' and new.status in ('proposta', 'presa', 'rivista'))
-    or (new.kind in ('canvas', 'criteria', 'score', 'generator') and new.status is null)
+    or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
+    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'teamcanvas', 'equity', 'criteria', 'score', 'generator')
+        and new.status is null)
   ) then
     raise exception 'Stato non valido per questo tipo di elemento';
   end if;
-  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision') and btrim(new.title) = '' then
+  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors')
+     and btrim(new.title) = '' then
     raise exception 'Il titolo è obbligatorio';
   end if;
-  if new.kind in ('canvas', 'experiment') and new.idea_id is null then
+  if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
-  if new.kind in ('idea', 'decision', 'criteria', 'score', 'generator') and new.idea_id is not null then
+  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator') and new.idea_id is not null then
     raise exception 'Questo elemento non può appartenere a un''idea';
   end if;
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)
@@ -474,7 +485,7 @@ begin
    where id = p_id
      and version = p_base_version
      and deleted_at is null
-     and kind not in ('criteria', 'generator', 'score')
+     and kind not in ('criteria', 'generator', 'score', 'teamcanvas', 'equity')
   returning * into r;
   if found then
     return jsonb_build_object('status', 'ok', 'item', to_jsonb(r));

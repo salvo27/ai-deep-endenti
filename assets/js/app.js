@@ -17,6 +17,9 @@ import { diffView, itemHistoryView, logView } from './views/history.js';
 import { trashView } from './views/trash.js';
 import { teamView } from './views/team.js';
 import { profileView } from './views/profile.js';
+import { squadView } from './views/squad.js';
+import { guideView } from './views/guide.js';
+import { conceptsView } from './views/concepts.js';
 import { emptyState } from './views/components.js';
 
 export function registerRoutes() {
@@ -31,6 +34,9 @@ export function registerRoutes() {
   addRoute('/modifica/:id', editorView);
   addRoute('/valutazione', scoringView);
   addRoute('/generatore', generatorView);
+  addRoute('/squadra/:tab?', squadView);
+  addRoute('/guida', guideView);
+  addRoute('/concetti', conceptsView);
   addRoute('/storico', logView);
   addRoute('/storico/:id', itemHistoryView);
   addRoute('/diff/:id/:to/:from?', diffView);

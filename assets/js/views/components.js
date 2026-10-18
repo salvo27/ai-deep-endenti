@@ -1,8 +1,9 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { fmtDate, fmtDateTime, fmtRelative, initials } from '../lib/format.js';
+import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/format.js';
 import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
 import { getItem, isExample, labelContext, memberById, memberName, state } from '../store.js';
+import { conceptButton } from './concept-help.js';
 
 export function avatar(userId, size = 28) {
   const member = memberById(userId);
@@ -109,9 +110,12 @@ export function fieldValue(kind, def, value, item = null) {
     case 'ideas':
       return h('div', { class: 'chips' }, value.map((id) => itemLink(getItem(id))));
     case 'experiment':
+    case 'interview':
       return itemLink(getItem(value));
     case 'date':
       return h('span', null, fmtDate(value));
+    case 'money':
+      return h('span', null, fmtMoney(value));
     case 'scale':
       return h('span', { class: 'scale-view', 'aria-label': `${value} su 5` }, [1, 2, 3, 4, 5].map((n) => h('span', { class: ['dot', n <= value && 'on'] })));
     case 'select':
@@ -128,14 +132,15 @@ export function fieldsGrid(item, { skip = [] } = {}) {
     { class: 'fields-grid' },
     def.fields
       .filter((f) => !skip.includes(f.key))
-      .map((f) =>
+      .map((f) => [
+        f.group && !skip.includes(`group:${f.group}`) ? h('div', { class: 'fields-group is-wide' }, h('h3', null, f.group)) : null,
         h(
           'div',
           { class: ['field-view', (f.wide || f.type === 'textarea') && 'is-wide'] },
-          h('dt', null, f.label),
+          h('dt', null, f.label, f.concept ? conceptButton(f.concept) : null),
           h('dd', null, fieldValue(item.kind, f, item.data?.[f.key], item)),
         ),
-      ),
+      ]),
   );
 }
 

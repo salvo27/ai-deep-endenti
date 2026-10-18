@@ -16,7 +16,7 @@ L'approccio è quello della progettazione sicura (Secure by Design): molti probl
 | **Errori senza dati personali** | All'esterno solo messaggi generici in italiano; i dettagli tecnici non arrivano all'interfaccia e i log della funzione non contengono il contenuto delle board. |
 | **Tracciabilità** | Ogni modifica è una revisione immutabile, con autore, messaggio e differenze. Ingressi, uscite e cambi di ruolo nel team finiscono in un registro di sicurezza leggibile solo dagli admin. |
 | **Resilienza** | Se Claude, la presenza o gli aggiornamenti dal vivo non funzionano, il resto del sito continua a funzionare. Le bozze restano sul dispositivo se la connessione cade durante una modifica. |
-| **Minimizzazione dei dati** | A Claude vanno solo i contenuti delle board, mai nomi delle persone del team, contatti degli intervistati o identificativi. L'esportazione Markdown esclude i contatti. |
+| **Minimizzazione dei dati** | A Claude vanno solo i contenuti delle board, mai nomi delle persone del team, la lista delle persone con cui interfacciarsi, contatti degli intervistati o identificativi. L'esportazione Markdown esclude contatti e persone; la divisione delle quote resta solo nel database. |
 
 ## Minacce considerate
 

@@ -72,6 +72,69 @@ const uberCanvas = example(
   { idea: uber },
 );
 
+const uberContact1 = example(
+  'contact',
+  'Professionista che prende il taxi ogni settimana',
+  'fissata',
+  {
+    purpose: 'cliente',
+    role: 'Consulente, si sposta in città per lavoro',
+    organization: 'Studio di consulenza (nome riservato)',
+    segment: 'Professionisti in città',
+    goal: 'L\'ultima volta che ha aspettato un taxi: quanto, cosa ha fatto, quanto ha speso.',
+    via: 'Presentato da un collega dell\'incubatore',
+    owner: FOUNDER,
+    next_date: '2009-01-20',
+  },
+  { idea: uber },
+);
+
+const uberContact2 = example(
+  'contact',
+  'Titolare di una società di auto con conducente',
+  'da_contattare',
+  {
+    purpose: 'utente',
+    role: 'Titolare, 12 auto',
+    organization: 'Società di noleggio con conducente (nome riservato)',
+    segment: 'Chi offre le corse',
+    goal: 'Quante ore al giorno le auto restano ferme tra una prenotazione e l\'altra, e se accetterebbe corse prenotate da un\'app.',
+    via: 'Elenco delle società con licenza del comune',
+    owner: FOUNDER,
+    next_date: '2009-01-23',
+  },
+  { idea: uber },
+);
+
+const uberContact3 = example(
+  'contact',
+  'Sviluppatore di app con mappe e pagamenti',
+  'contattata',
+  {
+    purpose: 'realizzazione',
+    role: 'Sviluppatore freelance',
+    goal: 'Tempi e costi di un primo prototipo con posizione delle auto sulla mappa e pagamento con carta.',
+    via: 'Comunità di sviluppatori della città',
+    owner: TECH,
+    next_date: '2009-01-27',
+  },
+  { idea: uber },
+);
+
+const uberContact4 = example(
+  'contact',
+  'Avvocato esperto di trasporti',
+  'da_contattare',
+  {
+    purpose: 'norme',
+    role: 'Avvocato',
+    goal: 'Cosa consentono le licenze di auto con conducente in città: prenotazione via app, tariffe, aree di attesa.',
+    via: 'Da chiedere al consulente legale dell\'incubatore',
+    owner: TECH,
+  },
+  { idea: uber },
+);
+
 // In esplorazione: Airbnb nella primavera del 2008.
 const airbnb = example(
   'idea',
@@ -243,6 +306,132 @@ const airbnbInt3 = example(
   { idea: airbnb },
 );
 
+const airbnbPersona1 = example(
+  'persona',
+  'Designer in trasferta per una conferenza',
+  null,
+  {
+    role_type: 'paga_usa',
+    segment: 'Partecipanti a conferenze con budget limitato',
+    early_adopter: 'si',
+    profile: '25-35 anni, libero professionista o dipendente di un piccolo studio. Va a 3-4 conferenze l\'anno, spesso pagando di tasca propria.',
+    habits: 'Prenota tardi, quando l\'agenda è sicura. Confronta gli hotel consigliati dalla conferenza e gli ostelli; chiede ai colleghi del posto.',
+    needs: 'Un letto vicino all\'evento a un prezzo ragionevole, anche all\'ultimo momento.',
+    goals: 'Fare rete con altri designer, conoscere la città, spendere poco.',
+    fears: 'Restare senza posto o dormire lontanissimo; fidarsi di uno sconosciuto.',
+    current_solution: 'Hotel convenzionati a 200-250 dollari a notte oppure ostelli fuori città, con taxi in più.',
+    channels: 'Siti e newsletter delle conferenze, blog di design, passaparola tra colleghi.',
+    quote: '«Ho pagato 80 dollari per un materasso e lo rifarei: l\'hotel ne chiedeva 250.»',
+    evidence: 'I 3 ospiti di ottobre 2007 e 8 interviste a partecipanti di conferenze.',
+  },
+  { idea: airbnb },
+);
+
+const airbnbPersona2 = example(
+  'persona',
+  'Residente con una stanza libera',
+  null,
+  {
+    role_type: 'usa',
+    segment: 'Host: residenti nelle città degli eventi',
+    early_adopter: 'forse',
+    profile: 'Vive in città in un appartamento con una stanza o un divano libero; reddito medio, spese di affitto alte.',
+    habits: 'Ha già ospitato amici di amici durante festival e conferenze, accordandosi via email.',
+    needs: 'Arrotondare senza rischi e senza perdere tempo.',
+    goals: 'Pagare una parte dell\'affitto; conoscere persone nuove.',
+    fears: 'Ospiti inaffidabili, non essere pagata, danni in casa.',
+    current_solution: 'Annunci sui siti di annunci generici o passaparola.',
+    channels: 'Blog di quartiere, gruppi locali, siti di annunci.',
+    quote: '«Il problema non è lo spazio, è sapere chi mi entra in casa.»',
+    evidence: '5 interviste a residenti; 14 annunci pubblicati nell\'esperimento in corso.',
+  },
+  { idea: airbnb },
+);
+
+const airbnbVpc = example(
+  'vpc',
+  'VPC: partecipanti alle conferenze',
+  null,
+  {
+    segment: 'Partecipanti a conferenze con budget limitato',
+    jobs: 'Trovare un posto letto vicino all\'evento\nSpendere poco per il viaggio\nConoscere la città e le persone del settore',
+    pains: 'Hotel pieni o carissimi durante l\'evento\nPrenotare all\'ultimo momento\nDiffidenza verso gli sconosciuti',
+    gains: 'Risparmio rispetto all\'hotel\nConsigli di chi vive in città\nIncontri con persone del settore',
+    products: 'Sito con stanze in casa di residenti, cercabili per le date dell\'evento, con pagamento online',
+    pain_relievers: 'Posti disponibili quando gli hotel sono pieni\nPrezzo vicino a quello di un ostello\nProfilo e foto di chi ospita',
+    gain_creators: 'Consigli dell\'host sulla città\nColazione inclusa\nPossibilità di ospitare a propria volta',
+    fit: 'Confermati dai 3 ospiti di ottobre 2007: prezzo e consigli sulla città. Da verificare: la fiducia verso host che non conosciamo (esperimento in corso).',
+  },
+  { idea: airbnb },
+);
+
+const airbnbMarket = example(
+  'market',
+  'Mercato dei viaggi prenotati',
+  null,
+  {
+    approach: 'top_down',
+    tam: 30000000000,
+    tam_basis: 'Circa 2 miliardi di viaggi prenotati ogni anno nel mondo (dato del pitch del 2008 citato nel manuale), per una commissione media ipotizzata di 15 euro a prenotazione.',
+    sam: 8400000000,
+    sam_basis: 'Circa 560 milioni di viaggi economici prenotati online, la parte che un sito come il nostro può servire, per la stessa commissione.',
+    som: 159000000,
+    som_year: 2011,
+    som_basis: 'Circa 10,6 milioni di viaggi con noi in tre anni, intorno al 2% del SAM: coerente con un lancio città per città, partendo da quelle con grandi eventi.',
+    trend: 'Crescita delle prenotazioni online e dei viaggi economici; diffusione dei profili personali sul web, che aiuta la fiducia tra sconosciuti.',
+    sources: 'Pitch di Airbnb del 2008, come riportato nel capitolo 5 del manuale\nLa conversione in euro è una nostra ipotesi a scopo didattico',
+  },
+  { idea: airbnb },
+);
+
+const airbnbCompetitors = example(
+  'competitors',
+  'Concorrenti: dove dormire in viaggio',
+  null,
+  {
+    gap: 'Nessuno offre insieme prezzo basso e prenotazione online: chi è economico si accorda offline, chi prenota online è caro. Lì vogliamo stare.',
+    lessons: 'Dallo scambio di divani: le persone si fidano di chi ha un profilo e delle recensioni. Dagli annunci generici: l\'offerta c\'è, manca un modo sicuro per prenotare.',
+    features: [
+      { id: 'f-online', label: 'Prenotazione e pagamento online', importance: 'alta' },
+      { id: 'f-prezzo', label: 'Prezzo da ostello', importance: 'alta' },
+      { id: 'f-casa', label: 'Stanza in casa di un residente', importance: 'media' },
+      { id: 'f-profili', label: 'Profili e recensioni', importance: 'alta' },
+      { id: 'f-consigli', label: 'Consigli di chi vive in città', importance: 'media' },
+    ],
+    rivals: [
+      { id: 'c-couch', name: 'Couchsurfing', type: 'indiretto', x: 2, y: 9, note: 'Gratis, scambio di divani tra viaggiatori' },
+      { id: 'c-craigslist', name: 'Craigslist', type: 'diretto', x: 2, y: 8, note: 'Annunci generici, accordi via email' },
+      { id: 'c-bnb', name: 'BedandBreakfast.com', type: 'diretto', x: 3, y: 6, note: 'Bed and breakfast tradizionali' },
+      { id: 'c-hostels', name: 'Hostels.com', type: 'diretto', x: 8, y: 7, note: 'Ostelli prenotabili online' },
+      { id: 'c-hotels', name: 'Hotels.com', type: 'indiretto', x: 9, y: 2, note: 'Hotel prenotabili online' },
+      { id: 'c-vrbo', name: 'VRBO', type: 'diretto', x: 2, y: 2, note: 'Case vacanza intere, pagamento con il proprietario' },
+    ],
+    cells: {
+      'f-online:noi': true,
+      'f-online:c-hostels': true,
+      'f-online:c-hotels': true,
+      'f-prezzo:noi': true,
+      'f-prezzo:c-couch': true,
+      'f-prezzo:c-craigslist': true,
+      'f-prezzo:c-hostels': true,
+      'f-casa:noi': true,
+      'f-casa:c-couch': true,
+      'f-casa:c-craigslist': true,
+      'f-profili:noi': true,
+      'f-profili:c-couch': true,
+      'f-profili:c-hotels': true,
+      'f-consigli:noi': true,
+      'f-consigli:c-couch': true,
+    },
+    axes: {
+      x: { label: 'Come si prenota', low: 'Offline', high: 'Online' },
+      y: { label: 'Prezzo', low: 'Costoso', high: 'Economico' },
+    },
+    us: { x: 9, y: 9 },
+  },
+  { idea: airbnb },
+);
+
 // In validazione: Dropbox tra il 2007 e il 2008.
 const dropbox = example(
   'idea',
@@ -399,6 +588,23 @@ const dropboxInt2 = example(
     notes: 'Gli studenti sentono il problema ma pagano poco: buoni utenti gratuiti che portano altri utenti.',
     follow_up: '',
     contact: 'Tramite il rappresentante degli studenti',
+  },
+  { idea: dropbox },
+);
+
+const dropboxVpc = example(
+  'vpc',
+  'VPC: professionisti con più computer',
+  null,
+  {
+    segment: 'Professionisti e studenti che usano più computer',
+    jobs: 'Lavorare sugli stessi file da casa, ufficio e portatile\nCondividere una cartella con i colleghi\nNon perdere il lavoro',
+    pains: 'Email a sé stessi e chiavette dimenticate\nVersioni sbagliate dello stesso file\nProgrammi di sincronizzazione complicati che si bloccano',
+    gains: 'Ritrovare sempre l\'ultima versione\nNon pensarci più\nRecuperare un file cancellato per errore',
+    products: 'Programma che crea una cartella sincronizzata su tutti i computer e sul web',
+    pain_relievers: 'Copia automatica, senza gesti da ricordare\nUna sola versione aggiornata ovunque\nFunziona allo stesso modo su ogni sistema operativo',
+    gain_creators: 'Storico delle versioni\nCondivisione di una cartella con un clic\nSpazio gratuito in più per chi invita amici',
+    fit: 'Pains confermati da 15 interviste su 20; interesse misurato dal video demo (circa 70.000 nuove iscrizioni). Da verificare con la beta: l\'uso nelle settimane successive.',
   },
   { idea: dropbox },
 );
@@ -817,6 +1023,10 @@ const odeoDecision = example(
 export const EXAMPLES = Object.freeze([
   uber,
   uberCanvas,
+  uberContact1,
+  uberContact2,
+  uberContact3,
+  uberContact4,
   airbnb,
   airbnbCanvas,
   airbnbExp1,
@@ -825,6 +1035,11 @@ export const EXAMPLES = Object.freeze([
   airbnbInt1,
   airbnbInt2,
   airbnbInt3,
+  airbnbPersona1,
+  airbnbPersona2,
+  airbnbVpc,
+  airbnbMarket,
+  airbnbCompetitors,
   dropbox,
   dropboxCanvas,
   dropboxExp1,
@@ -832,6 +1047,7 @@ export const EXAMPLES = Object.freeze([
   dropboxExp3,
   dropboxInt1,
   dropboxInt2,
+  dropboxVpc,
   spotify,
   spotifyCanvas,
   spotifyExp1,

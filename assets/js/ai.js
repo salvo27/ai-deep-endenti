@@ -1,6 +1,6 @@
 import { api, AppError } from './lib/api.js';
 import { CANVAS_BLOCKS, KINDS, optionLabel, statusLabel } from './schema.js';
-import { fmtDate } from './lib/format.js';
+import { fmtDate, fmtMoney } from './lib/format.js';
 
 export const AI_TASKS = {
   critique: 'Critica',
@@ -22,7 +22,8 @@ function valueText(def, value) {
   if (def.type === 'select') return optionLabel(def, value);
   if (def.type === 'date') return fmtDate(value);
   if (def.type === 'scale') return `${value}/5`;
-  if (def.type === 'experiment') return null;
+  if (def.type === 'money') return fmtMoney(value);
+  if (def.type === 'experiment' || def.type === 'interview') return null;
   return String(value);
 }
 
@@ -39,6 +40,15 @@ export function itemText(item, { heading = '#' } = {}) {
     }
     return lines.join('\n');
   }
+  if (item.kind === 'competitors') {
+    const data = item.data || {};
+    const names = new Map([['noi', 'Noi'], ...(data.rivals || []).map((r) => [r.id, r.name])]);
+    for (const r of data.rivals || []) lines.push(`Concorrente ${r.type}: ${r.name}${r.note ? ` (${r.note})` : ''}`);
+    for (const f of data.features || []) {
+      const who = [...names].filter(([id]) => data.cells?.[`${f.id}:${id}`]).map(([, name]) => name);
+      lines.push(`Funzionalità «${f.label}» (importanza ${f.importance}): ${who.length ? who.join(', ') : 'nessuno'}`);
+    }
+  }
   for (const f of def.fields) {
     if (EXCLUDED_TYPES.has(f.type) || EXCLUDED_KEYS.has(f.key)) continue;
     const text = valueText(f, item.data?.[f.key]);
@@ -47,7 +57,7 @@ export function itemText(item, { heading = '#' } = {}) {
   return lines.join('\n');
 }
 
-export function buildContext(task, { item, idea, canvases = [], experiments = [], interviews = [], cell, existingIdeas = [] } = {}) {
+export function buildContext(task, { item, idea, canvases = [], experiments = [], interviews = [], boards = [], cell, existingIdeas = [] } = {}) {
   const parts = [];
   if (task === 'cell_ideas') {
     parts.push(`Capacità del team: ${cell?.row || ''}`, `Settore: ${cell?.col || ''}`);
@@ -57,6 +67,7 @@ export function buildContext(task, { item, idea, canvases = [], experiments = []
     if (idea) parts.push(itemText(idea));
     if (item && item.id !== idea?.id) parts.push(itemText(item));
     for (const canvas of canvases) if (canvas.id !== item?.id) parts.push(itemText(canvas, { heading: '##' }));
+    for (const board of boards) if (board.id !== item?.id) parts.push(itemText(board, { heading: '##' }));
     for (const experiment of experiments) if (experiment.id !== item?.id) parts.push(itemText(experiment, { heading: '##' }));
     interviews.forEach((interview) => parts.push(itemText(interview, { heading: '##' })));
   }

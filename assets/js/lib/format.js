@@ -70,6 +70,20 @@ export function daysUntil(isoDate, now = new Date()) {
   return Math.round((end - start) / (24 * 3600 * 1000));
 }
 
+const wholeNumber = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
+const oneDecimal = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
+
+export function fmtMoney(value) {
+  if (!Number.isFinite(value)) return '';
+  if (Math.abs(value) >= 1e9) return `${oneDecimal.format(value / 1e9)} mld €`;
+  if (Math.abs(value) >= 1e6) return `${oneDecimal.format(value / 1e6)} mln €`;
+  return `${wholeNumber.format(value)} €`;
+}
+
+export function fmtPercent(value) {
+  return Number.isFinite(value) ? `${oneDecimal.format(value)}%` : '-';
+}
+
 export function initials(name) {
   const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
   const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2);

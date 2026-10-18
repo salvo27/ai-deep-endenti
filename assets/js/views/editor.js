@@ -1,10 +1,11 @@
 import { h, mount, autoGrow, busy, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
-import { debounce, fmtDateTime } from '../lib/format.js';
+import { debounce, fmtDateTime, fmtMoney, shortId } from '../lib/format.js';
 import { LIMITS, isUuid } from '../lib/validate.js';
 import {
-  BOARD_KINDS,
+  DEFAULT_EQUITY_FACTORS,
+  EDITABLE_KINDS,
   KINDS,
   autoInterviewTitle,
   defaultStatus,
@@ -16,22 +17,36 @@ import {
   canWrite,
   createItem,
   getItem,
+  saveSnapshot,
   ideas,
   isExample,
   itemsOf,
   memberName,
   on,
   readLocal,
+  singleton,
   state,
   trackPresence,
   writeLocal,
 } from '../store.js';
 import { navigate, setLeaveGuard } from '../router.js';
 import { canvasEditor } from './canvas.js';
+import { competitorsEditor } from './competitors.js';
+import { equityEditor } from './equity.js';
+import { conceptButton } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
 import { errorBox, pageHeader } from './components.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+const CUSTOM_EDITORS = { canvas: canvasEditor, competitors: competitorsEditor, equity: equityEditor };
+
+const CHILD_TITLES = {
+  deeptech: 'Scheda deep tech',
+  vpc: 'Value Proposition Canvas',
+  market: 'Mercato',
+  competitors: 'Concorrenti',
+};
 
 export function initialSnapshot(kind, query = new URLSearchParams()) {
   const parent = isUuid(query.get('idea')) ? getItem(query.get('idea')) : null;
@@ -45,7 +60,33 @@ export function initialSnapshot(kind, query = new URLSearchParams()) {
   if (kind === 'experiment' && idea) {
     snapshot.data = { customer: idea.data.customer, problem: idea.data.problem, solution: idea.data.solution, owner: state.user?.id };
   }
-  if (kind === 'interview') snapshot.data = { date: today(), interviewer: state.user?.id };
+  if (CHILD_TITLES[kind] && idea) snapshot.title = `${CHILD_TITLES[kind]}: ${idea.title}`.slice(0, LIMITS.title);
+  if (kind === 'deeptech') snapshot.data = { trl_now: '3', company_form: 'da_decidere', ip_owner: 'da_chiarire' };
+  if (kind === 'market') snapshot.data = { approach: 'top_down', som_year: new Date().getFullYear() + 3 };
+  if (kind === 'competitors') {
+    snapshot.data = {
+      axes: { x: { label: 'Prezzo', low: 'Costoso', high: 'Economico' }, y: { label: 'Facilità d\'uso', low: 'Complicato', high: 'Semplice' } },
+      us: { x: 7, y: 7 },
+    };
+  }
+  if (kind === 'teamcanvas') snapshot.title = 'Team Canvas';
+  if (kind === 'equity') {
+    snapshot.title = 'Divisione delle quote';
+    snapshot.data = {
+      factors: DEFAULT_EQUITY_FACTORS,
+      founders: state.members.filter((m) => m.role !== 'advisor').map((m) => ({ id: `f-${shortId().slice(0, 8)}`, name: m.display_name })),
+    };
+  }
+  if (kind === 'contact') snapshot.data = { purpose: 'cliente', owner: state.user?.id };
+  if (kind === 'interview') {
+    snapshot.data = { date: today(), interviewer: state.user?.id };
+    const from = isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
+    if (from?.kind === 'contact' && !isExample(from)) {
+      snapshot.title = from.title;
+      snapshot.idea_id = from.idea_id;
+      for (const key of ['role', 'organization', 'segment', 'contact']) if (from.data[key]) snapshot.data[key] = from.data[key];
+    }
+  }
   if (kind === 'decision') snapshot.data = { date: today(), ideas: ideaId ? [ideaId] : [] };
   if (kind === 'idea') {
     snapshot.title = query.get('title') || '';
@@ -157,12 +198,40 @@ export function fieldControl(def, working, onChange) {
         else list.delete(id);
         set([...list]);
       });
-    case 'experiment': {
-      const list = itemsOf('experiment', working.idea_id ? { ideaId: working.idea_id } : {});
+    case 'experiment':
+    case 'interview': {
+      const list = itemsOf(def.type, working.idea_id ? { ideaId: working.idea_id } : {});
       return h('select', { class: 'input', onChange: (e) => set(e.target.value || undefined) }, options(list.map((x) => [x.id, x.title]), value));
     }
     case 'tags':
       return tagInput(def, working, onChange);
+    case 'money': {
+      const preview = h('span', { class: 'field-help' }, value ? fmtMoney(value) : '');
+      const input = h('input', {
+        class: 'input',
+        type: 'number',
+        min: 0,
+        step: 1,
+        inputmode: 'numeric',
+        value: value ?? '',
+        onInput: (e) => {
+          const n = e.target.value === '' ? undefined : Math.round(Number(e.target.value));
+          preview.textContent = Number.isFinite(n) ? fmtMoney(n) : '';
+          set(Number.isFinite(n) ? n : undefined);
+        },
+      });
+      return h('div', { class: 'money-input' }, input, preview);
+    }
+    case 'int':
+      return h('input', {
+        class: 'input',
+        type: 'number',
+        min: def.min,
+        max: def.max,
+        step: 1,
+        value: value ?? '',
+        onInput: (e) => set(e.target.value === '' ? undefined : Number(e.target.value)),
+      });
     case 'scale':
       return h(
         'div',
@@ -181,7 +250,12 @@ export function editorView(outlet, params, query) {
   const editing = params.id ? getItem(params.id) : null;
   const kind = editing ? editing.kind : params.kind;
   const def = KINDS[kind];
-  if ((params.id && !editing) || !BOARD_KINDS.includes(kind)) {
+  const existing = !editing && def?.singleton ? singleton(kind) : null;
+  if (existing) {
+    navigate(`/modifica/${existing.id}`);
+    return null;
+  }
+  if ((params.id && !editing) || !EDITABLE_KINDS.includes(kind)) {
     mount(outlet, errorBox({ message: 'Elemento non trovato.' }));
     return null;
   }
@@ -227,7 +301,12 @@ export function editorView(outlet, params, query) {
   });
   const error = h('div');
   const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, editing ? 'Salva' : 'Crea'));
-  const cancelButton = h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => navigate(editing ? routeFor(editing).slice(1) : '/') }, 'Annulla');
+  const backTo = () => {
+    if (editing) return routeFor(editing).slice(1);
+    if (def.singleton) return routeFor({ kind }).slice(1);
+    return base.idea_id ? `/idea/${base.idea_id}` : '/';
+  };
+  const cancelButton = h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => navigate(backTo()) }, 'Annulla');
 
   const draft = readLocal(draftKey);
   if (draft?.snapshot && !deepEqual(draft.snapshot, base)) {
@@ -278,33 +357,49 @@ export function editorView(outlet, params, query) {
       onInput: (e) => { working.title = e.target.value; onChange(); },
     });
 
-    const body = kind === 'canvas'
-      ? canvasEditor(working, onChange)
-      : h(
-          'div',
-          { class: 'form-grid' },
-          def.fields.map((f) =>
-            h(
-              'div',
-              { class: ['field', (f.wide || f.type === 'textarea') && 'is-wide'] },
-              h('span', { class: 'field-label' }, f.label),
-              fieldControl(f, working, onChange),
-              f.help ? h('span', { class: 'field-help' }, f.help) : null,
-            ),
+    const fieldsForm = (fields) =>
+      h(
+        'div',
+        { class: 'form-grid' },
+        fields.map((f) => [
+          f.group ? h('h2', { class: 'form-group-title is-wide' }, f.group) : null,
+          h(
+            'div',
+            { class: ['field', (f.wide || f.type === 'textarea') && 'is-wide'] },
+            h('span', { class: 'field-label' }, f.label, f.concept ? conceptButton(f.concept) : null),
+            fieldControl(f, working, onChange),
+            f.help ? h('span', { class: 'field-help' }, f.help) : null,
           ),
-        );
+        ]),
+      );
+    const custom = CUSTOM_EDITORS[kind];
+    const body = custom ? h('div', { class: 'stack' }, custom(working, onChange), def.fields.length && kind !== 'canvas' ? fieldsForm(def.fields) : null) : fieldsForm(def.fields);
 
     mount(
       formHost,
       h(
         'div',
         { class: 'form-top' },
-        h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, def.titleLabel), title),
+        def.singleton ? null : h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, def.titleLabel), title),
         ideaSelect,
         statusSelect,
       ),
       body,
     );
+  }
+
+  // Un'intervista nata da una persona con cui interfacciarsi aggiorna anche la persona.
+  async function linkContact(interview) {
+    const contact = kind === 'interview' && isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
+    if (contact?.kind !== 'contact' || isExample(contact)) return;
+    const next = snapshotOf(contact);
+    next.status = interview.status === 'da_fare' ? 'fissata' : 'in_contatto';
+    next.data = { ...next.data, interview_id: interview.id };
+    try {
+      await saveSnapshot(contact, next, 'Collegata all\'intervista');
+    } catch {
+      toast('Intervista salvata; aggiorna a mano lo stato della persona.', { type: 'error' });
+    }
   }
 
   async function save() {
@@ -324,12 +419,13 @@ export function editorView(outlet, params, query) {
         saved = result.item;
       } else {
         saved = await createItem(kind, snapshot, message.value);
+        await linkContact(saved);
       }
       dirty = false;
       saveDraft.cancel();
       writeLocal(draftKey, null);
       setLeaveGuard(null);
-      toast(editing ? 'Modifiche salvate.' : `${def.label} creata.`, { type: 'success' });
+      toast(editing ? 'Modifiche salvate.' : `Salvato: ${def.label}.`, { type: 'success' });
       navigate(routeFor(saved).slice(1));
     } catch (e) {
       mount(error, errorBox(e));

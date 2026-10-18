@@ -10,6 +10,7 @@ import {
   uniqueStrings,
   uniqueUuids,
 } from './lib/validate.js';
+import { fmtMoney } from './lib/format.js';
 
 export const TECH_SUGGESTIONS = [
   'Inverse design',
@@ -46,6 +47,44 @@ export const CANVAS_BLOCKS = [
   { key: 'early_adopters', label: 'Early adopter', area: 'seg', help: 'Chi lo vorrebbe subito' },
   { key: 'costs', label: 'Struttura dei costi', area: 'cost', main: true },
   { key: 'revenue', label: 'Flussi di ricavo', area: 'rev', main: true },
+];
+
+export const TRL = [
+  ['1', 'TRL 1: principi di base osservati'],
+  ['2', 'TRL 2: concetto tecnologico formulato'],
+  ['3', 'TRL 3: prova di concetto sperimentale'],
+  ['4', 'TRL 4: tecnologia validata in laboratorio'],
+  ['5', 'TRL 5: tecnologia validata in un ambiente rilevante'],
+  ['6', 'TRL 6: tecnologia dimostrata in un ambiente rilevante'],
+  ['7', 'TRL 7: prototipo dimostrato in ambiente operativo'],
+  ['8', 'TRL 8: sistema completo e qualificato'],
+  ['9', 'TRL 9: sistema provato in ambiente operativo reale'],
+];
+
+export const IMPORTANCE = [
+  ['alta', 'Alta'],
+  ['media', 'Media'],
+  ['bassa', 'Bassa'],
+];
+
+export const TEAM_BLOCKS = [
+  { key: 'people', label: 'Persone e ruoli', help: 'Chi siamo e che ruolo ha ciascuno nel team' },
+  { key: 'common_goals', label: 'Obiettivi comuni', help: 'Cosa vogliamo ottenere insieme: misurabile e con una scadenza' },
+  { key: 'personal_goals', label: 'Obiettivi personali', help: 'Cosa vuole ottenere ciascuno, anche per sé' },
+  { key: 'purpose', label: 'Scopo', help: 'Perché facciamo quello che facciamo' },
+  { key: 'values', label: 'Valori', help: 'I principi che guidano le nostre scelte' },
+  { key: 'needs', label: 'Bisogni e aspettative', help: 'Cosa serve a ciascuno per dare il meglio' },
+  { key: 'rules', label: 'Regole e attività', help: 'Come comunichiamo, decidiamo e verifichiamo il lavoro' },
+  { key: 'strengths', label: 'Punti di forza', help: 'Competenze e risorse del team, singole e di gruppo' },
+  { key: 'weaknesses', label: 'Debolezze e rischi', help: 'Cosa ci manca e quali ostacoli vediamo' },
+];
+
+export const DEFAULT_EQUITY_FACTORS = [
+  { key: 'idea', label: 'Idea', weight: 5 },
+  { key: 'business-plan', label: 'Business plan', weight: 5 },
+  { key: 'esperienza', label: 'Esperienza nel settore', weight: 5 },
+  { key: 'rischio', label: 'Rischio e impegno', weight: 5 },
+  { key: 'responsabilita', label: 'Responsabilità', weight: 5 },
 ];
 
 const field = (key, label, type = 'textarea', extra = {}) => ({ key, label, type, ...extra });
@@ -197,12 +236,220 @@ export const KINDS = {
       field('review_date', 'Da rivedere entro', 'date'),
     ],
   },
+  contact: {
+    label: 'Persona con cui interfacciarsi',
+    plural: 'Persone con cui interfacciarsi',
+    icon: 'users',
+    titleLabel: 'Chi è (nome o ruolo)',
+    needsIdea: true,
+    statuses: [
+      ['da_contattare', 'Da contattare'],
+      ['contattata', 'Contattata, in attesa'],
+      ['fissata', 'Incontro fissato'],
+      ['in_contatto', 'In contatto'],
+      ['chiusa', 'Chiusa o non disponibile'],
+    ],
+    fields: [
+      field('purpose', 'Perché ci serve', 'select', {
+        options: [
+          ['cliente', 'Potenziale cliente da intervistare'],
+          ['utente', 'Utente, o chi offre il servizio, da intervistare'],
+          ['esperto', 'Esperto del settore'],
+          ['realizzazione', 'Per realizzarla: sviluppo, fornitori, laboratori'],
+          ['design_partner', 'Possibile design partner'],
+          ['mentor', 'Mentor o advisor'],
+          ['investitore', 'Investitore o finanziatore'],
+          ['ateneo', 'Ateneo e trasferimento tecnologico'],
+          ['norme', 'Consulente legale o normativo'],
+          ['altro', 'Altro'],
+        ],
+      }),
+      field('role', 'Ruolo', 'text'),
+      field('organization', 'Organizzazione', 'text'),
+      field('segment', 'Segmento', 'text'),
+      field('goal', 'Cosa vogliamo capire o ottenere', 'textarea', { rows: 2, wide: true, concept: 'fuori-dall-ufficio' }),
+      field('via', 'Come ci arriviamo', 'text', { placeholder: 'Chi ci presenta, evento, associazione, contatto diretto' }),
+      field('owner', 'Chi se ne occupa', 'member'),
+      field('next_date', 'Prossimo contatto', 'date'),
+      field('interview_id', 'Intervista', 'interview'),
+      field('notes', 'Appunti'),
+      field('contact', 'Contatto', 'text', { help: 'Email o telefono, solo se serve. Non viene mai mandato a Claude.' }),
+    ],
+  },
+  deeptech: {
+    label: 'Scheda deep tech',
+    plural: 'Schede deep tech',
+    icon: 'chip',
+    titleLabel: 'Titolo',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('trl_now', 'TRL attuale', 'select', { options: TRL, group: 'Maturità della tecnologia', concept: 'trl' }),
+      field('trl_target', 'TRL della prossima tappa', 'select', { options: TRL }),
+      field('next_milestone', 'Prossima tappa tecnica', 'textarea', { placeholder: 'Cosa dimostrare, dove e con quali dati' }),
+      field('milestone_cost', 'Costo e durata della tappa', 'text', { placeholder: 'Per esempio: 80.000 euro, 9 mesi' }),
+      field('tech_risks', 'Ipotesi tecniche più rischiose', 'textarea', { group: 'Due rischi da validare', concept: 'due-rischi' }),
+      field('market_risks', 'Ipotesi di mercato più rischiose'),
+      field('design_partners', 'Design partner', 'textarea', { placeholder: 'Aziende che provano il prototipo sui loro dati: chi, a che punto, quale impegno', concept: 'design-partner' }),
+      field('value_metrics', 'Valore misurato per il cliente', 'textarea', { placeholder: 'Tempo risparmiato, errori evitati, euro guadagnati: non metriche accademiche' }),
+      field('offer', 'Cosa vendiamo', 'select', {
+        options: [
+          ['prodotto', 'Un prodotto'],
+          ['servizio', 'Un servizio con la tecnologia dentro'],
+          ['licenza', 'Una licenza della tecnologia'],
+          ['da_decidere', 'Da decidere'],
+        ],
+      }),
+      field('published', 'Già pubblicato', 'textarea', { group: 'Proprietà intellettuale', placeholder: 'Articoli, tesi, preprint, codice aperto: non è più brevettabile', concept: 'novita-assoluta' }),
+      field('to_protect', 'Da proteggere', 'textarea', { placeholder: 'Sviluppi nuovi da brevettare, software da registrare, know-how da tenere riservato' }),
+      field('ip_owner', 'Di chi è la proprietà intellettuale', 'select', {
+        concept: 'invenzioni-universitarie',
+        options: [
+          ['ateneo', 'Dell\'ateneo: serve una licenza o una cessione'],
+          ['team', 'Del team'],
+          ['mista', 'In parte dell\'ateneo, in parte del team'],
+          ['da_chiarire', 'Da chiarire'],
+        ],
+      }),
+      field('company_form', 'Forma della società', 'select', {
+        concept: 'spin-off',
+        options: [
+          ['spinoff', 'Spin-off universitario'],
+          ['licenza', 'Startup indipendente con licenza dall\'ateneo'],
+          ['indipendente', 'Startup indipendente'],
+          ['da_decidere', 'Da decidere'],
+        ],
+      }),
+      field('academic_constraints', 'Vincoli accademici', 'textarea', { placeholder: 'Cariche in ateneo, conflitti di interesse, regolamento spin-off' }),
+      field('regulation', 'Norme da rispettare', 'textarea', { group: 'Norme e finanziamenti', placeholder: 'AI Act, GDPR, dispositivi medici, settori regolati', concept: 'ai-act' }),
+      field('funding', 'Finanziamenti non diluitivi', 'textarea', { placeholder: 'Bandi adatti, requisiti e scadenze', concept: 'finanza-non-diluitiva' }),
+    ],
+  },
+  persona: {
+    label: 'Buyer persona',
+    plural: 'Buyer persona',
+    icon: 'user',
+    titleLabel: 'Nome e ruolo',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('role_type', 'Ruolo nell\'acquisto', 'select', {
+        concept: 'cliente-utente',
+        options: [
+          ['paga', 'Paga'],
+          ['usa', 'Usa'],
+          ['paga_usa', 'Paga e usa'],
+          ['influenza', 'Influenza la scelta'],
+        ],
+      }),
+      field('segment', 'Segmento', 'text'),
+      field('early_adopter', 'È un early adopter?', 'select', {
+        concept: 'early-adopter',
+        options: [
+          ['si', 'Sì: ha il problema, lo sa e cerca una soluzione'],
+          ['forse', 'Forse'],
+          ['no', 'No'],
+        ],
+      }),
+      field('profile', 'Chi è', 'textarea', { placeholder: 'Fascia d\'età o ruolo, tipo di organizzazione, dove vive o lavora', concept: 'buyer-persona' }),
+      field('habits', 'Abitudini e comportamenti', 'textarea', { placeholder: 'Come vive oggi il problema e cosa fa per risolverlo' }),
+      field('needs', 'Bisogni'),
+      field('goals', 'Obiettivi e speranze'),
+      field('fears', 'Paure e frustrazioni'),
+      field('current_solution', 'Come lo risolve oggi e quanto spende'),
+      field('channels', 'Dove trovarla', 'textarea', { placeholder: 'Siti, eventi, associazioni, gruppi che frequenta' }),
+      field('quote', 'Una frase tipica', 'textarea', { rows: 2, placeholder: 'Parole vere, prese da un\'intervista' }),
+      field('evidence', 'Su cosa si basa', 'textarea', { rows: 2, placeholder: 'Quante interviste, questionari o dati' }),
+    ],
+  },
+  vpc: {
+    label: 'Value Proposition Canvas',
+    plural: 'Value Proposition Canvas',
+    icon: 'target',
+    titleLabel: 'Titolo',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('segment', 'Segmento di clienti', 'text', { wide: true }),
+      field('jobs', 'Jobs: cosa vuole fare', 'textarea', { group: 'Profilo del cliente', help: 'Compiti funzionali, sociali ed emotivi', concept: 'vpc' }),
+      field('pains', 'Pains: difficoltà e rischi', 'textarea', { help: 'Cosa rende il compito spiacevole, costoso o rischioso' }),
+      field('gains', 'Gains: risultati desiderati', 'textarea', { help: 'Richiesti, attesi, desiderati, inaspettati' }),
+      field('products', 'Prodotti e servizi', 'textarea', { group: 'Mappa del valore' }),
+      field('pain_relievers', 'Come riduciamo i pains'),
+      field('gain_creators', 'Come creiamo i gains'),
+      field('fit', 'Fit verificato', 'textarea', { group: 'Verifica', placeholder: 'Quali pains e gains sono confermati da interviste o esperimenti' }),
+    ],
+  },
+  market: {
+    label: 'Mercato',
+    plural: 'Analisi di mercato',
+    icon: 'market',
+    titleLabel: 'Titolo',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('approach', 'Metodo di stima', 'select', {
+        concept: 'tam-sam-som',
+        options: [
+          ['top_down', 'Dall\'alto: dati di mercato'],
+          ['bottom_up', 'Dal basso: clienti raggiungibili per prezzo'],
+        ],
+      }),
+      field('tam', 'TAM: mercato totale (euro all\'anno)', 'money', { group: 'TAM: mercato totale' }),
+      field('tam_basis', 'Calcolo e fonti del TAM'),
+      field('sam', 'SAM: mercato servibile (euro all\'anno)', 'money', { group: 'SAM: mercato servibile' }),
+      field('sam_basis', 'Calcolo e fonti del SAM'),
+      field('som', 'SOM: quota ottenibile (euro all\'anno)', 'money', { group: 'SOM: quota ottenibile' }),
+      field('som_year', 'Anno di riferimento del SOM', 'int', { min: 2000, max: 2100 }),
+      field('som_basis', 'Ragionamento sul SOM', 'textarea', { placeholder: 'Concorrenza, canali, capacità del team: deve essere coerente con il piano' }),
+      field('trend', 'Tendenze', 'textarea', { group: 'Contesto', placeholder: 'Come cambierà il mercato nei prossimi 3-5 anni' }),
+      field('sources', 'Fonti', 'textarea', { placeholder: 'Una per riga, istituzionali quando possibile' }),
+    ],
+  },
+  competitors: {
+    label: 'Analisi dei concorrenti',
+    plural: 'Analisi dei concorrenti',
+    icon: 'competitors',
+    titleLabel: 'Titolo',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('gap', 'Il vuoto che vogliamo colmare', 'textarea', { wide: true, concept: 'concorrenti' }),
+      field('lessons', 'Cosa impariamo dai concorrenti'),
+    ],
+    extraKeys: ['features', 'rivals', 'cells', 'axes', 'us'],
+  },
+  teamcanvas: {
+    label: 'Team Canvas',
+    plural: 'Team Canvas',
+    icon: 'heart',
+    titleLabel: 'Titolo',
+    statuses: null,
+    singleton: true,
+    fields: TEAM_BLOCKS.map((b) => field(b.key, b.label, 'textarea', { help: b.help, rows: 3 })),
+  },
+  equity: {
+    label: 'Divisione delle quote',
+    plural: 'Divisione delle quote',
+    icon: 'pie',
+    titleLabel: 'Titolo',
+    statuses: null,
+    singleton: true,
+    fields: [
+      field('vesting', 'Vesting e accordi tra soci', 'textarea', { placeholder: 'Per esempio: 4 anni con un anno di cliff; cosa succede alle quote di chi lascia', concept: 'vesting' }),
+      field('notes', 'Note'),
+    ],
+    extraKeys: ['factors', 'founders', 'scores'],
+  },
   criteria: { label: 'Criteri di valutazione', plural: 'Criteri', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   score: { label: 'Voti', plural: 'Voti', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   generator: { label: 'Generatore', plural: 'Generatore', icon: 'generator', titleLabel: 'Titolo', statuses: null, fields: [] },
 };
 
-export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision'];
+export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors'];
+export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors'];
+export const TEAM_KINDS = ['teamcanvas', 'equity'];
+export const EDITABLE_KINDS = [...BOARD_KINDS, ...TEAM_KINDS];
 
 export function kindOf(kind) {
   return KINDS[kind] || null;
@@ -236,6 +483,7 @@ function sanitizeField(def, value) {
       return isIsoDate(value) ? value : undefined;
     case 'member':
     case 'experiment':
+    case 'interview':
       return isUuid(value) ? value : undefined;
     case 'members':
     case 'ideas': {
@@ -248,9 +496,119 @@ function sanitizeField(def, value) {
     }
     case 'scale':
       return intInRange(value, 1, 5) ?? undefined;
+    case 'money':
+      return intInRange(typeof value === 'number' ? Math.round(value) : value, 0, 1e13) ?? undefined;
+    case 'int':
+      return intInRange(value, def.min ?? 0, def.max ?? 1e9) ?? undefined;
     default:
       return undefined;
   }
+}
+
+const ROW_ID_RE = /^[a-z0-9-]{1,40}$/;
+const isRowId = (value) => typeof value === 'string' && ROW_ID_RE.test(value);
+
+function sanitizeAxisLabels(axis) {
+  const out = {};
+  const label = cleanLine(axis?.label, 60);
+  const low = cleanLine(axis?.low, 40);
+  const high = cleanLine(axis?.high, 40);
+  if (label) out.label = label;
+  if (low) out.low = low;
+  if (high) out.high = high;
+  return out;
+}
+
+function sanitizePosition(row) {
+  const out = {};
+  const x = intInRange(row?.x, 0, 10);
+  const y = intInRange(row?.y, 0, 10);
+  if (x !== null) out.x = x;
+  if (y !== null) out.y = y;
+  return out;
+}
+
+function sanitizeCompetitors(raw) {
+  const features = [];
+  const featureIds = new Set();
+  for (const row of Array.isArray(raw?.features) ? raw.features : []) {
+    const label = cleanLine(row?.label, 120);
+    if (!label || !isRowId(row?.id) || featureIds.has(row.id)) continue;
+    featureIds.add(row.id);
+    features.push({ id: row.id, label, importance: IMPORTANCE.some(([v]) => v === row.importance) ? row.importance : 'media' });
+    if (features.length >= 20) break;
+  }
+  const rivals = [];
+  const columns = new Set(['noi']);
+  for (const row of Array.isArray(raw?.rivals) ? raw.rivals : []) {
+    const name = cleanLine(row?.name, 80);
+    if (!name || !isRowId(row?.id) || columns.has(row.id)) continue;
+    columns.add(row.id);
+    const rival = { id: row.id, name, type: row.type === 'indiretto' ? 'indiretto' : 'diretto', ...sanitizePosition(row) };
+    const note = cleanLine(row?.note, 300);
+    if (note) rival.note = note;
+    rivals.push(rival);
+    if (rivals.length >= 15) break;
+  }
+  const cells = {};
+  for (const [key, value] of Object.entries(raw?.cells || {})) {
+    const [featureId, columnId] = key.split(':');
+    if (value === true && featureIds.has(featureId) && columns.has(columnId)) cells[key] = true;
+  }
+  const out = {};
+  if (features.length) out.features = features;
+  if (rivals.length) out.rivals = rivals;
+  if (Object.keys(cells).length) out.cells = cells;
+  const axes = { x: sanitizeAxisLabels(raw?.axes?.x), y: sanitizeAxisLabels(raw?.axes?.y) };
+  if (Object.keys(axes.x).length || Object.keys(axes.y).length) out.axes = axes;
+  const us = sanitizePosition(raw?.us);
+  if (Object.keys(us).length) out.us = us;
+  return out;
+}
+
+function sanitizeEquity(raw) {
+  const factors = [];
+  const factorKeys = new Set();
+  for (const row of Array.isArray(raw?.factors) ? raw.factors : []) {
+    const label = cleanLine(row?.label, 60);
+    if (!label || !isKey(row?.key) || factorKeys.has(row.key)) continue;
+    factorKeys.add(row.key);
+    factors.push({ key: row.key, label, weight: intInRange(row?.weight, 0, 10) ?? 5 });
+    if (factors.length >= 10) break;
+  }
+  const founders = [];
+  const founderIds = new Set();
+  for (const row of Array.isArray(raw?.founders) ? raw.founders : []) {
+    const name = cleanLine(row?.name, 80);
+    if (!name || !isRowId(row?.id) || founderIds.has(row.id)) continue;
+    founderIds.add(row.id);
+    founders.push({ id: row.id, name });
+    if (founders.length >= 10) break;
+  }
+  const scores = {};
+  for (const [key, value] of Object.entries(raw?.scores || {})) {
+    const [factorKey, founderId] = key.split(':');
+    const n = intInRange(value, 0, 10);
+    if (n !== null && factorKeys.has(factorKey) && founderIds.has(founderId)) scores[key] = n;
+  }
+  const out = {};
+  if (factors.length) out.factors = factors;
+  if (founders.length) out.founders = founders;
+  if (Object.keys(scores).length) out.scores = scores;
+  return out;
+}
+
+// Metodo Demmler: ogni fondatore riceve la sua parte di somma(peso del fattore x punteggio).
+export function equitySplit(data) {
+  const factors = data?.factors || [];
+  const founders = data?.founders || [];
+  const totals = founders.map((f) => ({
+    id: f.id,
+    name: f.name,
+    points: factors.reduce((sum, factor) => sum + factor.weight * (data?.scores?.[`${factor.key}:${f.id}`] || 0), 0),
+  }));
+  const all = totals.reduce((sum, t) => sum + t.points, 0);
+  return totals.map((t) => ({ ...t, percent: all ? (t.points / all) * 100 : null }));
 }
 
 function sanitizeCriteria(data) {
@@ -347,6 +705,8 @@ export function sanitizeSnapshot(kind, snapshot) {
     if (kind === 'idea' && typeof raw.origin === 'string' && /^[a-z0-9-]{1,40}:[a-z0-9-]{1,40}$/.test(raw.origin)) {
       data.origin = raw.origin;
     }
+    if (kind === 'competitors') Object.assign(data, sanitizeCompetitors(raw));
+    if (kind === 'equity') Object.assign(data, sanitizeEquity(raw));
   }
 
   const status = def.statuses
@@ -355,7 +715,7 @@ export function sanitizeSnapshot(kind, snapshot) {
       : defaultStatus(kind)
     : null;
   let ideaId = isUuid(snapshot?.idea_id) ? snapshot.idea_id : null;
-  if (!['canvas', 'experiment', 'interview'].includes(kind)) ideaId = null;
+  if (!IDEA_CHILD_KINDS.includes(kind)) ideaId = null;
 
   return {
     title: cleanLine(snapshot?.title, LIMITS.title),
@@ -413,6 +773,18 @@ export function describePath(kind, path, ctx = {}) {
       return `${ctx.axisLabel?.(rowId) || rowId} × ${ctx.axisLabel?.(colId) || colId}${what}`;
     }
   }
+  if (kind === 'competitors') {
+    if (head.startsWith('features')) return 'Funzionalità confrontate';
+    if (head.startsWith('rivals')) return 'Concorrenti';
+    if (head === 'cells') return 'Tabella di confronto';
+    if (head === 'axes') return 'Assi del grafico';
+    if (head === 'us') return 'La nostra posizione nel grafico';
+  }
+  if (kind === 'equity') {
+    if (head.startsWith('factors')) return 'Fattori e pesi';
+    if (head.startsWith('founders')) return 'Fondatori';
+    if (head === 'scores') return 'Punteggi';
+  }
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -430,9 +802,11 @@ export function formatValue(kind, path, value, ctx = {}) {
     if (def.type === 'select') return optionLabel(def, value);
     if (def.type === 'member') return ctx.memberName?.(value) || 'Membro';
     if (def.type === 'experiment') return ctx.itemTitle?.(value) || 'Esperimento';
+    if (def.type === 'interview') return ctx.itemTitle?.(value) || 'Intervista';
     if (def.type === 'members') return (Array.isArray(value) ? value : [value]).map((id) => ctx.memberName?.(id) || 'Membro');
     if (def.type === 'ideas') return (Array.isArray(value) ? value : [value]).map((id) => ctx.ideaTitle?.(id) || 'Idea');
     if (def.type === 'scale') return `${value}/5`;
+    if (def.type === 'money') return fmtMoney(value);
   }
   if (typeof value === 'boolean') return value ? 'sì' : 'no';
   return value;
@@ -443,6 +817,8 @@ export function routeFor(item) {
   if (item.kind === 'idea') return `#/idea/${item.id}`;
   if (item.kind === 'criteria' || item.kind === 'score') return '#/valutazione';
   if (item.kind === 'generator') return '#/generatore';
+  if (item.kind === 'teamcanvas') return '#/squadra';
+  if (item.kind === 'equity') return '#/squadra/quote';
   return `#/elemento/${item.id}`;
 }
 

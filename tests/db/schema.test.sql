@@ -179,6 +179,27 @@ begin
 end
 $$;
 
+\echo 'ok - i nuovi tipi rispettano stati, idea e unicità'
+do $$
+declare
+  v_equity uuid;
+  res jsonb;
+begin
+  perform public.create_item('persona', 'Persona', null, '{}', current_setting('test.idea')::uuid);
+  perform public.create_item('contact', 'Chi sentire', 'da_contattare', '{}', current_setting('test.idea')::uuid);
+  perform public.create_item('competitors', 'Concorrenti', null, '{"rivals":[{"id":"c-a","name":"A","type":"diretto"}]}', current_setting('test.idea')::uuid);
+  perform test.expect_error($q$select public.create_item('contact', 'x', 'sentita', '{}', current_setting('test.idea')::uuid)$q$, 'Stato non valido');
+  perform test.expect_error($q$select public.create_item('market', 'Mercato', null, '{}')$q$, 'appartenere a un''idea');
+  perform test.expect_error($q$select public.create_item('vpc', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
+  perform public.create_item('teamcanvas', 'Team Canvas', null, '{}');
+  perform test.expect_error($q$select public.create_item('teamcanvas', 'Secondo', null, '{}')$q$, 'items_singleton_idx');
+  perform test.expect_error($q$select public.create_item('equity', 'Quote', null, '{}', current_setting('test.idea')::uuid)$q$, 'non può appartenere');
+  v_equity := (public.create_item('equity', 'Quote', null, '{}')).id;
+  res := public.delete_item(v_equity, 1, null);
+  assert res ->> 'status' <> 'ok', 'le quote non si archiviano';
+end
+$$;
+
 \echo 'ok - un membro salva partendo dall ultima versione'
 select test.login('b');
 do $$

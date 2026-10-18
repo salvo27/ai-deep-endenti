@@ -2,6 +2,8 @@ import { h, mount } from '../lib/dom.js';
 import { BOARD_KINDS, KINDS } from '../schema.js';
 import { canWrite, getItem, isExample, on, state, trackPresence } from '../store.js';
 import { canvasView } from './canvas.js';
+import { deeptechView, marketView, vpcView } from './boards.js';
+import { competitorsView } from './competitors.js';
 import { commentsPanel } from './comments.js';
 import { aiButton } from './ai-panel.js';
 import { archiveWithConfirm, changeStatus } from './actions.js';
@@ -14,6 +16,8 @@ const TABS = [
 ];
 
 const LIST_ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
+const VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView };
+const CRITIQUE_KINDS = ['canvas', 'experiment', 'persona', 'vpc', 'market', 'competitors', 'deeptech'];
 
 export function itemView(outlet, params) {
   const example = isExample(getItem(params.id));
@@ -40,7 +44,7 @@ export function itemView(outlet, params) {
           )
         : statusPill(item.kind, item.status)
       : null;
-    const critique = ['canvas', 'experiment'].includes(item.kind) && idea && !example
+    const critique = CRITIQUE_KINDS.includes(item.kind) && idea && !example
       ? aiButton('critique', () => ({ ...ideaContext(idea.id), item }), { item, label: 'Critica' })
       : null;
 
@@ -48,7 +52,7 @@ export function itemView(outlet, params) {
     commentsEl = null;
     const body = tab === 'commenti'
       ? (commentsEl = commentsPanel(item))
-      : h('div', null, item.kind === 'canvas' ? canvasView(item) : fieldsGrid(item));
+      : h('div', null, VIEWS[item.kind] ? VIEWS[item.kind](item) : fieldsGrid(item));
 
     mount(
       outlet,

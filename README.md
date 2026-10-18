@@ -7,14 +7,20 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Sezione | A cosa serve |
 |---|---|
 | Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare, novità dall'ultima visita |
-| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con le decisioni collegate), Lean Canvas, Esperimenti, Interviste, Voti, Commenti, Storico |
+| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con il riquadro «Prossimo passo» e le decisioni collegate), Lean Canvas, Clienti, Mercato, Deep tech, Esperimenti, Persone e interviste, Voti, Commenti, Storico |
 | Esempi | Un'idea compilata per ogni fase, ispirata alla storia di startup note (Uber, Airbnb, Dropbox, Spotify, Netflix, Odeo); in sola lettura, nascondibili, fuori da statistiche e backup |
 | Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
-| Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione |
+| Clienti | Buyer persona (una per tipo di cliente) e Value Proposition Canvas a due lati |
+| Mercato | TAM, SAM e SOM in euro con fonti e controlli di coerenza; analisi dei concorrenti con tabella di confronto e grafico a due assi |
+| Deep tech | Scala TRL, rischi tecnici e di mercato, design partner, proprietà intellettuale, rapporto con l'ateneo, norme e bandi |
+| Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione; vista a colonne come il template |
+| Persone | Con chi interfacciarsi per ogni idea (clienti da intervistare, esperti, chi serve per realizzarla, ateneo, investitori), con stato, responsabile e prossimo contatto; un clic crea l'intervista |
 | Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
 | Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi |
 | Generatore | Griglia capacità del team × settori; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
+| Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
+| Guida e Concetti | Cosa fare in ogni fase dell'idea e circa novanta concetti del manuale spiegati in breve, collegati ai campi con il pulsante «?» |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
 | Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, backup |
@@ -36,6 +42,7 @@ assets/js/
   store.js                  stato condiviso, aggiornamenti dal vivo, salvataggi
   router.js                 rotte con hash (#/idee, #/idea/:id, ...)
   examples.js               idee di esempio in sola lettura, una per fase
+  guide.js, concepts.js     guida per fase e concetti del manuale
   scoring.js, ai.js, export.js
   lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
   views/                    una pagina per file

@@ -31,6 +31,7 @@ export function dashboardData(now = new Date()) {
   const myTodo = [
     ...experiments.filter((e) => e.data.owner === myId && e.status !== 'concluso'),
     ...interviews.filter((i) => i.data.interviewer === myId && i.status === 'da_fare'),
+    ...itemsOf('contact').filter((c) => c.data.owner === myId && ['da_contattare', 'contattata', 'fissata'].includes(c.status)),
   ];
   const top = ranking(active, criteriaList(), scoreItems()).slice(0, 5);
   return { allIdeas, active, running, recentInterviews, strong, pipeline, myTodo, top };
