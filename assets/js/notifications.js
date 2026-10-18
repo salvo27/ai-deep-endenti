@@ -19,6 +19,8 @@ let items = [];
 let lastRead = null;
 let newest = null;
 const seen = new Set();
+// Letture singole (clic su una notifica), oltre al «segna tutte come lette» che sposta lastRead.
+let readIds = new Set();
 
 const routeOf = (kind, id) => routeFor({ kind, id });
 const quoted = (title) => `«${title || 'senza titolo'}»`;
@@ -85,13 +87,26 @@ function add(note, { live = false } = {}) {
   return true;
 }
 
-export const notifications = () => items;
-export const unreadCount = () => items.filter((n) => !lastRead || n.at > lastRead).length;
-export const isUnread = (note) => !lastRead || note.at > lastRead;
+export const isUnread = (note) => (!lastRead || note.at > lastRead) && !readIds.has(note.id);
+export const notifications = ({ includeRead = false } = {}) => (includeRead ? items : items.filter(isUnread));
+export const unreadCount = () => items.filter(isUnread).length;
+
+function saveReadIds() {
+  writeLocal('notificheLetteSingole', [...readIds].slice(-200));
+}
+
+export function markRead(id) {
+  if (readIds.has(id)) return;
+  readIds.add(id);
+  saveReadIds();
+  emit('notifications', { note: null, live: false });
+}
 
 export function markAllRead() {
   lastRead = newest || new Date().toISOString();
+  readIds = new Set();
   writeLocal('notificheLette', lastRead);
+  saveReadIds();
   emit('notifications', { note: null, live: false });
 }
 
@@ -113,6 +128,8 @@ let offs = [];
 export async function startNotifications() {
   stopNotifications();
   lastRead = readLocal('notificheLette', null);
+  const stored = readLocal('notificheLetteSingole', []);
+  readIds = new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
   await refreshNotifications();
   if (!lastRead) markAllRead();
   offs = [

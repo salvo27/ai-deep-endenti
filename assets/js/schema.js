@@ -658,7 +658,13 @@ function sanitizeAxis(list) {
     const id = typeof row?.id === 'string' && /^[a-z0-9-]{1,40}$/.test(row.id) ? row.id : null;
     if (!label || !id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, label });
+    const axis = { id, label };
+    // Chi nel team ha questa competenza (righe) o conosce questo settore (colonne), più eventuali persone esterne.
+    const people = uniqueUuids(row?.people, 20);
+    const others = cleanLine(row?.others, 200);
+    if (people.length) axis.people = people;
+    if (others) axis.others = others;
+    out.push(axis);
     if (out.length >= 20) break;
   }
   return out;
@@ -765,7 +771,8 @@ export function describePath(kind, path, ctx = {}) {
     if (axis) {
       const name = axis[1] === 'rows' ? 'Righe' : 'Colonne';
       if (rest.endsWith('#order')) return `${name} › ordine`;
-      return axis[2] ? `${name} › ${ctx.axisLabel?.(axis[2]) || axis[2]}` : name;
+      const what = tail[0] === 'people' || tail[0] === 'others' ? ' › persone' : '';
+      return axis[2] ? `${name} › ${ctx.axisLabel?.(axis[2]) || axis[2]}${what}` : name;
     }
     if (head === 'cells') {
       const [rowId, colId] = (tail[0] || '').split(':');

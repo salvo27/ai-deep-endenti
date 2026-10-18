@@ -92,11 +92,12 @@ test('criteria, scores and generator are sanitized by shape', () => {
   const gen = sanitizeSnapshot('generator', {
     data: {
       rows: [{ id: 'r-a', label: 'A' }, { id: 'r-a', label: 'dup' }, { id: 'R B', label: 'bad id' }],
-      cols: [{ id: 'c-x', label: 'X' }],
+      cols: [{ id: 'c-x', label: 'X', people: [IDEA, IDEA, 'non uuid'], others: '  Prof. esterno  ' }],
       cells: { 'r-a:c-x': { text: 'ok', potential: 2 }, 'r-z:c-x': { text: 'orfana' }, 'r-a:c-x2': { text: 'no' } },
     },
   });
   assert.deepEqual(gen.data.rows, [{ id: 'r-a', label: 'A' }]);
+  assert.deepEqual(gen.data.cols, [{ id: 'c-x', label: 'X', people: [IDEA], others: 'Prof. esterno' }], 'persone: solo id validi, senza doppioni');
   assert.deepEqual(gen.data.cells, { 'r-a:c-x': { text: 'ok', potential: 2 } });
 });
 
@@ -132,6 +133,7 @@ test('describePath gives readable labels for history paths', () => {
   assert.equal(describePath('generator', 'data.cells.r-a:c-x.text', ctx), 'XAI × Settore A');
   assert.equal(describePath('generator', 'data.cells.r-a:c-x.potential', ctx), 'XAI × Settore A › potenziale');
   assert.equal(describePath('generator', 'data.rows#r-a.label', ctx), 'Righe › XAI');
+  assert.equal(describePath('generator', 'data.rows#r-a.people', ctx), 'Righe › XAI › persone');
   assert.equal(describePath('generator', 'data.cols.#order', ctx), 'Colonne › ordine');
 });
 

@@ -319,6 +319,38 @@ test('the generator adds and removes rows and creates the default grid', async (
   assert.equal(created.data.rows.length, 3);
 });
 
+test('generator rows and columns list the people who have that skill or know that sector', async () => {
+  const saved = [];
+  api.saveItem = async (args) => {
+    saved.push(args);
+    return { status: 'ok', item: item({ ...store.getItem(IDS.generator), version: saved.length + 1, data: args.snapshot.data }) };
+  };
+  const outlet = document.createElement('main');
+  const off = mods.generator.generatorView(outlet);
+  outlet.querySelector('button[aria-label="Modifica XAI"]').click();
+  await flush();
+  const box = [...dialog().querySelectorAll('label.check')].find((l) => /Bruno/.test(l.textContent)).querySelector('input');
+  box.checked = true;
+  box.dispatchEvent(new window.Event('change'));
+  dialog().querySelectorAll('input[type="text"]')[1].value = 'Prof. esterno';
+  byText(dialog(), 'button', 'Salva').click();
+  await flush(10);
+  const row = saved[0].snapshot.data.rows.find((r) => r.id === 'r-xai');
+  assert.deepEqual(row.people, [OTHER]);
+  assert.equal(row.others, 'Prof. esterno');
+  assert.equal(row.label, 'XAI');
+  assert.match(saved[0].message, /modificata riga «XAI»/);
+  await flush();
+  const head = outlet.querySelector('tbody th .axis-people');
+  assert.ok(head.querySelector('.avatar[title="Bruno"]'));
+  assert.match(text(head), /Prof\. esterno/);
+  outlet.querySelector('.gen-cell-btn').click();
+  await flush();
+  assert.match(text(dialog()), /Competenza \(XAI\): Bruno, Prof\. esterno/);
+  byText(dialog(), 'button', 'Chiudi').click();
+  off();
+});
+
 test('a generator cell can ask Claude and turn into a new idea', async () => {
   api.invokeClaude = async () => ({ text: 'Idea A\nIdea B' });
   const outlet = document.createElement('main');

@@ -66,7 +66,8 @@ test('the feed keeps only what others did, counts unread and remembers what was 
     comments: [],
   });
   await notes.startNotifications();
-  assert.equal(notes.notifications().length, 2);
+  assert.equal(notes.notifications({ includeRead: true }).length, 2);
+  assert.equal(notes.notifications().length, 1, 'l\'elenco mostra solo quelle da leggere');
   assert.equal(notes.unreadCount(), 1);
   notes.markAllRead();
   assert.equal(notes.unreadCount(), 0);
@@ -76,7 +77,7 @@ test('the feed keeps only what others did, counts unread and remembers what was 
 test('on first use the old activity is not dumped as unread', async () => {
   api.activityFeed = async () => ({ revisions: [rev({ id: 5, op: 'create' })], comments: [] });
   await notes.startNotifications();
-  assert.equal(notes.notifications().length, 1);
+  assert.equal(notes.notifications({ includeRead: true }).length, 1);
   assert.equal(notes.unreadCount(), 0);
 });
 
@@ -97,7 +98,41 @@ test('the bell shows live notifications, opens the list and marks them read', as
   assert.ok(panel.querySelector('.bell-item.is-unread a[href="#/idea/' + IDS.idea + '"]'));
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
   assert.equal(panel.hidden, true);
+  assert.equal(bell.querySelector('.bell-badge').textContent, '1', 'chiudere il pannello non segna niente come letto');
+  bell.remove();
+});
+
+test('read notifications leave the list, one by one or all together', async () => {
+  store.writeLocal('notificheLette', '2026-10-18T09:00:00Z');
+  api.activityFeed = async () => ({
+    revisions: [rev({ id: 11, op: 'create', title: 'Prima', created_at: '2026-10-18T10:00:00Z' }), rev({ id: 12, op: 'create', title: 'Seconda', created_at: '2026-10-18T11:00:00Z' }), rev({ id: 13, op: 'create', title: 'Terza', created_at: '2026-10-18T12:00:00Z' })],
+    comments: [],
+  });
+  const bell = bellView.notificationBell();
+  document.body.append(bell);
+  await notes.startNotifications();
+  const panel = bell.querySelector('.bell-panel');
+  bell.querySelector('button.bell').click();
+  assert.equal(panel.querySelectorAll('.bell-item').length, 3);
+
+  panel.querySelector('.bell-item a').click();
+  assert.equal(notes.unreadCount(), 2, 'aprire una notifica segna come letta solo quella');
+  bell.querySelector('button.bell').click();
+  assert.equal(panel.querySelectorAll('.bell-item').length, 2);
+  assert.doesNotMatch(text(panel), /Terza/);
+
+  [...panel.querySelectorAll('button')].find((b) => /Segna tutte come lette/.test(b.textContent)).click();
+  assert.equal(panel.querySelectorAll('.bell-item').length, 0);
+  assert.match(text(panel), /Nessuna novità da leggere/);
   assert.equal(bell.querySelector('.bell-badge').hidden, true);
+
+  [...panel.querySelectorAll('button')].find((b) => /Mostra anche quelle già lette/.test(b.textContent)).click();
+  assert.equal(panel.querySelectorAll('.bell-item').length, 3);
+  assert.equal(panel.querySelectorAll('.bell-item.is-unread').length, 0);
+
+  notes.stopNotifications();
+  await notes.startNotifications();
+  assert.equal(notes.unreadCount(), 0, 'le letture restano dopo aver ricaricato');
   bell.remove();
 });
 

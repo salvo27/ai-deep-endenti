@@ -1,12 +1,12 @@
-import { h, mount, autoGrow, busy, confirmDialog, openModal, promptDialog, toast } from '../lib/dom.js';
+import { h, mount, autoGrow, busy, confirmDialog, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { snapshotOf } from '../lib/diff.js';
 import { shortId, truncate } from '../lib/format.js';
-import { canWrite, createItem, ideas, on, singleton } from '../store.js';
+import { canWrite, createItem, ideas, memberName, on, singleton, state } from '../store.js';
 import { navigate } from '../router.js';
 import { saveWithMerge } from './merge.js';
 import { openAiPanel } from './ai-panel.js';
-import { button, emptyState, itemLink, pageHeader } from './components.js';
+import { avatar, button, emptyState, itemLink, pageHeader } from './components.js';
 
 export const DEFAULT_GENERATOR = {
   rows: [
@@ -72,6 +72,8 @@ function cellDialog(gen, row, col, writable) {
       { class: 'cell-dialog' },
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Spunti'), text),
       h('label', { class: 'field' }, potential),
+      peopleLine(`Competenza (${row.label})`, row),
+      peopleLine(`Settore (${col.label})`, col),
       h(
         'div',
         { class: 'row' },
@@ -103,15 +105,79 @@ function cellDialog(gen, row, col, writable) {
   });
 }
 
-async function editAxis(kind, axis) {
-  const name = kind === 'rows' ? 'riga' : 'colonna';
-  const label = await promptDialog({ title: axis ? `Rinomina la ${name}` : `Nuova ${name}`, label: 'Nome', value: axis?.label || '', maxLength: 80, okLabel: 'Salva' });
-  if (label === null || !label.trim()) return;
-  await saveGenerator((data) => {
-    data[kind] = data[kind] || [];
-    if (axis) data[kind] = data[kind].map((a) => (a.id === axis.id ? { ...a, label: label.trim() } : a));
-    else data[kind].push({ id: `${kind === 'rows' ? 'r' : 'c'}-${shortId().slice(0, 8)}`, label: label.trim() });
-  }, axis ? `Generatore: rinominata ${name} «${label.trim()}»` : `Generatore: nuova ${name} «${label.trim()}»`);
+const AXIS_TEXT = {
+  rows: { name: 'riga', who: 'Chi nel team ha questa competenza', others: 'Altre persone con questa competenza' },
+  cols: { name: 'colonna', who: 'Chi nel team conosce questo settore', others: 'Altre persone che conoscono il settore' },
+};
+
+function editAxis(kind, axis) {
+  const t = AXIS_TEXT[kind];
+  const people = new Set(axis?.people || []);
+  const label = h('input', { type: 'text', class: 'input', maxlength: 80, value: axis?.label || '' });
+  const others = h('input', { type: 'text', class: 'input', maxlength: 200, value: axis?.others || '', placeholder: 'Per esempio un docente o un partner esterno' });
+  const choices = state.members.length
+    ? h(
+        'div',
+        { class: 'check-list' },
+        state.members.map((m) =>
+          h(
+            'label',
+            { class: 'check' },
+            h('input', { type: 'checkbox', checked: people.has(m.user_id), onChange: (e) => (e.target.checked ? people.add(m.user_id) : people.delete(m.user_id)) }),
+            m.display_name,
+          ),
+        ),
+      )
+    : h('p', { class: 'muted small' }, 'Nessun membro nel team.');
+  openModal({
+    title: axis ? `Modifica la ${t.name}` : `Nuova ${t.name}`,
+    body: h(
+      'div',
+      { class: 'stack' },
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome'), label),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, t.who), choices),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.others), others),
+    ),
+    actions: [
+      { label: 'Annulla', value: false },
+      {
+        label: 'Salva',
+        kind: 'primary',
+        onClick: async () => {
+          const name = label.value.trim();
+          if (!name) {
+            label.focus();
+            return true;
+          }
+          const values = { label: name, people: [...people], others: others.value.trim() };
+          const ok = await saveGenerator((data) => {
+            data[kind] = data[kind] || [];
+            if (axis) data[kind] = data[kind].map((a) => (a.id === axis.id ? { ...a, ...values } : a));
+            else data[kind].push({ id: `${kind === 'rows' ? 'r' : 'c'}-${shortId().slice(0, 8)}`, ...values });
+          }, axis ? `Generatore: modificata ${t.name} «${name}»` : `Generatore: nuova ${t.name} «${name}»`);
+          return !ok;
+        },
+      },
+    ],
+  });
+  setTimeout(() => label.focus(), 0);
+}
+
+// Membri come avatar, persone esterne come testo.
+function axisPeople(axis) {
+  const ids = axis.people || [];
+  if (!ids.length && !axis.others) return null;
+  return h(
+    'div',
+    { class: 'axis-people' },
+    ids.map((id) => avatar(id, 20)),
+    axis.others ? h('span', { class: 'muted small' }, axis.others) : null,
+  );
+}
+
+function peopleLine(label, axis) {
+  const names = [...(axis.people || []).map(memberName), axis.others].filter(Boolean);
+  return names.length ? h('p', { class: 'small' }, h('strong', null, `${label}: `), names.join(', ')) : null;
 }
 
 async function removeAxis(kind, axis) {
@@ -146,10 +212,10 @@ export function generatorView(outlet) {
       h(
         'div',
         { class: 'axis' },
-        h('span', null, axis.label),
+        h('div', { class: 'axis-main' }, h('span', null, axis.label), axisPeople(axis)),
         writable
           ? h('span', { class: 'axis-actions' },
-              h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Rinomina ${axis.label}`, onClick: () => editAxis(kind, axis) }, icon('edit', 14)),
+              h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Modifica ${axis.label}`, onClick: () => editAxis(kind, axis) }, icon('edit', 14)),
               h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Togli ${axis.label}`, onClick: () => removeAxis(kind, axis) }, icon('close', 14)))
           : null,
       );
@@ -157,7 +223,7 @@ export function generatorView(outlet) {
       outlet,
       pageHeader({
         title: 'Generatore',
-        subtitle: 'Righe: cosa sa fare il team. Colonne: settori. Ogni cella è uno spunto; quelle promettenti diventano idee.',
+        subtitle: 'Righe: cosa sa fare il team, con chi ha quella competenza. Colonne: settori, con chi li conosce. Ogni cella è uno spunto; quelle promettenti diventano idee.',
         actions: writable ? [button('Riga', { iconName: 'plus', onClick: () => editAxis('rows') }), button('Colonna', { iconName: 'plus', onClick: () => editAxis('cols') })] : [],
       }),
       h(
@@ -198,7 +264,11 @@ export function generatorView(outlet) {
     );
   };
   render();
-  return on('item', ({ item }) => {
-    if (item.kind === 'generator' || item.kind === 'idea') render();
-  });
+  const offs = [
+    on('item', ({ item }) => {
+      if (item.kind === 'generator' || item.kind === 'idea') render();
+    }),
+    on('members', render),
+  ];
+  return () => offs.forEach((off) => off());
 }

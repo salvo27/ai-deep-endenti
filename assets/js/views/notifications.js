@@ -1,7 +1,7 @@
 import { h, mount, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { on } from '../store.js';
-import { browserAlert, isUnread, markAllRead, notifications, unreadCount } from '../notifications.js';
+import { browserAlert, isUnread, markAllRead, markRead, notifications, unreadCount } from '../notifications.js';
 import { avatar, timeAgo } from './components.js';
 
 export function notificationBell() {
@@ -14,6 +14,7 @@ export function notificationBell() {
   );
   const panel = h('div', { class: 'bell-panel', hidden: true, role: 'dialog', 'aria-label': 'Notifiche' });
   const box = h('div', { class: 'bell-box' }, button, panel);
+  let showRead = false;
 
   const renderBadge = () => {
     const n = unreadCount();
@@ -23,10 +24,12 @@ export function notificationBell() {
   };
 
   const renderPanel = () => {
-    const list = notifications();
+    const list = notifications({ includeRead: showRead });
+    const unread = unreadCount();
+    const hasRead = notifications({ includeRead: true }).length > unread;
     mount(
       panel,
-      h('div', { class: 'bell-head' }, h('strong', null, 'Notifiche'), list.length ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markAllRead() }, 'Segna come lette') : null),
+      h('div', { class: 'bell-head' }, h('strong', null, 'Notifiche'), unread ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markAllRead() }, 'Segna tutte come lette') : null),
       list.length
         ? h(
             'ul',
@@ -37,14 +40,27 @@ export function notificationBell() {
                 { class: ['bell-item', isUnread(note) && 'is-unread'] },
                 h(
                   'a',
-                  { href: note.href, onClick: () => close() },
+                  {
+                    href: note.href,
+                    onClick: () => {
+                      markRead(note.id);
+                      close();
+                    },
+                  },
                   avatar(note.authorId, 26),
                   h('span', { class: 'bell-text' }, note.text, h('span', { class: 'muted small' }, ' · ', timeAgo(note.at))),
                 ),
               ),
             ),
           )
-        : h('p', { class: 'muted small bell-empty' }, 'Nessuna novità dagli altri nelle ultime due settimane.'),
+        : h('p', { class: 'muted small bell-empty' }, 'Nessuna novità da leggere.'),
+      hasRead
+        ? h(
+            'button',
+            { type: 'button', class: 'link-btn small bell-toggle', onClick: () => { showRead = !showRead; renderPanel(); } },
+            showRead ? 'Nascondi quelle già lette' : 'Mostra anche quelle già lette',
+          )
+        : null,
       h('p', { class: 'muted small bell-foot' }, 'Avvisi anche quando il sito è in un\'altra scheda: ', h('a', { href: '#/profilo', onClick: () => close() }, 'attivali dal Profilo'), '.'),
     );
   };
@@ -68,7 +84,7 @@ export function notificationBell() {
     button.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside);
     document.removeEventListener('keydown', onKey);
-    if (unreadCount()) markAllRead();
+    showRead = false;
   }
   button.addEventListener('click', () => (panel.hidden ? open() : close()));
 

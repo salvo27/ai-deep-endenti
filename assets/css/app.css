@@ -1997,6 +1997,19 @@ dialog::backdrop {
   gap: 0.25rem;
 }
 
+.axis-main {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.axis-people {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 400;
+}
+
 .axis-actions {
   display: inline-flex;
   opacity: 0.4;
@@ -2152,6 +2165,15 @@ dialog::backdrop {
 .bell-foot {
   margin: 0;
   padding: 0.75rem 0.9rem 0.25rem;
+}
+
+.bell-toggle {
+  display: block;
+  margin: 0.5rem 0.9rem 0;
+}
+
+.bell-item:not(.is-unread) a {
+  opacity: 0.7;
 }
 
 @media (max-width: 600px) {
