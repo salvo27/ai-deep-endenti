@@ -154,3 +154,12 @@ test('GitHub Actions are pinned to full commit SHAs and the workflow starts read
     assert.doesNotMatch(source, /pull_request_target/, `${file}: pull_request_target espone i segreti`);
   }
 });
+
+test('auth config closes signups but keeps email and password login on', () => {
+  const config = readFileSync(join(ROOT, 'supabase/config.toml'), 'utf8');
+  const section = (name) => config.split(/^\[/m).find((s) => s.startsWith(`${name}]`)) || '';
+  assert.match(section('auth'), /^enable_signup = false$/m, 'registrazioni pubbliche chiuse');
+  assert.match(section('auth.email'), /^enable_signup = true$/m, 'su Supabase questa voce accende il login con email');
+  assert.match(section('auth.mfa.totp'), /^enroll_enabled = true$/m);
+  assert.match(section('auth'), /^minimum_password_length = 12$/m);
+});

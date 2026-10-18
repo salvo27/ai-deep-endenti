@@ -231,3 +231,20 @@ test('idle logout signs out after inactivity and resets on activity', async () =
   assert.equal(signedOut, 1);
   stop();
 });
+
+test('the eye button shows and hides the password without losing it', () => {
+  auth.loginScreen(root, () => {});
+  const input = root.querySelector('input[name="password"]');
+  const toggle = root.querySelector('.pw-toggle');
+  typeInto(input, 'Segreta-Lunga-1');
+  assert.equal(toggle.getAttribute('aria-label'), 'Mostra password');
+  toggle.click();
+  assert.equal(input.type, 'text');
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(toggle.getAttribute('aria-label'), 'Nascondi password');
+  toggle.click();
+  assert.equal(input.type, 'password');
+  assert.equal(input.value, 'Segreta-Lunga-1');
+  auth.newPasswordScreen(root, () => {});
+  assert.equal(root.querySelectorAll('.pw-toggle').length, 2);
+});

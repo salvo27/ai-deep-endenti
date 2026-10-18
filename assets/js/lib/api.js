@@ -25,6 +25,8 @@ const AUTH_MESSAGES = {
   user_banned: 'Account disattivato.',
   email_not_confirmed: 'Account non ancora attivo. Contatta l\'amministratore.',
   mfa_factor_name_conflict: 'Esiste già un dispositivo con questo nome.',
+  email_provider_disabled: 'L\'accesso con email e password è disattivato. Avvisa l\'amministratore.',
+  signup_disabled: 'Le registrazioni sono chiuse: gli account li crea l\'amministratore.',
 };
 
 const DB_MESSAGES = {

@@ -47,6 +47,22 @@ function showError(box, error) {
   box.hidden = false;
 }
 
+export function passwordInput(attrs = {}) {
+  const input = h('input', { class: 'input', type: 'password', maxlength: 128, ...attrs });
+  const toggle = h('button', { type: 'button', class: 'pw-toggle', 'aria-label': 'Mostra password', 'aria-pressed': 'false', title: 'Mostra password' }, icon('eye', 18));
+  toggle.addEventListener('click', () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    const label = show ? 'Nascondi password' : 'Mostra password';
+    toggle.setAttribute('aria-pressed', String(show));
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+    toggle.replaceChildren(icon(show ? 'eyeOff' : 'eye', 18));
+    input.focus();
+  });
+  return { input, field: h('div', { class: 'pw-field' }, input, toggle) };
+}
+
 function codeInput() {
   return h('input', {
     class: 'input input-code',
@@ -63,14 +79,14 @@ function codeInput() {
 
 export function loginScreen(root, done) {
   const email = h('input', { class: 'input', type: 'email', name: 'email', autocomplete: 'username', required: true, maxlength: 254 });
-  const password = h('input', { class: 'input', type: 'password', name: 'password', autocomplete: 'current-password', required: true, maxlength: 128 });
+  const { input: password, field: passwordField } = passwordInput({ name: 'password', autocomplete: 'current-password', required: true });
   const error = errorBox();
   const submit = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Accedi');
   const form = h(
     'form',
     { class: 'form', novalidate: true },
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Email'), email),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Password'), password),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Password'), passwordField),
     error,
     submit,
     h('button', { class: 'link-btn', type: 'button', onClick: () => resetScreen(root, done, email.value) }, 'Password dimenticata?'),
@@ -232,15 +248,15 @@ export async function enrollScreen(root, done) {
 }
 
 export function newPasswordScreen(root, done) {
-  const password = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', required: true, maxlength: 128 });
-  const confirm = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', required: true, maxlength: 128 });
+  const { input: password, field: passwordField } = passwordInput({ autocomplete: 'new-password', required: true });
+  const { input: confirm, field: confirmField } = passwordInput({ autocomplete: 'new-password', required: true });
   const error = errorBox();
   const submit = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Salva la nuova password');
   const form = h(
     'form',
     { class: 'form', novalidate: true },
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nuova password'), password),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ripeti la password'), confirm),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nuova password'), passwordField),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ripeti la password'), confirmField),
     h('p', { class: 'muted small' }, 'Almeno 12 caratteri, con minuscole, maiuscole e un numero.'),
     error,
     submit,

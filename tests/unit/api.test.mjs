@@ -25,6 +25,7 @@ test('errors are translated to generic Italian messages without internal details
   assert.equal(toAppError({ code: 'invalid_credentials', message: 'Invalid login for mario@x.it' }).message, 'Email o password non corretti.');
   assert.equal(toAppError({ code: '42501', message: 'new row violates row-level security policy for table "items"' }).message, 'Non hai i permessi per questa operazione.');
   assert.equal(toAppError({ code: 'P0001', message: 'Il titolo è obbligatorio' }).message, 'Il titolo è obbligatorio');
+  assert.match(toAppError({ code: 'email_provider_disabled', message: 'Email logins are disabled' }).message, /disattivato/);
   assert.equal(toAppError({ status: 429 }).code, null);
   assert.match(toAppError({ status: 429 }).message, /Troppi tentativi/);
   assert.match(toAppError({ name: 'TypeError', message: 'Failed to fetch' }).message, /Connessione/);

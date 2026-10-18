@@ -24,8 +24,9 @@ verify_enabled = true
 enroll_enabled = false
 verify_enabled = false
 
+# Su Supabase questa voce accende il login con email e password: le registrazioni le chiude enable_signup in [auth].
 [auth.email]
-enable_signup = false
+enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
 secure_password_change = false

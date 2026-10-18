@@ -2,7 +2,7 @@ import { h, mount, busy, confirmDialog, openModal, toast } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { fmtDateTime } from '../lib/format.js';
 import { LIMITS, cleanLine, isHexColor, passwordProblem } from '../lib/validate.js';
-import { enrollFlow, verifiedTotp } from '../auth.js';
+import { enrollFlow, passwordInput, verifiedTotp } from '../auth.js';
 import { reloadMembers, state } from '../store.js';
 import { button, errorBox, loading, pageHeader } from './components.js';
 import { roleLabel } from './team.js';
@@ -35,15 +35,15 @@ function profileCard() {
 }
 
 function passwordCard() {
-  const password = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', maxlength: 128 });
-  const confirm = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', maxlength: 128 });
+  const { input: password, field: passwordField } = passwordInput({ autocomplete: 'new-password' });
+  const { input: confirm, field: confirmField } = passwordInput({ autocomplete: 'new-password' });
   const error = h('div');
   const save = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Cambia password');
   const form = h(
     'form',
     { class: 'card form' },
     h('h2', null, 'Password'),
-    h('div', { class: 'form-grid' }, h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nuova password'), password), h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ripeti'), confirm)),
+    h('div', { class: 'form-grid' }, h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nuova password'), passwordField), h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ripeti'), confirmField)),
     h('p', { class: 'muted small' }, 'Almeno 12 caratteri, con minuscole, maiuscole e un numero.'),
     error,
     save,
