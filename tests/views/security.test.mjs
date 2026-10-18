@@ -140,3 +140,17 @@ test('every public table in the schema has row level security', () => {
   }
   assert.match(schema, /coalesce\(auth\.jwt\(\) ->> 'aal', ''\) = 'aal2'/);
 });
+
+test('GitHub Actions are pinned to full commit SHAs and the workflow starts read-only', () => {
+  const dir = join(ROOT, '.github/workflows');
+  const files = readdirSync(dir).filter((f) => f.endsWith('.yml'));
+  assert.ok(files.length > 0);
+  for (const file of files) {
+    const source = readFileSync(join(dir, file), 'utf8');
+    const uses = [...source.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]);
+    assert.ok(uses.length > 0, file);
+    for (const ref of uses) assert.match(ref, /@[0-9a-f]{40}$/, `${file}: ${ref}`);
+    assert.match(source, /^permissions:\n {2}contents: read$/m, `${file}: permessi predefiniti di sola lettura`);
+    assert.doesNotMatch(source, /pull_request_target/, `${file}: pull_request_target espone i segreti`);
+  }
+});

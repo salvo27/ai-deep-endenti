@@ -105,9 +105,22 @@ supabase functions deploy claude --project-ref ixhnqeabctkpflwkdarj --use-api
 
 Variabili facoltative: `AI_DAILY_LIMIT` (richieste per persona nelle ultime 24 ore, predefinito 40), `CLAUDE_MODEL` (predefinito `claude-opus-5-5`), `CLAUDE_EFFORT` (predefinito `medium`). Le risposte rifiutate dai filtri di sicurezza di Claude vengono ripetute automaticamente su un modello alternativo (`fallbacks: "default"`).
 
-### 5. GitHub Pages
+### 5. Pubblicazione automatica
 
-**Settings › Pages › Deploy from a branch**, branch `main`, cartella `/ (root)`. Il sito sarà su `https://salvo27.github.io/ai-deep-endenti/`.
+Il workflow `.github/workflows/deploy.yml` parte a ogni push su `main`:
+
+1. esegue i test del sito, della funzione e del database;
+2. solo se passano, pubblica su GitHub Pages `index.html` e `assets/` (niente test, documenti o schema);
+3. se sono cambiati i file in `supabase/functions/`, ripubblica la funzione di Claude.
+
+Sulle pull request esegue solo i test. Se un test fallisce, il sito resta alla versione precedente.
+
+Da fare una volta sola:
+
+- **Settings › Pages › Build and deployment › Source: GitHub Actions.** Il sito sarà su `https://salvo27.github.io/ai-deep-endenti/`.
+- **Facoltativo, per pubblicare la funzione da GitHub:** crea un token su [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens) e aggiungilo in **Settings › Secrets and variables › Actions** come `SUPABASE_ACCESS_TOKEN`. Il token dà accesso a tutti i progetti del tuo account Supabase, non solo a questo: se preferisci non metterlo su GitHub, il passaggio viene saltato e la funzione si pubblica a mano con il comando del punto 4.
+
+Lo schema del database non si applica mai da solo. Per applicarlo da GitHub: **Actions › Test e pubblicazione › Run workflow**, con "Applica supabase/schema.sql" spuntato (serve lo stesso segreto). Dopo l'applicazione il workflow lancia i controlli di sicurezza di Supabase.
 
 ### 6. Primo avvio
 

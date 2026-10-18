@@ -7,7 +7,7 @@ Numeri al 18 ottobre 2026:
 | | Test | Copertura |
 |---|---|---|
 | Database (PostgreSQL 16, script SQL) | 25 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza |
-| Sito e funzione di Claude (`node:test`, jsdom) | 175 | 96% delle righe e 85% dei rami del codice dell'app |
+| Sito e funzione di Claude (`node:test`, jsdom) | 176 | 96% delle righe e 85% dei rami del codice dell'app |
 
 ## 1. Come sono stati scritti
 
@@ -47,7 +47,7 @@ npm run test:coverage
 npm run test:db
 ```
 
-`npm run test:db` richiede PostgreSQL 15 o successivo installato localmente; crea un database temporaneo e lo cancella alla fine.
+`npm run test:db` richiede PostgreSQL 15 o successivo installato localmente; crea un database temporaneo e lo cancella alla fine. Gli stessi test girano su GitHub Actions a ogni push e su ogni pull request, con Node 22 e il PostgreSQL già presente sui server di GitHub.
 
 ## 3. Cosa non è testato
 
@@ -57,5 +57,5 @@ npm run test:db
 | Browser vero | jsdom non applica la Content Security Policy, non disegna la pagina e non supporta davvero trascinamento e finestre modali native. |
 | Flussi tra più persone | I conflitti di versione sono verificati, ma non due salvataggi realmente contemporanei sul database. |
 | Claude vero | Si verifica come la funzione usa la risposta, non la qualità delle risposte. |
-| Deploy | Pubblicazione su GitHub Pages e deploy della funzione non sono automatizzati né testati. |
+| Deploy | Il workflow di GitHub Actions esegue tutti i test prima di pubblicare, ma la pubblicazione su Pages e il deploy della funzione non hanno test propri: si verificano guardando il risultato del workflow. |
 | Qualità dei test | La copertura misura il codice eseguito, non gli errori che i test catturerebbero. Il mutation testing non è stato fatto. |

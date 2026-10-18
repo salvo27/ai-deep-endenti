@@ -9,7 +9,7 @@ root="$(cd "$here/../.." && pwd)"
 if command -v pg_ctl >/dev/null 2>&1; then
   pg_bin="$(dirname "$(command -v pg_ctl)")"
 else
-  pg_bin="$(ls -d /opt/homebrew/opt/postgresql@*/bin /usr/local/opt/postgresql@*/bin /usr/lib/postgresql/*/bin 2>/dev/null | tail -1)"
+  pg_bin="$(ls -d /opt/homebrew/opt/postgresql@*/bin /usr/local/opt/postgresql@*/bin /usr/lib/postgresql/*/bin 2>/dev/null | tail -1 || true)"
 fi
 if [ -z "${pg_bin:-}" ] || [ ! -x "$pg_bin/pg_ctl" ]; then
   echo "PostgreSQL non trovato: installalo (es. brew install postgresql@16) o imposta PATH" >&2
