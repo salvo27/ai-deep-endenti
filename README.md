@@ -10,7 +10,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con il riquadro «Prossimo passo» e le decisioni collegate), Lean Canvas, Clienti, Mercato, Deep tech, Esperimenti, Persone e interviste, Voti, Commenti, Storico |
 | Esempi | Un'idea compilata per ogni fase, ispirata alla storia di startup note (Uber, Airbnb, Dropbox, Spotify, Netflix, Odeo); in sola lettura, nascondibili, fuori da statistiche e backup |
 | Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
-| Clienti | Buyer persona (una per tipo di cliente) e Value Proposition Canvas a due lati |
+| Clienti | Buyer persona a scheda (una per tipo di cliente) con foto, dati demografici, obiezioni e fonti di informazione; Value Proposition Canvas a due lati |
 | Mercato | TAM, SAM e SOM in euro con fonti e controlli di coerenza; analisi dei concorrenti con tabella di confronto e grafico a due assi |
 | Deep tech | Scala TRL, rischi tecnici e di mercato, design partner, proprietà intellettuale, rapporto con l'ateneo, norme e bandi |
 | Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione; vista a colonne come il template |

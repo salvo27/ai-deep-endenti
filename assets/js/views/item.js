@@ -2,7 +2,7 @@ import { h, mount } from '../lib/dom.js';
 import { BOARD_KINDS, KINDS } from '../schema.js';
 import { canWrite, getItem, isExample, on, state, trackPresence } from '../store.js';
 import { canvasView } from './canvas.js';
-import { deeptechView, marketView, vpcView } from './boards.js';
+import { deeptechView, marketView, personaView, vpcView } from './boards.js';
 import { competitorsView } from './competitors.js';
 import { commentsPanel } from './comments.js';
 import { aiButton } from './ai-panel.js';
@@ -16,7 +16,7 @@ const TABS = [
 ];
 
 const LIST_ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
-const VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView };
+const VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView, persona: personaView };
 const CRITIQUE_KINDS = ['canvas', 'experiment', 'persona', 'vpc', 'market', 'competitors', 'deeptech'];
 
 export function itemView(outlet, params) {

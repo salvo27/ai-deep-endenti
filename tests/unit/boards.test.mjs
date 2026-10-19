@@ -133,3 +133,18 @@ test('the next step checklist follows the idea status and the board data', () =>
   assert.equal(list.find((c) => /Quote/.test(c.label)).done, true);
   assert.equal(list.find((c) => /Quote/.test(c.label)).href, '#/squadra/quote');
 });
+
+test('a persona photo is accepted only as a small raster data URL', () => {
+  const jpeg = `data:image/jpeg;base64,${'A'.repeat(200)}`;
+  const keep = (photo) => schema.sanitizeSnapshot('persona', { title: 'P', idea_id: IDEA, data: { photo } }).data.photo;
+  assert.equal(keep(jpeg), jpeg);
+  assert.equal(keep(`data:image/png;base64,${'A'.repeat(200)}=`), `data:image/png;base64,${'A'.repeat(200)}=`);
+  assert.equal(keep('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='), undefined, 'niente SVG');
+  assert.equal(keep('javascript:alert(1)'), undefined);
+  assert.equal(keep(`data:image/jpeg;base64,${'A'.repeat(130000)}`), undefined, 'troppo grande');
+  assert.equal(keep('data:image/jpeg;base64,AAA"><script>'), undefined);
+  assert.equal(schema.formatValue('persona', 'data.photo', jpeg), 'foto');
+  assert.equal(schema.describePath('persona', 'data.photo'), 'Foto');
+  const clean = schema.sanitizeSnapshot('persona', { title: 'P', idea_id: IDEA, data: { gender: 'donna', age_range: ' 30-50 anni ', objections: 'Prezzo', info_sources: 'Blog', gender_bad: 'x' } });
+  assert.deepEqual(clean.data, { age_range: '30-50 anni', gender: 'donna', objections: 'Prezzo', info_sources: 'Blog' });
+});

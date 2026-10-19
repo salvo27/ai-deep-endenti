@@ -5,7 +5,7 @@ import { criteriaList, itemsOf, labelContext, scoreItems, state } from './store.
 import { ideaScore } from './scoring.js';
 
 function mdValue(def, value) {
-  if (value === undefined || value === null || value === '') return null;
+  if (value === undefined || value === null || value === '' || def.type === 'image') return null;
   if (def.type === 'member') return labelContext.memberName(value);
   if (def.type === 'members') return value.map(labelContext.memberName).join(', ');
   if (def.type === 'ideas') return value.map((id) => labelContext.ideaTitle(id) || 'Idea').join(', ');

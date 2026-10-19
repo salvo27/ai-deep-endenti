@@ -1,12 +1,14 @@
 import { h, openModal, toast } from '../lib/dom.js';
 import { merge3, resolveConflicts, snapshotOf, diffWords } from '../lib/diff.js';
-import { describePath, formatValue } from '../schema.js';
+import { describePath, fieldOf, formatValue } from '../schema.js';
+import { photoView } from './components.js';
 import { labelContext, memberName, saveSnapshot, statusError } from '../store.js';
 
 const MAX_ATTEMPTS = 4;
 
 function renderValue(kind, path, value, base) {
   if (value === undefined || value === null || value === '') return h('span', { class: 'muted' }, 'vuoto');
+  if (fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image') return photoView(value, { alt: 'Foto', size: 64 });
   const shown = formatValue(kind, path, value, labelContext);
   if (typeof value === 'string' && typeof base === 'string') {
     return h(

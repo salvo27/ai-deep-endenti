@@ -1,4 +1,5 @@
 import { h } from '../lib/dom.js';
+import { isPhotoDataUrl } from '../lib/validate.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/format.js';
 import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
@@ -17,6 +18,13 @@ export function avatar(userId, size = 28) {
     },
     initials(member?.display_name || '?'),
   );
+}
+
+// Foto di una scheda (per ora la buyer persona); senza foto valida, le iniziali del titolo.
+export function photoView(src, { alt = 'Foto', size = 96, fallback = '' } = {}) {
+  const style = { width: `${size}px`, height: `${size}px` };
+  if (isPhotoDataUrl(src)) return h('img', { class: 'photo', src, alt, style });
+  return h('span', { class: 'photo photo-empty', style: { ...style, fontSize: `${Math.round(size * 0.36)}px` }, 'aria-hidden': 'true' }, initials(fallback || '?'));
 }
 
 export function memberChip(userId) {
@@ -140,6 +148,8 @@ export function fieldValue(kind, def, value, item = null) {
       return h('span', { class: 'scale-view', 'aria-label': `${value} su 5` }, [1, 2, 3, 4, 5].map((n) => h('span', { class: ['dot', n <= value && 'on'] })));
     case 'select':
       return kind === 'interview' && def.key === 'commitment' ? commitmentBadge(value) : h('span', null, optionLabel(def, value));
+    case 'image':
+      return photoView(value, { alt: `Foto: ${item?.title || ''}`.trim(), size: 72, fallback: item?.title });
     default:
       return h('span', null, String(formatValue(kind, `data.${def.key}`, value, labelContext)));
   }

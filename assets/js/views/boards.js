@@ -2,7 +2,7 @@ import { h, svg } from '../lib/dom.js';
 import { fmtMoney, fmtPercent, truncate } from '../lib/format.js';
 import { KINDS, TRL, fieldOf, optionLabel } from '../schema.js';
 import { conceptButton } from './concept-help.js';
-import { fieldsGrid, textBlock } from './components.js';
+import { fieldsGrid, photoView, textBlock } from './components.js';
 
 // Viste delle schede che hanno un disegno proprio. I dati arrivano già validati da sanitizeSnapshot.
 
@@ -146,18 +146,63 @@ export function marketView(item) {
   );
 }
 
+const PERSONA_FACTS = ['age_range', 'gender', 'location', 'income', 'occupation'];
+const PERSONA_HERO = ['photo', 'role_type', 'segment', 'early_adopter', 'quote', ...PERSONA_FACTS];
+
+function personaTags(item) {
+  const d = item.data;
+  return h(
+    'div',
+    { class: 'persona-tags' },
+    d.role_type ? h('span', { class: 'badge badge-soft' }, optionLabel(fieldOf('persona', 'role_type'), d.role_type)) : null,
+    d.early_adopter === 'si' ? h('span', { class: 'badge badge-strong' }, 'Early adopter') : null,
+    d.segment ? h('span', { class: 'muted small' }, d.segment) : null,
+  );
+}
+
+function personaFacts(item) {
+  const facts = PERSONA_FACTS.map((key) => [fieldOf('persona', key), item.data[key]]).filter(([, value]) => value);
+  if (!facts.length) return null;
+  return h(
+    'dl',
+    { class: 'persona-facts' },
+    facts.map(([def, value]) => h('div', null, h('dt', null, def.label), h('dd', null, def.type === 'select' ? optionLabel(def, value) : value))),
+  );
+}
+
+// Scheda come nei tool per buyer persona: foto, dati demografici e frase tipica in alto, poi il resto per gruppi.
+export function personaView(item) {
+  const d = item.data;
+  return h(
+    'div',
+    { class: 'stack' },
+    h(
+      'section',
+      { class: 'card persona-hero' },
+      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 112, fallback: item.title }),
+      h(
+        'div',
+        { class: 'persona-hero-body' },
+        personaTags(item),
+        personaFacts(item),
+        d.quote ? h('blockquote', { class: 'persona-quote' }, d.quote) : null,
+      ),
+    ),
+    fieldsGrid(item, { skip: [...PERSONA_HERO, 'group:Profilo', 'group:Dati demografici'] }),
+  );
+}
+
 export function personaCard(item) {
   const d = item.data;
-  const def = KINDS.persona;
+  const line = [d.age_range, d.location, d.occupation].filter(Boolean).join(' · ');
   return h(
     'div',
     { class: 'persona' },
     h(
       'div',
-      { class: 'persona-tags' },
-      d.role_type ? h('span', { class: 'badge badge-soft' }, optionLabel(def.fields.find((f) => f.key === 'role_type'), d.role_type)) : null,
-      d.early_adopter === 'si' ? h('span', { class: 'badge badge-strong' }, 'Early adopter') : null,
-      d.segment ? h('span', { class: 'muted small' }, d.segment) : null,
+      { class: 'persona-head' },
+      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 48, fallback: item.title }),
+      h('div', { class: 'persona-head-body' }, personaTags(item), line ? h('span', { class: 'muted small' }, line) : null),
     ),
     d.quote ? h('blockquote', { class: 'persona-quote' }, truncate(d.quote, 220)) : null,
     d.profile ? h('p', { class: 'small' }, truncate(d.profile, 220)) : null,

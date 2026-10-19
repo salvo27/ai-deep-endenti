@@ -31,6 +31,14 @@ export function isIsoDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
 }
 
+// Foto ricodificate nel browser (vedi lib/photo.js): solo raster in base64, mai SVG, dimensione limitata.
+export const PHOTO_MAX_CHARS = 120000;
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+export function isPhotoDataUrl(value) {
+  return typeof value === 'string' && value.length <= PHOTO_MAX_CHARS && PHOTO_RE.test(value);
+}
+
 export function intInRange(value, min, max) {
   const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
   return Number.isInteger(n) && n >= min && n <= max ? n : null;

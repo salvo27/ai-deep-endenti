@@ -2608,6 +2608,96 @@ dialog::backdrop {
   margin: 0;
 }
 
+.photo {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.photo-empty {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.photo-input,
+.persona-head,
+.persona-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.photo-actions label.btn {
+  cursor: pointer;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.persona-head {
+  gap: 0.75rem;
+}
+
+.persona-head-body,
+.persona-hero-body {
+  display: grid;
+  flex: 1;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.persona-hero {
+  align-items: flex-start;
+}
+
+.persona-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.persona-facts dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.persona-facts dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.photo-change {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.photo-change .photo-old {
+  opacity: 0.5;
+}
+
+@media (max-width: 560px) {
+  .persona-hero {
+    flex-direction: column;
+  }
+}
+
 /* Idea: sezioni, prossimo passo, Javelin */
 
 .kind-block .section-head h2 {

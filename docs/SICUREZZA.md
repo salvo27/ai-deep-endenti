@@ -16,7 +16,8 @@ L'approccio è quello della progettazione sicura (Secure by Design): molti probl
 | **Errori senza dati personali** | All'esterno solo messaggi generici in italiano; i dettagli tecnici non arrivano all'interfaccia e i log della funzione non contengono il contenuto delle board. |
 | **Tracciabilità** | Ogni modifica è una revisione immutabile, con autore, messaggio e differenze. Ingressi, uscite e cambi di ruolo nel team finiscono in un registro di sicurezza leggibile solo dagli admin. |
 | **Resilienza** | Se Claude, la presenza o gli aggiornamenti dal vivo non funzionano, il resto del sito continua a funzionare. I dati si riallineano col database entrando nelle pagine, al ritorno sulla scheda, dopo una riconnessione e ogni minuto; una risposta vuota inattesa non svuota il sito. Le bozze restano sul dispositivo se la connessione cade durante una modifica. |
-| **Minimizzazione dei dati** | A Claude vanno solo i contenuti delle board, mai nomi delle persone del team, la lista delle persone con cui interfacciarsi, contatti degli intervistati o identificativi. L'esportazione Markdown esclude contatti e persone; la divisione delle quote resta solo nel database. |
+| **Minimizzazione dei dati** | A Claude vanno solo i contenuti delle board, mai nomi delle persone del team, la lista delle persone con cui interfacciarsi, contatti degli intervistati, foto o identificativi. L'esportazione Markdown esclude contatti, persone e foto; la divisione delle quote resta solo nel database. |
+| **Foto delle buyer persona** | Il browser ritaglia l'immagine, la riduce a 256 pixel e la ricodifica in JPEG, così i metadati dell'originale (posizione GPS, dispositivo) non vengono salvati. Si accettano solo immagini JPEG, PNG o WebP in base64 sotto i 120.000 caratteri, mai SVG, sia al salvataggio sia alla visualizzazione. L'editor invita a usare foto di repertorio o generate, non quelle di persone reali. |
 
 ## Minacce considerate
 

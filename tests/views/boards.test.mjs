@@ -319,3 +319,88 @@ test('back returns to the previous page of the site, or to the parent page on a 
   await visit('#/');
   assert.equal(outlet.querySelector('.back-link'), null, 'la dashboard non ha «Indietro»');
 });
+
+const PHOTO = `data:image/jpeg;base64,${'Q'.repeat(400)}`;
+
+test('the persona page is a sheet with photo, demographics, objections and sources', async () => {
+  store.applyItem(item({
+    ...store.getItem(PERSONA),
+    version: 2,
+    data: { ...store.getItem(PERSONA).data, photo: PHOTO, age_range: '30-50 anni', gender: 'donna', location: 'Sud Italia', objections: 'Costa troppo', info_sources: 'Gruppi online' },
+  }));
+  const body = await visit(`#/elemento/${PERSONA}`);
+  const hero = outlet.querySelector('.persona-hero');
+  assert.equal(hero.querySelector('img.photo').getAttribute('src'), PHOTO);
+  assert.match(text(hero), /Fascia d'età30-50 anni/);
+  assert.match(text(hero), /GenereDonna/);
+  assert.match(text(hero), /Ci serve subito/);
+  assert.match(body, /Obiezioni all'acquisto/);
+  assert.match(body, /Costa troppo/);
+  assert.match(body, /Dove si informa/);
+  assert.doesNotMatch(body, /QQQQ/, 'la foto non compare mai come testo');
+  await visit(`#/idea/${IDS.idea}/clienti`);
+  assert.equal(outlet.querySelector('.persona-head img.photo').getAttribute('src'), PHOTO);
+});
+
+test('without a photo the persona shows its initials', async () => {
+  await visit(`#/elemento/${PERSONA}`);
+  assert.equal(outlet.querySelector('.persona-hero img'), null);
+  assert.equal(outlet.querySelector('.persona-hero .photo-empty').textContent, 'RQ');
+});
+
+test('a photo is resized in the browser, saved with the persona and can be removed', async () => {
+  const restore = { bitmap: globalThis.createImageBitmap, ctx: window.HTMLCanvasElement.prototype.getContext, url: window.HTMLCanvasElement.prototype.toDataURL };
+  const drawn = [];
+  globalThis.createImageBitmap = async () => ({ width: 400, height: 300, close() {} });
+  window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage: (...args) => drawn.push(args) });
+  window.HTMLCanvasElement.prototype.toDataURL = () => PHOTO;
+  let saved = null;
+  api.saveItem = async ({ id, snapshot }) => {
+    saved = snapshot;
+    return { status: 'ok', item: { ...store.getItem(id), ...snapshot, version: 2 } };
+  };
+  try {
+    await visit(`#/modifica/${PERSONA}`);
+    const upload = (file) => {
+      const input = outlet.querySelector('.photo-input input[type="file"]');
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change'));
+    };
+    upload(new window.File(['x'], 'pdf.pdf', { type: 'application/pdf' }));
+    await flush(5);
+    assert.match(text(document.querySelector('.toasts')), /Scegli un'immagine/);
+    assert.equal(outlet.querySelector('.photo-input img'), null);
+
+    upload(new window.File(['x'], 'foto.jpg', { type: 'image/jpeg' }));
+    await flush(5);
+    assert.deepEqual(drawn[0].slice(1), [50, 0, 300, 300, 0, 0, 256, 256], 'ritaglio quadrato al centro');
+    assert.equal(outlet.querySelector('.photo-input img.photo').getAttribute('src'), PHOTO);
+    byText(outlet, 'button', 'Salva').click();
+    await flush(10);
+    assert.equal(saved.data.photo, PHOTO);
+
+    await visit(`#/modifica/${PERSONA}`);
+    byText(outlet, 'button', 'Togli la foto').click();
+    byText(outlet, 'button', 'Salva').click();
+    await flush(10);
+    assert.equal(saved.data.photo, undefined);
+  } finally {
+    globalThis.createImageBitmap = restore.bitmap;
+    window.HTMLCanvasElement.prototype.getContext = restore.ctx;
+    window.HTMLCanvasElement.prototype.toDataURL = restore.url;
+  }
+});
+
+test('the photo never reaches Claude or the Markdown export, and history shows it as an image', async () => {
+  const persona = { ...store.getItem(PERSONA), data: { ...store.getItem(PERSONA).data, photo: PHOTO, objections: 'Costa troppo' } };
+  const context = ai.buildContext('critique', { idea: store.getItem(IDS.idea), item: persona });
+  assert.match(context, /Obiezioni all'acquisto: Costa troppo/);
+  assert.doesNotMatch(context, /data:image|QQQQ|Foto/);
+  store.applyItem({ ...persona, version: 3 });
+  assert.doesNotMatch(exporter.ideaMarkdown(store.getItem(IDS.idea)), /data:image/);
+  const { changeView } = await import('../../assets/js/views/history.js');
+  const view = changeView('persona', { path: 'data.photo', type: 'added', kind: 'inline', before: undefined, after: PHOTO });
+  assert.equal(view.querySelector('img.photo').getAttribute('src'), PHOTO);
+  assert.match(text(view), /nessuna foto/);
+  assert.doesNotMatch(text(view), /QQQQ/);
+});

@@ -35,7 +35,8 @@ import { competitorsEditor } from './competitors.js';
 import { equityEditor } from './equity.js';
 import { conceptButton } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
-import { errorBox, pageHeader } from './components.js';
+import { errorBox, pageHeader, photoView } from './components.js';
+import { resizePhoto } from '../lib/photo.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -167,6 +168,44 @@ function checkList(entries, selected, onToggle) {
   );
 }
 
+function photoInput(def, working, onChange) {
+  const box = h('div', { class: 'photo-input' });
+  const render = () => {
+    const value = working.data[def.key];
+    const file = h('input', {
+      type: 'file',
+      class: 'file-input',
+      accept: 'image/jpeg,image/png,image/webp,image/*',
+      onChange: async (e) => {
+        const chosen = e.target.files?.[0];
+        e.target.value = '';
+        if (!chosen) return;
+        try {
+          working.data[def.key] = await resizePhoto(chosen);
+          onChange();
+          render();
+        } catch (error) {
+          toast(error.message, { type: 'error' });
+        }
+      },
+    });
+    mount(
+      box,
+      photoView(value, { alt: 'Anteprima della foto', size: 96, fallback: working.title }),
+      h(
+        'div',
+        { class: 'photo-actions' },
+        h('label', { class: 'btn btn-ghost' }, icon('image', 16), h('span', null, value ? 'Cambia foto' : 'Carica una foto'), file),
+        value
+          ? h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => { working.data[def.key] = undefined; onChange(); render(); } }, icon('close', 16), h('span', null, 'Togli la foto'))
+          : null,
+      ),
+    );
+  };
+  render();
+  return box;
+}
+
 export function fieldControl(def, working, onChange) {
   const value = working.data[def.key];
   const set = (v) => {
@@ -205,6 +244,8 @@ export function fieldControl(def, working, onChange) {
     }
     case 'tags':
       return tagInput(def, working, onChange);
+    case 'image':
+      return photoInput(def, working, onChange);
     case 'money': {
       const preview = h('span', { class: 'field-help' }, value ? fmtMoney(value) : '');
       const input = h('input', {

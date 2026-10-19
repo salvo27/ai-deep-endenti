@@ -4,10 +4,10 @@ import { blame, diffLines, diffSnapshots, diffWords, flatten, snapshotOf, snapsh
 import { dayKey, dayLabel, fmtDateTime, truncate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';
 import { api } from '../lib/api.js';
-import { KINDS, describePath, formatValue, routeFor } from '../schema.js';
+import { KINDS, describePath, fieldOf, formatValue, routeFor } from '../schema.js';
 import { canWrite, getItem, ideas, labelContext, memberName, on, revertItem, state } from '../store.js';
 import { navigate } from '../router.js';
-import { avatar, button, emptyState, errorBox, kindBadge, loading, pageHeader, timeAgo } from './components.js';
+import { avatar, button, emptyState, errorBox, kindBadge, loading, pageHeader, photoView, timeAgo } from './components.js';
 
 export const VERBS = {
   create: 'ha creato',
@@ -188,9 +188,19 @@ export function lineDiffView(before, after) {
   return h('div', { class: 'diff-lines' }, rows);
 }
 
+const isPhotoPath = (kind, path) => fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image';
+
+// Una foto si confronta guardandola, non come testo base64.
+function photoChange(before, after) {
+  const side = (src, cls) => (src ? h('span', { class: cls }, photoView(src, { alt: 'Foto', size: 48 })) : h('span', { class: 'muted small' }, 'nessuna foto'));
+  return h('div', { class: 'photo-change' }, side(before, 'photo-old'), '→', side(after, 'photo-new'));
+}
+
 export function changeView(kind, change) {
   let body;
-  if (change.kind === 'text') {
+  if (isPhotoPath(kind, change.path)) {
+    body = photoChange(change.before, change.after);
+  } else if (change.kind === 'text') {
     body = lineDiffView(change.before, change.after);
   } else if (change.kind === 'inline') {
     body = h(

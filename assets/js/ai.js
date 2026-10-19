@@ -12,8 +12,8 @@ export const AI_TASKS = {
 
 export const MAX_CONTEXT = 40000;
 
-// Minimizzazione dei dati: a Claude va solo il contenuto delle board, mai persone o contatti.
-const EXCLUDED_TYPES = new Set(['member', 'members']);
+// Minimizzazione dei dati: a Claude va solo il contenuto delle board, mai persone, contatti o foto.
+const EXCLUDED_TYPES = new Set(['member', 'members', 'image']);
 const EXCLUDED_KEYS = new Set(['contact']);
 
 function valueText(def, value) {

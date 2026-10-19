@@ -5,6 +5,7 @@ import {
   intInRange,
   isIsoDate,
   isKey,
+  isPhotoDataUrl,
   isUuid,
   slugKey,
   uniqueStrings,
@@ -333,6 +334,7 @@ export const KINDS = {
     needsIdea: true,
     statuses: null,
     fields: [
+      field('photo', 'Foto', 'image', { group: 'Profilo', wide: true, help: 'Una foto di repertorio o generata, non quella di una persona reale: sarebbe un dato personale.' }),
       field('role_type', 'Ruolo nell\'acquisto', 'select', {
         concept: 'cliente-utente',
         options: [
@@ -351,14 +353,21 @@ export const KINDS = {
           ['no', 'No'],
         ],
       }),
-      field('profile', 'Chi è', 'textarea', { placeholder: 'Fascia d\'età o ruolo, tipo di organizzazione, dove vive o lavora', concept: 'buyer-persona' }),
+      field('age_range', 'Fascia d\'età', 'text', { group: 'Dati demografici', placeholder: 'Ampia, per esempio 30-50 anni' }),
+      field('gender', 'Genere', 'select', { options: [['donna', 'Donna'], ['uomo', 'Uomo'], ['qualsiasi', 'Qualsiasi']] }),
+      field('location', 'Dove vive o lavora', 'text', { placeholder: 'Per esempio città medio-piccole del Sud Italia' }),
+      field('income', 'Fascia di reddito', 'text', { placeholder: 'Ampia, per esempio 25.000-40.000 € all\'anno' }),
+      field('occupation', 'Professione e istruzione', 'text', { placeholder: 'Per esempio impiegata, laurea triennale' }),
+      field('profile', 'Chi è, in breve', 'textarea', { group: 'Storia e abitudini', placeholder: 'Una breve biografia: situazione, lavoro, famiglia, come passa le giornate', concept: 'buyer-persona' }),
       field('habits', 'Abitudini e comportamenti', 'textarea', { placeholder: 'Come vive oggi il problema e cosa fa per risolverlo' }),
-      field('needs', 'Bisogni'),
+      field('current_solution', 'Come lo risolve oggi e quanto spende'),
+      field('needs', 'Bisogni', 'textarea', { group: 'Bisogni, sogni e paure' }),
       field('goals', 'Obiettivi e speranze'),
       field('fears', 'Paure e frustrazioni'),
-      field('current_solution', 'Come lo risolve oggi e quanto spende'),
-      field('channels', 'Dove trovarla', 'textarea', { placeholder: 'Siti, eventi, associazioni, gruppi che frequenta' }),
-      field('quote', 'Una frase tipica', 'textarea', { rows: 2, placeholder: 'Parole vere, prese da un\'intervista' }),
+      field('objections', 'Obiezioni all\'acquisto', 'textarea', { placeholder: 'Perché potrebbe dire di no: prezzo, fiducia, tempo, abitudini, chi altro deve approvare' }),
+      field('channels', 'Dove trovarla', 'textarea', { group: 'Come raggiungerla', placeholder: 'Siti, eventi, associazioni, gruppi che frequenta' }),
+      field('info_sources', 'Dove si informa', 'textarea', { placeholder: 'Siti, social, riviste, podcast, esperti o eventi da cui prende consigli' }),
+      field('quote', 'Una frase tipica', 'textarea', { group: 'Su cosa si basa', rows: 2, placeholder: 'Parole vere, prese da un\'intervista' }),
       field('evidence', 'Su cosa si basa', 'textarea', { rows: 2, placeholder: 'Quante interviste, questionari o dati' }),
     ],
   },
@@ -500,6 +509,8 @@ function sanitizeField(def, value) {
       return intInRange(typeof value === 'number' ? Math.round(value) : value, 0, 1e13) ?? undefined;
     case 'int':
       return intInRange(value, def.min ?? 0, def.max ?? 1e9) ?? undefined;
+    case 'image':
+      return isPhotoDataUrl(value) ? value : undefined;
     default:
       return undefined;
   }
@@ -814,6 +825,7 @@ export function formatValue(kind, path, value, ctx = {}) {
     if (def.type === 'ideas') return (Array.isArray(value) ? value : [value]).map((id) => ctx.ideaTitle?.(id) || 'Idea');
     if (def.type === 'scale') return `${value}/5`;
     if (def.type === 'money') return fmtMoney(value);
+    if (def.type === 'image') return 'foto';
   }
   if (typeof value === 'boolean') return value ? 'sì' : 'no';
   return value;
