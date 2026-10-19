@@ -330,11 +330,13 @@ export const KINDS = {
     label: 'Buyer persona',
     plural: 'Buyer persona',
     icon: 'user',
-    titleLabel: 'Nome e ruolo',
+    titleLabel: 'Nome',
+    titlePlaceholder: 'Un nome di fantasia, per esempio Giulia',
     needsIdea: true,
     statuses: null,
     fields: [
       field('photo', 'Foto', 'image', { group: 'Profilo', wide: true, help: 'Una foto di repertorio o generata, non quella di una persona reale: sarebbe un dato personale.' }),
+      field('role', 'Ruolo', 'text', { wide: true, placeholder: 'Per esempio nutrizionista libera professionista con studio avviato' }),
       field('role_type', 'Ruolo nell\'acquisto', 'select', {
         concept: 'cliente-utente',
         options: [
@@ -357,7 +359,7 @@ export const KINDS = {
       field('gender', 'Genere', 'select', { options: [['donna', 'Donna'], ['uomo', 'Uomo'], ['qualsiasi', 'Qualsiasi']] }),
       field('location', 'Dove vive o lavora', 'text', { placeholder: 'Per esempio città medio-piccole del Sud Italia' }),
       field('income', 'Fascia di reddito', 'text', { placeholder: 'Ampia, per esempio 25.000-40.000 € all\'anno' }),
-      field('occupation', 'Professione e istruzione', 'text', { placeholder: 'Per esempio impiegata, laurea triennale' }),
+      field('education', 'Istruzione', 'text', { placeholder: 'Per esempio laurea triennale' }),
       field('profile', 'Chi è, in breve', 'textarea', { group: 'Storia e abitudini', placeholder: 'Una breve biografia: situazione, lavoro, famiglia, come passa le giornate', concept: 'buyer-persona' }),
       field('habits', 'Abitudini e comportamenti', 'textarea', { placeholder: 'Come vive oggi il problema e cosa fa per risolverlo' }),
       field('current_solution', 'Come lo risolve oggi e quanto spende'),

@@ -24,7 +24,9 @@ export function avatar(userId, size = 28) {
 export function photoView(src, { alt = 'Foto', size = 96, fallback = '' } = {}) {
   const style = { width: `${size}px`, height: `${size}px` };
   if (isPhotoDataUrl(src)) return h('img', { class: 'photo', src, alt, style });
-  return h('span', { class: 'photo photo-empty', style: { ...style, fontSize: `${Math.round(size * 0.36)}px` }, 'aria-hidden': 'true' }, initials(fallback || '?'));
+  const words = String(fallback || '?').trim().split(/\s+/);
+  const letters = words.length > 1 ? initials(fallback) : (words[0][0] || '?').toUpperCase();
+  return h('span', { class: 'photo photo-empty', style: { ...style, fontSize: `${Math.round(size * 0.38)}px` }, 'aria-hidden': 'true' }, letters);
 }
 
 export function memberChip(userId) {

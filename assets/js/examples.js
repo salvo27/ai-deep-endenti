@@ -308,9 +308,10 @@ const airbnbInt3 = example(
 
 const airbnbPersona1 = example(
   'persona',
-  'Designer in trasferta per una conferenza',
+  'Sara',
   null,
   {
+    role: 'Designer in trasferta per una conferenza',
     role_type: 'paga_usa',
     segment: 'Partecipanti a conferenze con budget limitato',
     early_adopter: 'si',
@@ -318,7 +319,7 @@ const airbnbPersona1 = example(
     gender: 'qualsiasi',
     location: 'Grandi città degli Stati Uniti, viaggia per lavoro',
     income: '30.000-60.000 dollari all\'anno',
-    occupation: 'Designer libero professionista o in un piccolo studio, laurea in design',
+    education: 'Laurea in design',
     profile: 'Libero professionista o dipendente di un piccolo studio. Va a 3-4 conferenze l\'anno, spesso pagando di tasca propria.',
     habits: 'Prenota tardi, quando l\'agenda è sicura. Confronta gli hotel consigliati dalla conferenza e gli ostelli; chiede ai colleghi del posto.',
     needs: 'Un letto vicino all\'evento a un prezzo ragionevole, anche all\'ultimo momento.',
@@ -336,9 +337,10 @@ const airbnbPersona1 = example(
 
 const airbnbPersona2 = example(
   'persona',
-  'Residente con una stanza libera',
+  'Laura',
   null,
   {
+    role: 'Residente con una stanza libera',
     role_type: 'usa',
     segment: 'Host: residenti nelle città degli eventi',
     early_adopter: 'forse',

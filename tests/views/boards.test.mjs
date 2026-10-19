@@ -326,20 +326,28 @@ test('the persona page is a sheet with photo, demographics, objections and sourc
   store.applyItem(item({
     ...store.getItem(PERSONA),
     version: 2,
-    data: { ...store.getItem(PERSONA).data, photo: PHOTO, age_range: '30-50 anni', gender: 'donna', location: 'Sud Italia', objections: 'Costa troppo', info_sources: 'Gruppi online' },
+    data: { ...store.getItem(PERSONA).data, photo: PHOTO, role: 'Responsabile qualità in uno stabilimento', segment: 'Industria alimentare', age_range: '30-50 anni', gender: 'donna', location: 'Sud Italia', objections: 'Costa troppo', info_sources: 'Gruppi online' },
   }));
   const body = await visit(`#/elemento/${PERSONA}`);
   const hero = outlet.querySelector('.persona-hero');
   assert.equal(hero.querySelector('img.photo').getAttribute('src'), PHOTO);
-  assert.match(text(hero), /Fascia d'età30-50 anni/);
+  assert.equal(hero.querySelector('.persona-role').textContent, 'Responsabile qualità in uno stabilimento');
+  assert.match(text(hero), /Età30-50 anni/);
   assert.match(text(hero), /GenereDonna/);
-  assert.match(text(hero), /Ci serve subito/);
+  assert.match(text(hero), /Nell'acquistoPaga/);
+  assert.match(text(hero), /Early adopterSì/);
+  assert.match(text(hero), /Reddito-/, 'i dati mancanti restano visibili come vuoti');
+  assert.match(body, /Una frase tipica\s*Ci serve subito/);
   assert.match(body, /Obiezioni all'acquisto/);
   assert.match(body, /Costa troppo/);
   assert.match(body, /Dove si informa/);
   assert.doesNotMatch(body, /QQQQ/, 'la foto non compare mai come testo');
   await visit(`#/idea/${IDS.idea}/clienti`);
-  assert.equal(outlet.querySelector('.persona-head img.photo').getAttribute('src'), PHOTO);
+  const card = outlet.querySelector('.persona-card');
+  assert.equal(card.querySelector('.persona-card-head img.photo').getAttribute('src'), PHOTO);
+  assert.equal(card.querySelector('.persona-card-name a').getAttribute('href'), `#/elemento/${PERSONA}`);
+  assert.match(text(card.querySelector('.persona-card-name')), /Responsabile qualità in uno stabilimento/);
+  assert.match(text(card.querySelector('.persona-facts')), /SegmentoIndustria alimentare.*Nell'acquistoPaga.*Età30-50 anni.*ZonaSud Italia/);
 });
 
 test('without a photo the persona shows its initials', async () => {

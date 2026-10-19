@@ -394,7 +394,7 @@ export function editorView(outlet, params, query) {
       type: 'text',
       value: working.title,
       maxlength: LIMITS.title,
-      placeholder: kind === 'interview' ? 'Se lo lasci vuoto uso ruolo e organizzazione' : '',
+      placeholder: def.titlePlaceholder || (kind === 'interview' ? 'Se lo lasci vuoto uso ruolo e organizzazione' : ''),
       onInput: (e) => { working.title = e.target.value; onChange(); },
     });
 

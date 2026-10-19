@@ -1,6 +1,6 @@
 import { h, svg } from '../lib/dom.js';
 import { fmtMoney, fmtPercent, truncate } from '../lib/format.js';
-import { KINDS, TRL, fieldOf, optionLabel } from '../schema.js';
+import { TRL, fieldOf, optionLabel, routeFor } from '../schema.js';
 import { conceptButton } from './concept-help.js';
 import { fieldsGrid, photoView, textBlock } from './components.js';
 
@@ -146,31 +146,26 @@ export function marketView(item) {
   );
 }
 
-const PERSONA_FACTS = ['age_range', 'gender', 'location', 'income', 'occupation'];
-const PERSONA_HERO = ['photo', 'role_type', 'segment', 'early_adopter', 'quote', ...PERSONA_FACTS];
+const SHORT_LABELS = { role_type: 'Nell\'acquisto', segment: 'Segmento', early_adopter: 'Early adopter', age_range: 'Età', gender: 'Genere', location: 'Zona', income: 'Reddito', education: 'Istruzione' };
+const EARLY_SHORT = { si: 'Sì', forse: 'Forse', no: 'No' };
+const PERSONA_HERO = ['role_type', 'segment', 'early_adopter', 'age_range', 'gender', 'location', 'income', 'education'];
 
-function personaTags(item) {
-  const d = item.data;
-  return h(
-    'div',
-    { class: 'persona-tags' },
-    d.role_type ? h('span', { class: 'badge badge-soft' }, optionLabel(fieldOf('persona', 'role_type'), d.role_type)) : null,
-    d.early_adopter === 'si' ? h('span', { class: 'badge badge-strong' }, 'Early adopter') : null,
-    d.segment ? h('span', { class: 'muted small' }, d.segment) : null,
-  );
+function factValue(key, value) {
+  if (!value) return h('span', { class: 'muted' }, '-');
+  if (key === 'early_adopter') return EARLY_SHORT[value] || value;
+  const def = fieldOf('persona', key);
+  return def.type === 'select' ? optionLabel(def, value) : value;
 }
 
-function personaFacts(item) {
-  const facts = PERSONA_FACTS.map((key) => [fieldOf('persona', key), item.data[key]]).filter(([, value]) => value);
-  if (!facts.length) return null;
+function personaFacts(item, keys) {
   return h(
     'dl',
     { class: 'persona-facts' },
-    facts.map(([def, value]) => h('div', null, h('dt', null, def.label), h('dd', null, def.type === 'select' ? optionLabel(def, value) : value))),
+    keys.map((key) => h('div', null, h('dt', null, SHORT_LABELS[key]), h('dd', null, factValue(key, item.data[key])))),
   );
 }
 
-// Scheda come nei tool per buyer persona: foto, dati demografici e frase tipica in alto, poi il resto per gruppi.
+// Come nei tool per buyer persona: foto a sinistra, ruolo e dati demografici accanto, poi il resto per gruppi.
 export function personaView(item) {
   const d = item.data;
   return h(
@@ -178,33 +173,38 @@ export function personaView(item) {
     { class: 'stack' },
     h(
       'section',
-      { class: 'card persona-hero' },
-      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 112, fallback: item.title }),
+      { class: 'persona-hero' },
+      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 128, fallback: item.title }),
       h(
         'div',
         { class: 'persona-hero-body' },
-        personaTags(item),
-        personaFacts(item),
-        d.quote ? h('blockquote', { class: 'persona-quote' }, d.quote) : null,
+        h('p', { class: ['persona-role', !d.role && 'muted'] }, d.role || 'Ruolo non indicato'),
+        personaFacts(item, PERSONA_HERO),
       ),
     ),
-    fieldsGrid(item, { skip: [...PERSONA_HERO, 'group:Profilo', 'group:Dati demografici'] }),
+    fieldsGrid(item, { skip: ['photo', 'role', ...PERSONA_HERO, 'group:Profilo', 'group:Dati demografici'] }),
   );
 }
 
 export function personaCard(item) {
   const d = item.data;
-  const line = [d.age_range, d.location, d.occupation].filter(Boolean).join(' · ');
+  const extra = ['age_range', 'location'].filter((key) => d[key]);
   return h(
-    'div',
-    { class: 'persona' },
+    'article',
+    { class: 'card persona-card' },
     h(
       'div',
-      { class: 'persona-head' },
-      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 48, fallback: item.title }),
-      h('div', { class: 'persona-head-body' }, personaTags(item), line ? h('span', { class: 'muted small' }, line) : null),
+      { class: 'persona-card-head' },
+      photoView(d.photo, { alt: `Foto: ${item.title}`, size: 56, fallback: item.title }),
+      h(
+        'div',
+        { class: 'persona-card-name' },
+        h('a', { href: routeFor(item), class: 'item-link' }, item.title),
+        d.role ? h('span', { class: 'muted small' }, d.role) : null,
+      ),
+      d.early_adopter === 'si' ? h('span', { class: 'badge badge-strong' }, 'Early adopter') : null,
     ),
-    d.quote ? h('blockquote', { class: 'persona-quote' }, truncate(d.quote, 220)) : null,
-    d.profile ? h('p', { class: 'small' }, truncate(d.profile, 220)) : null,
+    personaFacts(item, ['segment', 'role_type', ...extra]),
+    d.quote ? h('blockquote', { class: 'persona-quote' }, truncate(d.quote, 160)) : null,
   );
 }

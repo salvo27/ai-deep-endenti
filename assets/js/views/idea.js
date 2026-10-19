@@ -212,7 +212,7 @@ function kindBlock(idea, writable, kind) {
       ? h(
           'div',
           { class: 'cards' },
-          items.map((p) => h('article', { class: 'card' }, h('div', { class: 'card-head' }, itemLink(p)), personaCard(p))),
+          items.map((p) => personaCard(p)),
         )
       : items.map((item) => boardSection(item, idea, writable));
   return h(

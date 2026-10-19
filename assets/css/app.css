@@ -2580,32 +2580,12 @@ dialog::backdrop {
 
 /* Persone */
 
-.persona {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.persona-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.persona-tags .badge {
-  margin-left: 0;
-}
-
 .persona-quote {
   margin: 0;
   padding-left: 0.75rem;
   border-left: 3px solid var(--border);
   color: var(--muted);
   font-style: italic;
-}
-
-.persona p {
-  margin: 0;
 }
 
 .photo {
@@ -2622,9 +2602,7 @@ dialog::backdrop {
   font-weight: 600;
 }
 
-.photo-input,
-.persona-head,
-.persona-hero {
+.photo-input {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -2649,37 +2627,85 @@ dialog::backdrop {
   white-space: nowrap;
 }
 
-.persona-head {
-  gap: 0.75rem;
+/* Dettaglio: foto a sinistra, ruolo e dati accanto */
+
+.persona-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.75rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.persona-head-body,
 .persona-hero-body {
   display: grid;
   flex: 1;
-  gap: 0.5rem;
+  gap: 1rem;
   min-width: 0;
 }
 
-.persona-hero {
-  align-items: flex-start;
+.persona-role {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .persona-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.5rem 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.75rem 1.25rem;
   margin: 0;
 }
 
 .persona-facts dt {
+  margin-bottom: 0.1rem;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .persona-facts dd {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+}
+
+/* Card nella pagina Clienti */
+
+.persona-card {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
+.persona-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.persona-card-name {
+  display: grid;
+  flex: 1;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.persona-card-name .item-link {
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.persona-card-head .badge {
+  align-self: flex-start;
+  margin-left: 0;
+}
+
+.persona-card .persona-facts {
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
 }
 
 .photo-change {
@@ -2695,6 +2721,7 @@ dialog::backdrop {
 @media (max-width: 560px) {
   .persona-hero {
     flex-direction: column;
+    align-items: center;
   }
 }
 
