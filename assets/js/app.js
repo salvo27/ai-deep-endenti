@@ -84,15 +84,14 @@ export function stopApp() {
 export async function startApp(root) {
   const session = await api.getSession();
   state.user = { id: session.user.id, email: session.user.email };
-  const role = await api.myRole();
+  // Ruolo e dati insieme: per chi non è nel team le regole del database restituiscono comunque liste vuote.
+  const [role, loadError] = await Promise.all([api.myRole(), loadAll().then(() => null, (error) => error)]);
   if (!role) {
     notMemberScreen(root);
     return false;
   }
-  try {
-    await loadAll();
-  } catch (error) {
-    errorScreen(root, error, () => location.reload());
+  if (loadError) {
+    errorScreen(root, loadError, () => location.reload());
     return false;
   }
   if (!state.me) {

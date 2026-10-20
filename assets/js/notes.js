@@ -11,6 +11,27 @@ export const IMAGE_PATH_RE = new RegExp(`^${PATH}$`);
 const POINTER_RE = new RegExp(`!\\[([^\\]\\n]*)\\]\\(immagine:(${PATH})\\)`, 'g');
 const EMBEDDED_RE = /!\[([^\]\n]*)\]\((data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+)\)/g;
 
+// La prima riga non vuota è il titolo, senza i segni di Markdown.
+export function noteTitle(text) {
+  const first = String(text || '').split('\n').find((line) => line.trim()) || '';
+  return first
+    .replace(/!\[[^\]\n]*\]\([^)]*\)/g, '')
+    .replace(/^\s*#{1,6}\s+/, '')
+    .replace(/^\s*([-*+]|\d{1,3}[.)])\s+/, '')
+    .replace(/\*\*|__|[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+// Il testo senza la riga del titolo, per non ripeterlo sotto l'intestazione della pagina.
+export function noteBody(text, title) {
+  const lines = String(text || '').split('\n');
+  const index = lines.findIndex((line) => line.trim());
+  if (index < 0 || noteTitle(lines[index]) !== title) return String(text || '');
+  return lines.slice(index + 1).join('\n').replace(/^\s*\n/, '');
+}
+
 export const imagePaths = (text) => new Set([...String(text || '').matchAll(POINTER_RE)].map((m) => m[2]));
 export const imagePointer = (path, alt = 'immagine') => `![${String(alt).replace(/[[\]\n]/g, ' ').trim() || 'immagine'}](immagine:${path})`;
 
@@ -121,7 +142,7 @@ function dataUrlToBlob(dataUrl) {
 
 // File .md autonomo: le immagini finiscono dentro il file, così si apre anche fuori dal sito.
 export async function noteToMarkdown(note) {
-  let body = note.data?.body || '';
+  let body = noteBody(note.data?.body, note.title);
   for (const [pointer, alt, path] of [...body.matchAll(POINTER_RE)]) {
     let replacement = `*[immagine non disponibile: ${alt}]*`;
     try {
@@ -135,15 +156,9 @@ export async function noteToMarkdown(note) {
   return `# ${note.title}\n\n${date}${body}\n`;
 }
 
-// Da un file .md: il primo titolo diventa il titolo della nota, le immagini incorporate vengono caricate nello spazio privato.
+// Da un file .md: la prima riga resta il titolo della nota, le immagini incorporate vengono caricate nello spazio privato.
 export async function markdownToNote(text, ideaId, { onProgress } = {}) {
-  let body = String(text || '').replace(/\r\n?/g, '\n');
-  let title = '';
-  const heading = /^#\s+(.+)\n?/.exec(body.trimStart());
-  if (heading) {
-    title = heading[1].trim();
-    body = body.trimStart().slice(heading[0].length).trimStart();
-  }
+  let body = String(text || '').replace(/\r\n?/g, '\n').trimStart();
   const embedded = [...body.matchAll(EMBEDDED_RE)];
   let done = 0;
   for (const [match, alt, dataUrl] of embedded) {
@@ -155,7 +170,7 @@ export async function markdownToNote(text, ideaId, { onProgress } = {}) {
     }
     body = body.replace(match, () => replacement);
   }
-  return { title, body };
+  return { title: noteTitle(body), body };
 }
 
 export function noteImageNode(path, alt) {

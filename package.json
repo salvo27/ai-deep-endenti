@@ -11,7 +11,8 @@
     "test:coverage": "node --import ./tests/setup/register.mjs --test --experimental-test-coverage tests/unit/*.test.mjs tests/views/*.test.mjs tests/functions/*.test.mjs",
     "test:db": "bash tests/db/run.sh",
     "test:all": "npm test && npm run test:db",
-    "serve": "python3 -m http.server 8080"
+    "serve": "python3 -m http.server 8080",
+    "preload": "node scripts/update-preload.mjs"
   },
   "devDependencies": {
     "jsdom": "27.4.0"

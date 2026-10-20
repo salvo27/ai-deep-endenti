@@ -435,12 +435,12 @@ export const KINDS = {
     plural: 'Appunti',
     icon: 'file',
     titleLabel: 'Titolo',
-    titlePlaceholder: 'Per esempio: Riunione del 20 ottobre',
+    titleFromBody: true,
     needsIdea: true,
     statuses: null,
     fields: [
       field('date', 'Data', 'date'),
-      field('body', 'Testo', 'markdown', { wide: true, help: 'Markdown: # titoli, **grassetto**, - elenchi, | tabelle |. Le immagini si aggiungono con il pulsante sopra il testo.' }),
+      field('body', 'Testo', 'markdown', { wide: true, help: 'La prima riga è il titolo. Si può scrivere anche in Markdown: # titoli, **grassetto**, - elenchi, | tabelle |.' }),
     ],
   },
   teamcanvas: {

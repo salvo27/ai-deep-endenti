@@ -16,7 +16,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione; vista a colonne come il template |
 | Persone | Con chi interfacciarsi per ogni idea (clienti da intervistare, esperti, chi serve per realizzarla, ateneo, investitori), con stato, responsabile e prossimo contatto; un clic crea l'intervista |
 | Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
-| Appunti | In ogni idea, note in Markdown con titolo e data: riunioni, link, domande aperte. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate e un file .md si può importare |
+| Appunti | In ogni idea, note con data in cui la prima riga è il titolo: riunioni, link, domande aperte. Pulsanti per dimensione del testo, grassetto, corsivo, elenchi e tabelle, oppure Markdown scritto a mano. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate e un file .md si può importare |
 | Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi |
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
@@ -57,6 +57,8 @@ docs/TEST.md                come sono scritti i test e cosa coprono
 ```
 
 Per aggiungere una board basta una nuova definizione in `schema.js`, il tipo nel vincolo `kind` di `schema.sql` e una voce nel menu.
+
+Quando si aggiunge o si toglie un file JavaScript, `npm run preload` aggiorna in `index.html` l'elenco dei moduli da precaricare (un test controlla che sia allineato): così il browser li scarica tutti insieme invece che a cascata.
 
 ## Messa in funzione
 

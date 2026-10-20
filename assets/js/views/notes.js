@@ -1,7 +1,7 @@
 import { h, busy, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { downloadFile, fmtDate, slugFile } from '../lib/format.js';
-import { imagePaths, noteExcerpt, noteToMarkdown, renderNote } from '../notes.js';
+import { imagePaths, noteBody, noteExcerpt, noteToMarkdown, renderNote } from '../notes.js';
 import { itemsOf } from '../store.js';
 import { button, emptyState, itemLink, memberChip } from './components.js';
 
@@ -35,7 +35,7 @@ export function notesTab(idea, writable) {
                 note.created_by ? memberChip(note.created_by) : null,
                 images ? h('span', { class: 'chip' }, icon('image', 12), ` ${images}`) : null,
               ),
-              note.data.body ? h('p', { class: 'small' }, noteExcerpt(note.data.body)) : null,
+              noteBody(note.data.body, note.title).trim() ? h('p', { class: 'small' }, noteExcerpt(noteBody(note.data.body, note.title))) : null,
             );
           }),
         )
@@ -59,6 +59,6 @@ export function noteView(note) {
     'div',
     { class: 'stack' },
     h('div', { class: 'row note-meta' }, note.data.date ? h('span', { class: 'muted' }, fmtDate(note.data.date)) : null, download),
-    note.data.body ? renderNote(note.data.body) : emptyState('La nota è vuota.'),
+    noteBody(note.data.body, note.title).trim() ? renderNote(noteBody(note.data.body, note.title)) : emptyState('La nota è vuota.'),
   );
 }

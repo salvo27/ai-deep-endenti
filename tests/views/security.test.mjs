@@ -170,3 +170,14 @@ test('auth config closes signups but keeps email and password login on', () => {
   assert.match(section('auth.mfa.totp'), /^enroll_enabled = true$/m);
   assert.match(section('auth'), /^minimum_password_length = 12$/m);
 });
+
+test('the page shows a loader at once and preloads every module, so a refresh is never blank for long', async () => {
+  const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+  assert.match(html, /<div id="app" class="root">\s*<div class="boot" role="status">/);
+  const { moduleGraph } = await import('../../scripts/update-preload.mjs');
+  const preloaded = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)" \/>/g)].map((m) => m[1]);
+  const { local, remote } = moduleGraph();
+  assert.deepEqual(preloaded.filter((href) => !href.startsWith('https://')), local, 'elenco non aggiornato: esegui npm run preload');
+  for (const url of remote) assert.ok(preloaded.includes(url), `manca ${url}`);
+  for (const href of preloaded.filter((h) => h.startsWith('https://'))) assert.match(href, /^https:\/\/cdn\.jsdelivr\.net\/npm\/[^/]+(?:\/[^/]+)?@\d+\.\d+\.\d+\/\+esm$/, href);
+});

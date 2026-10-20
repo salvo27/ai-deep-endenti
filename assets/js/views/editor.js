@@ -1,7 +1,7 @@
 import { h, mount, autoGrow, busy, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
-import { debounce, fmtDateTime, fmtMoney, shortId } from '../lib/format.js';
+import { debounce, fmtDate, fmtDateTime, fmtMoney, shortId } from '../lib/format.js';
 import { LIMITS, isUuid } from '../lib/validate.js';
 import {
   DEFAULT_EQUITY_FACTORS,
@@ -37,7 +37,7 @@ import { conceptButton } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
 import { errorBox, pageHeader, photoView } from './components.js';
 import { resizePhoto } from '../lib/photo.js';
-import { MAX_NOTE_IMAGES, imagePaths, imagePointer, markdownToNote, removeUnusedImages, renderNote, uploadNoteImage } from '../notes.js';
+import { MAX_NOTE_IMAGES, imagePaths, imagePointer, markdownToNote, noteTitle, removeUnusedImages, renderNote, uploadNoteImage } from '../notes.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -209,17 +209,27 @@ function photoInput(def, working, onChange) {
 
 // Testo Markdown della nota, con immagini caricate nello spazio privato e anteprima.
 function markdownInput(def, working, onChange) {
+  const titleLine = h('p', { class: 'small md-title' });
   const text = autoGrow(
     h('textarea', {
       class: 'input md-input',
       rows: 14,
       value: working.data[def.key] || '',
-      placeholder: '# Titolo\n\nAppunti, **parole importanti**, elenchi con - e tabelle con |',
+      placeholder: 'Titolo della nota\n\nScrivi qui gli appunti. Usa i pulsanti sopra per grassetto, dimensioni, elenchi e tabelle.',
       maxlength: LIMITS.note,
+      'aria-label': 'Testo della nota: la prima riga è il titolo',
       onInput: (e) => {
         working.data[def.key] = e.target.value;
         onChange();
         renderCount();
+      },
+      onKeydown: (e) => {
+        if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+        const key = e.key.toLowerCase();
+        if (key === 'b' || key === 'i') {
+          e.preventDefault();
+          wrap(key === 'b' ? '**' : '*', key === 'b' ? 'grassetto' : 'corsivo');
+        }
       },
     }),
   );
@@ -227,16 +237,72 @@ function markdownInput(def, working, onChange) {
   const status = h('span', { class: 'muted small', 'aria-live': 'polite' });
   const renderCount = () => {
     status.textContent = `${imagePaths(text.value).size} di ${MAX_NOTE_IMAGES} immagini`;
+    const title = noteTitle(text.value);
+    mount(titleLine, title ? ['Titolo della nota: ', h('strong', null, title)] : 'La prima riga sarà il titolo della nota.');
   };
-  const setText = (value) => {
-    text.value = value;
+  const replaceRange = (start, end, snippet, selStart = start + snippet.length, selEnd = selStart) => {
+    text.value = `${text.value.slice(0, start)}${snippet}${text.value.slice(end)}`;
+    text.focus();
+    text.setSelectionRange?.(selStart, selEnd);
     text.dispatchEvent(new Event('input'));
   };
-  const insert = (snippet) => {
+  const setText = (value) => replaceRange(0, text.value.length, value);
+  const selection = () => {
     const start = text.selectionStart ?? text.value.length;
-    const end = text.selectionEnd ?? start;
-    setText(`${text.value.slice(0, start)}${snippet}${text.value.slice(end)}`);
+    return [start, text.selectionEnd ?? start];
   };
+  const insert = (snippet) => {
+    const [start, end] = selection();
+    replaceRange(start, end, snippet);
+  };
+  const wrap = (marker, placeholder) => {
+    const [start, end] = selection();
+    const inner = text.value.slice(start, end) || placeholder;
+    replaceRange(start, end, `${marker}${inner}${marker}`, start + marker.length, start + marker.length + inner.length);
+  };
+  // Le righe toccate dalla selezione, intere.
+  const editLines = (change) => {
+    const [start, end] = selection();
+    const from = text.value.lastIndexOf('\n', start - 1) + 1;
+    let to = text.value.indexOf('\n', end);
+    if (to < 0) to = text.value.length;
+    const out = change(text.value.slice(from, to).split('\n')).join('\n');
+    replaceRange(from, to, out, from, from + out.length);
+  };
+  const LIST = /^(\s*)([-*+]|\d{1,3}[.)])\s+/;
+  const setSize = (level) => editLines((lines) => lines.map((l) => `${level ? `${'#'.repeat(level)} ` : ''}${l.replace(/^#{1,6}\s+/, '')}`));
+  const bullets = () =>
+    editLines((lines) => {
+      const all = lines.every((l) => /^\s*[-*+]\s+/.test(l) || !l.trim());
+      return lines.map((l) => (!l.trim() ? l : all ? l.replace(LIST, '$1') : `- ${l.replace(LIST, '$1')}`));
+    });
+  const numbers = () => {
+    let n = 0;
+    editLines((lines) => lines.map((l) => (!l.trim() ? l : `${(n += 1)}. ${l.replace(LIST, '$1')}`)));
+  };
+  const table = () => {
+    const [, end] = selection();
+    const lineEnd = text.value.indexOf('\n', end) < 0 ? text.value.length : text.value.indexOf('\n', end);
+    const block = '\n\n| Colonna 1 | Colonna 2 | Colonna 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n';
+    replaceRange(lineEnd, lineEnd, block, lineEnd + 4, lineEnd + 13);
+  };
+  const size = h(
+    'select',
+    {
+      class: 'input input-small',
+      'aria-label': 'Dimensione del testo',
+      onChange: (e) => {
+        if (e.target.value !== '') setSize(Number(e.target.value));
+        e.target.value = '';
+      },
+    },
+    h('option', { value: '', selected: true, disabled: true }, 'Dimensione'),
+    h('option', { value: '0' }, 'Testo normale'),
+    h('option', { value: '1' }, 'Titolo grande'),
+    h('option', { value: '2' }, 'Titolo medio'),
+    h('option', { value: '3' }, 'Titolo piccolo'),
+  );
+  const tool = (label, title, onClick, cls) => h('button', { type: 'button', class: ['btn', 'btn-ghost', 'btn-small', cls], title, 'aria-label': title, onClick }, label);
   const needsIdea = () => {
     if (isUuid(working.idea_id)) return false;
     toast('Scegli prima l\'idea a cui appartiene la nota.', { type: 'error' });
@@ -281,11 +347,6 @@ function markdownInput(def, working, onChange) {
           onProgress: (done, total) => (status.textContent = `Carico le immagini: ${done} di ${total}`),
         });
         setText(text.value.trim() ? `${text.value.trimEnd()}\n\n${imported.body}` : imported.body);
-        const title = text.closest('.editor, form, main')?.querySelector('.input-title');
-        if (imported.title && title && !title.value.trim()) {
-          title.value = imported.title;
-          title.dispatchEvent(new Event('input'));
-        }
         toast('File importato.', { type: 'success' });
       } catch (error) {
         toast(error.message, { type: 'error' });
@@ -310,12 +371,20 @@ function markdownInput(def, working, onChange) {
     { class: 'md-editor' },
     h(
       'div',
-      { class: 'md-toolbar' },
+      { class: 'md-toolbar', role: 'toolbar', 'aria-label': 'Formattazione' },
+      size,
+      tool(h('strong', null, 'B'), 'Grassetto (Cmd o Ctrl + B)', () => wrap('**', 'grassetto'), 'md-tool'),
+      tool(h('em', null, 'I'), 'Corsivo (Cmd o Ctrl + I)', () => wrap('*', 'corsivo'), 'md-tool'),
+      tool('• Elenco', 'Elenco puntato', bullets),
+      tool('1. Elenco', 'Elenco numerato', numbers),
+      tool('Tabella', 'Inserisci una tabella', table),
+      h('span', { class: 'md-sep', 'aria-hidden': 'true' }),
       h('label', { class: 'btn btn-ghost btn-small' }, icon('image', 14), h('span', null, 'Immagine'), imageInput),
       h('label', { class: 'btn btn-ghost btn-small' }, icon('file', 14), h('span', null, 'Importa .md'), mdInput),
       previewButton,
       status,
     ),
+    titleLine,
     text,
     preview,
   );
@@ -538,7 +607,7 @@ export function editorView(outlet, params, query) {
       h(
         'div',
         { class: 'form-top' },
-        def.singleton ? null : h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, def.titleLabel), title),
+        def.singleton || def.titleFromBody ? null : h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, def.titleLabel), title),
         ideaSelect,
         statusSelect,
       ),
@@ -564,6 +633,7 @@ export function editorView(outlet, params, query) {
     mount(error);
     let snapshot = sanitizeSnapshot(kind, working);
     if (kind === 'interview' && !snapshot.title) snapshot = { ...snapshot, title: autoInterviewTitle(snapshot.data) };
+    if (def.titleFromBody) snapshot = { ...snapshot, title: noteTitle(snapshot.data.body) || `Nota del ${fmtDate(snapshot.data.date || new Date().toISOString().slice(0, 10))}` };
     const problem = snapshotProblem(kind, snapshot);
     if (problem) {
       mount(error, errorBox({ message: problem }));

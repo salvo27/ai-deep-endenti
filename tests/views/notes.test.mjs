@@ -113,13 +113,12 @@ test('an image is reduced in the browser, uploaded privately and inserted where 
   let created = null;
   api.createItem = async (args) => (created = item({ id: 'cccccccc-0000-4000-8000-000000000009', kind: args.kind, title: args.title, data: args.data, idea_id: args.ideaId }));
   await visit(`#/nuovo/note?idea=${IDS.idea}`);
-  const title = outlet.querySelector('.input-title');
-  title.value = 'Foto della lavagna';
-  title.dispatchEvent(new Event('input'));
+  assert.equal(outlet.querySelector('.input-title')?.closest('label'), undefined, 'niente campo titolo: è la prima riga');
   const textarea = outlet.querySelector('textarea.md-input');
-  textarea.value = 'Prima\n\nDopo';
+  textarea.value = '# Foto della lavagna\nPrima\n\nDopo';
   textarea.dispatchEvent(new Event('input'));
-  textarea.selectionStart = textarea.selectionEnd = 'Prima\n'.length;
+  assert.match(text(outlet.querySelector('.md-title')), /Titolo della nota: Foto della lavagna/);
+  textarea.selectionStart = textarea.selectionEnd = '# Foto della lavagna\nPrima\n'.length;
   const input = outlet.querySelector('.md-toolbar input[type="file"][multiple]');
   Object.defineProperty(input, 'files', { value: [new window.File(['x'], 'lavagna.png', { type: 'image/png' })], configurable: true });
   input.dispatchEvent(new Event('change'));
@@ -127,13 +126,14 @@ test('an image is reduced in the browser, uploaded privately and inserted where 
   assert.equal(uploads.length, 1);
   assert.match(uploads[0].path, new RegExp(`^${IDS.idea}/[0-9a-f-]{36}\\.jpg$`));
   assert.equal(await uploads[0].blob.text(), 'jpeg 1600x800', 'ridotta a 1600 pixel sul lato lungo');
-  assert.match(textarea.value, new RegExp(`^Prima\\n\\n!\\[lavagna\\]\\(immagine:${uploads[0].path}\\)\\n\\nDopo$`));
+  assert.match(textarea.value, new RegExp(`^# Foto della lavagna\\nPrima\\n\\n!\\[lavagna\\]\\(immagine:${uploads[0].path}\\)\\n\\nDopo$`));
   assert.match(text(outlet.querySelector('.md-toolbar')), /1 di 20 immagini/);
   byText(outlet, 'button', 'Anteprima').click();
   assert.ok(outlet.querySelector('.md-preview img.note-image'));
   byText(outlet, 'button', 'Crea').click();
   await flush(10);
   assert.equal(created.kind, 'note');
+  assert.equal(created.title, 'Foto della lavagna');
   assert.match(created.data.body, /immagine:/);
 });
 
@@ -163,7 +163,7 @@ test('a .md file with embedded images becomes a note with private images', async
   const { title, body } = await notes.markdownToNote(`# Report clienti\n\nTesto\n\n![grafico](data:image/png;base64,${png})\n`, IDS.idea);
   assert.equal(title, 'Report clienti');
   assert.equal(uploads.length, 1);
-  assert.equal(body, `Testo\n\n![grafico](immagine:${uploads[0]})\n`);
+  assert.equal(body, `# Report clienti\n\nTesto\n\n![grafico](immagine:${uploads[0]})\n`);
 });
 
 test('the periodic clean-up runs at most every 12 hours and only for who can edit', async () => {
@@ -203,4 +203,52 @@ test('note text and image descriptions never become HTML, and only valid image p
 test('a new note is announced to the others', () => {
   const note = notifications.describeRevision({ id: 1, item_id: NOTE, kind: 'note', op: 'create', title: 'Riunione', author_id: members()[1].user_id, created_at: '2026-10-20T10:00:00Z', changed: [] });
   assert.match(note.text, /ha creato una nota: «Riunione»/);
+});
+
+test('the toolbar formats the text: sizes, bold, italic, lists and tables, without knowing Markdown', async () => {
+  await visit(`#/nuovo/note?idea=${IDS.idea}`);
+  const textarea = outlet.querySelector('textarea.md-input');
+  const type = (value, start, end = start) => {
+    textarea.value = value;
+    textarea.dispatchEvent(new Event('input'));
+    textarea.setSelectionRange(start, end);
+  };
+  const tool = (label) => outlet.querySelector(`.md-toolbar button[aria-label^="${label}"]`);
+
+  type('Riunione\nparola', 9, 15);
+  tool('Grassetto').click();
+  assert.equal(textarea.value, 'Riunione\n**parola**');
+  type('Riunione\nparola', 9, 15);
+  textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'i', ctrlKey: true }));
+  assert.equal(textarea.value, 'Riunione\n*parola*');
+
+  type('Riunione\nCosa è emerso', 12);
+  const size = outlet.querySelector('select[aria-label="Dimensione del testo"]');
+  size.value = '2';
+  size.dispatchEvent(new Event('change'));
+  assert.equal(textarea.value, 'Riunione\n## Cosa è emerso');
+  size.value = '0';
+  size.dispatchEvent(new Event('change'));
+  assert.equal(textarea.value, 'Riunione\nCosa è emerso');
+
+  type('Titolo\nuno\ndue', 7, 14);
+  tool('Elenco puntato').click();
+  assert.equal(textarea.value, 'Titolo\n- uno\n- due');
+  tool('Elenco puntato').click();
+  assert.equal(textarea.value, 'Titolo\nuno\ndue', 'secondo clic: toglie l\'elenco');
+  tool('Elenco numerato').click();
+  assert.equal(textarea.value, 'Titolo\n1. uno\n2. due');
+
+  type('Titolo', 6);
+  tool('Inserisci una tabella').click();
+  assert.match(textarea.value, /^Titolo\n\n\| Colonna 1 \| Colonna 2 \| Colonna 3 \|\n\| --- \| --- \| --- \|/);
+  byText(outlet, 'button', 'Anteprima').click();
+  assert.ok(outlet.querySelector('.md-preview table'));
+});
+
+test('the note page shows the title once, in the header, and the rest of the text below', async () => {
+  store.applyItem({ ...store.getItem(NOTE), version: 4, title: 'Riunione con il mentor', data: { body: '# Riunione con il mentor\n\nTesto della riunione' } });
+  const body = await visit(`#/elemento/${NOTE}`);
+  assert.equal(body.match(/Riunione con il mentor/g).length, 1);
+  assert.match(text(outlet.querySelector('.note-body')), /^Testo della riunione$/);
 });
