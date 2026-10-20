@@ -91,7 +91,7 @@ export function buildShell(root, { onSignOut }) {
   );
   const sidebar = h(
     'aside',
-    { class: 'sidebar' },
+    { class: 'sidebar', id: 'menu' },
     h('a', { class: 'brand', href: '#/' }, icon('shield', 22), h('span', null, CONFIG.appName)),
     h('nav', { class: 'nav', 'aria-label': 'Sezioni' }, links),
     h('div', { class: 'sidebar-foot' }, h('a', { class: 'nav-link', href: '#/profilo', dataset: { path: '/profilo' } }, icon('user', 18), h('span', null, 'Profilo'))),
@@ -99,7 +99,26 @@ export function buildShell(root, { onSignOut }) {
   const presence = h('div', { class: 'presence', 'aria-label': 'Online ora' });
   const live = h('span', { class: 'live-dot', title: 'Aggiornamenti dal vivo' });
   const offline = h('div', { class: 'banner banner-warn', hidden: navigator.onLine !== false }, 'Sei offline: le modifiche non verranno salvate finché non torna la connessione.');
-  const menuButton = h('button', { type: 'button', class: 'icon-btn menu-btn', 'aria-label': 'Menu', onClick: () => root.classList.toggle('nav-open') }, icon('menu', 20));
+  // Menu a scomparsa su tutti gli schermi: si chiude con le tre linee, toccando fuori, con Esc o scegliendo una pagina.
+  const setMenu = (open) => {
+    root.classList.toggle('nav-open', open);
+    backdrop.hidden = !open;
+    menuButton.setAttribute('aria-expanded', String(open));
+    sidebar.inert = !open;
+  };
+  const menuButton = h(
+    'button',
+    { type: 'button', class: 'icon-btn menu-btn', 'aria-label': 'Menu', 'aria-expanded': 'false', 'aria-controls': 'menu', onClick: () => setMenu(!root.classList.contains('nav-open')) },
+    icon('menu', 20),
+  );
+  const backdrop = h('div', { class: 'nav-backdrop', hidden: true, onClick: () => setMenu(false) });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && root.classList.contains('nav-open')) {
+      setMenu(false);
+      menuButton.focus();
+    }
+  });
+  setMenu(false);
   const userButton = h(
     'div',
     { class: 'user-box' },
@@ -114,6 +133,7 @@ export function buildShell(root, { onSignOut }) {
       'div',
       { class: 'app' },
       sidebar,
+      backdrop,
       h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, notificationBell(), userButton), offline, outlet),
     ),
   );
@@ -134,7 +154,7 @@ export function buildShell(root, { onSignOut }) {
         (target === '/idee' && path.startsWith('/idea/'));
       link.classList.toggle('is-active', active);
     }
-    root.classList.remove('nav-open');
+    setMenu(false);
   };
 
   on('presence', renderPresence);

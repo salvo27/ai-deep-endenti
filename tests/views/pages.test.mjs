@@ -245,3 +245,34 @@ test('the shell searches the boards and shows who is online', () => {
   store.emit('realtime', 'SUBSCRIBED');
   assert.ok(root.querySelector('.live-dot.is-on'));
 });
+
+test('the side menu opens and closes with the three lines, a tap outside, Escape or a page change', async () => {
+  const root = document.createElement('div');
+  document.body.append(root);
+  shell.buildShell(root, { onSignOut: () => {} });
+  const button = root.querySelector('.menu-btn');
+  const backdrop = root.querySelector('.nav-backdrop');
+  const isOpen = () => root.classList.contains('nav-open');
+  assert.equal(isOpen(), false);
+  assert.equal(backdrop.hidden, true);
+
+  button.click();
+  assert.equal(isOpen(), true);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(backdrop.hidden, false);
+  button.click();
+  assert.equal(isOpen(), false, 'le tre linee chiudono il menu');
+
+  button.click();
+  backdrop.click();
+  assert.equal(isOpen(), false, 'un tocco fuori chiude il menu');
+
+  button.click();
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+  assert.equal(isOpen(), false, 'Esc chiude il menu');
+
+  button.click();
+  await visit('#/idee');
+  assert.equal(isOpen(), false, 'scegliere una pagina chiude il menu');
+  root.remove();
+});
