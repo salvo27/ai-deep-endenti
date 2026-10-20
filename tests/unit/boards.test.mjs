@@ -4,13 +4,13 @@ import { setupDom } from '../setup/dom.mjs';
 
 let schema;
 let concepts;
-let guide;
+let roadmap;
 
 before(async () => {
   setupDom();
   schema = await import('../../assets/js/schema.js');
   concepts = await import('../../assets/js/concepts.js');
-  guide = await import('../../assets/js/guide.js');
+  roadmap = await import('../../assets/js/roadmap.js');
 });
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
@@ -102,36 +102,68 @@ test('every concept is unique and every field, phase and step points to an exist
   for (const [kind, def] of Object.entries(schema.KINDS)) {
     for (const f of def.fields) if (f.concept) assert.ok(concepts.conceptByKey(f.concept), `${kind}.${f.key} → ${f.concept}`);
   }
-  for (const phase of guide.PHASES) {
-    assert.ok(statuses.has(phase.status));
-    for (const key of phase.concepts) assert.ok(concepts.conceptByKey(key), `${phase.status} → ${key}`);
-    for (const [, key] of phase.steps) if (key) assert.ok(concepts.conceptByKey(key), `${phase.status} → ${key}`);
+  const stepKeys = new Set();
+  for (const phase of roadmap.ROADMAP) {
+    assert.ok(phase.title && phase.goal && phase.gate && phase.skipRisk, phase.key);
+    for (const step of phase.steps) {
+      assert.match(step.key, /^[a-z0-9-]{1,40}$/);
+      assert.ok(!stepKeys.has(step.key), `chiave doppia: ${step.key}`);
+      stepKeys.add(step.key);
+      assert.ok(step.title && step.what && step.done && step.mistake && step.how.length >= 2, step.key);
+      if (step.concept) assert.ok(concepts.conceptByKey(step.concept), `${step.key} → ${step.concept}`);
+      assert.doesNotMatch([step.title, step.what, step.done, step.mistake, ...step.how].join(' '), /—/, step.key);
+    }
   }
-  assert.deepEqual(guide.PHASES.map((p) => p.status), [...statuses]);
 });
 
-test('the next step checklist follows the idea status and the board data', () => {
-  const idea = { id: IDEA, status: 'nuova', data: { pitch: 'Frase', problem: 'P' } };
-  let list = guide.phaseChecklist(idea, { contacts: [1, 2, 3, 4, 5].map(() => ({})) });
-  assert.deepEqual(list.map((c) => c.done), [true, false, false, false, true, false]);
-  assert.match(list[4].label, /5 su 5/);
+const ME_ID = '22222222-2222-4222-8222-222222222222';
 
-  const interviews = Array.from({ length: 20 }, (_, i) => ({ status: i < 19 ? 'fatta' : 'da_fare', data: {} }));
-  list = guide.phaseChecklist({ ...idea, status: 'esplorazione' }, { interviews });
-  assert.equal(list.find((c) => /Interviste fatte/.test(c.label)).done, false);
-  assert.match(list.find((c) => /Interviste fatte/.test(c.label)).label, /19 su 20/);
+test('the roadmap starts from the team, follows the board data and remembers manual steps', () => {
+  const idea = { id: IDEA, status: 'nuova', data: {} };
+  let rm = roadmap.roadmapState(idea, {});
+  assert.equal(rm.next.step.key, 'team-canvas');
+  assert.equal(rm.done, 0);
+  assert.equal(rm.phases.find((p) => p.phase.key === 'azienda').counted, false, 'la fase azienda conta solo per l\'idea scelta');
+  assert.equal(rm.total, roadmap.ROADMAP_STEPS.length - roadmap.ROADMAP.at(-1).steps.length);
+  assert.equal(roadmap.roadmapState({ ...idea, status: 'scelta' }, {}).total, roadmap.ROADMAP_STEPS.length);
 
-  list = guide.phaseChecklist({ ...idea, status: 'validazione' }, {
-    interviews: ['pilota', 'pagamento', 'pagamento', 'demo'].map((commitment) => ({ status: 'fatta', data: { commitment } })),
-    canvases: [{ data: { validated: { problem: true, segments: true, channels: true } } }],
+  const at = '2026-10-20T10:00:00.000Z';
+  const marks = { 'team-canvas': `done|${ME_ID}|${at}`, deeptech: `skip|${ME_ID}|${at}`, vincoli: `skip|${ME_ID}|${at}` };
+  rm = roadmap.roadmapState({ ...idea, data: { roadmap: marks, pitch: 'P', problem: 'Q', customer: 'C' } }, {
+    interviews: Array.from({ length: 20 }, (_, i) => ({ status: i < 19 ? 'fatta' : 'da_fare', data: { commitment: i < 3 ? 'pagamento' : 'nessuno' } })),
+    ideasCount: 12,
   });
-  assert.equal(list.find((c) => /Impegni forti/.test(c.label)).done, true);
-  assert.equal(list.find((c) => /Blocchi del Lean Canvas/.test(c.label)).done, true);
+  const step = (key) => rm.phases.flatMap((p) => p.steps).find((s) => s.step.key === key);
+  assert.equal(step('team-canvas').status, 'done');
+  assert.equal(step('team-canvas').mark.by, ME_ID);
+  assert.equal(step('ruoli-tempo').isNext, true);
+  assert.equal(step('deeptech').status, 'skip', 'un passo facoltativo può non servire');
+  assert.equal(step('vincoli').status, 'todo', 'un passo obbligatorio non si salta');
+  assert.equal(step('frase').status, 'auto');
+  assert.equal(step('dieci-idee').status, 'auto');
+  assert.equal(step('interviste').status, 'todo');
+  assert.equal(step('interviste').progress, '19 su 20');
+  assert.equal(step('impegni').status, 'auto');
+  assert.equal(rm.phases[1].previousIncomplete, true);
 
-  list = guide.phaseChecklist({ ...idea, status: 'scelta' }, { teamcanvas: { data: {} }, equity: { data: { founders: [{}], vesting: 'sì' } } });
-  assert.equal(list.find((c) => /Team Canvas/.test(c.label)).done, true);
-  assert.equal(list.find((c) => /Quote/.test(c.label)).done, true);
-  assert.equal(list.find((c) => /Quote/.test(c.label)).href, '#/squadra/quote');
+  const example = roadmap.roadmapState({ id: IDEA, status: 'validazione', data: {} }, { example: true });
+  assert.ok(example.phases.slice(0, 5).every((p) => p.complete), 'negli esempi le fasi superate risultano fatte');
+  assert.equal(example.next.phase.key, 'soluzione');
+});
+
+test('roadmap marks are validated and readable in the history', () => {
+  const at = '2026-10-20T10:00:00.000Z';
+  const clean = schema.sanitizeSnapshot('idea', {
+    title: 'I',
+    data: { roadmap: { mentor: `done|${ME_ID}|${at}`, 'Bad Key': `done|${ME_ID}|${at}`, voti: 'done|x|y', quote: `maybe|${ME_ID}|${at}`, vincoli: { by: ME_ID } } },
+  });
+  assert.deepEqual(clean.data.roadmap, { mentor: `done|${ME_ID}|${at}` });
+  assert.equal(schema.sanitizeSnapshot('idea', { title: 'I', data: { roadmap: 'x' } }).data.roadmap, undefined);
+  const ctx = { roadmapStep: (key) => roadmap.stepByKey(key)?.title, memberName: () => 'Anna' };
+  assert.equal(schema.describePath('idea', 'data.roadmap.mentor', ctx), 'Roadmap › Trovate un mentor');
+  assert.equal(schema.formatValue('idea', 'data.roadmap.mentor', `done|${ME_ID}|${at}`, ctx), 'fatto (Anna)');
+  assert.equal(schema.formatValue('idea', 'data.roadmap.deeptech', `skip|${ME_ID}|${at}`, ctx), 'non serve (Anna)');
+  assert.deepEqual(schema.parseRoadmapMark(schema.roadmapMark('done', ME_ID, at)), { state: 'done', by: ME_ID, at });
 });
 
 test('a persona photo is accepted only as a small raster data URL', () => {

@@ -200,6 +200,8 @@ export function changeView(kind, change) {
   let body;
   if (isPhotoPath(kind, change.path)) {
     body = photoChange(change.before, change.after);
+  } else if (kind === 'idea' && change.path.startsWith('data.roadmap.')) {
+    body = h('div', { class: 'diff-inline' }, change.before ? h('del', null, displayValue(kind, change.path, change.before)) : 'da fare', ' → ', change.after ? h('ins', null, displayValue(kind, change.path, change.after)) : 'da fare');
   } else if (change.kind === 'text') {
     body = lineDiffView(change.before, change.after);
   } else if (change.kind === 'inline') {

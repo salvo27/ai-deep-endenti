@@ -9,6 +9,7 @@ const MAX_ATTEMPTS = 4;
 function renderValue(kind, path, value, base) {
   if (value === undefined || value === null || value === '') return h('span', { class: 'muted' }, 'vuoto');
   if (fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image') return photoView(value, { alt: 'Foto', size: 64 });
+  if (kind === 'idea' && path.startsWith('data.roadmap.')) return h('span', null, String(formatValue(kind, path, value, labelContext)));
   const shown = formatValue(kind, path, value, labelContext);
   if (typeof value === 'string' && typeof base === 'string') {
     return h(

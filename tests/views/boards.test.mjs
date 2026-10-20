@@ -81,7 +81,9 @@ async function visit(hash) {
 test('the idea shows customers, market, deep tech and the next step', async () => {
   let body = await visit(`#/idea/${IDS.idea}`);
   assert.ok(outlet.querySelector('.next-step'));
-  assert.match(body, /Prossimo passo · In validazione/);
+  assert.match(body, /Prossimo passo · La squadra/);
+  assert.match(body, /Compilate il Team Canvas/);
+  assert.equal(outlet.querySelector('.next-step a.btn-primary').getAttribute('href'), `#/idea/${IDS.idea}/roadmap`);
   body = await visit(`#/idea/${IDS.idea}/clienti`);
   assert.match(body, /Responsabile qualità/);
   assert.match(body, /Early adopter/);
@@ -195,10 +197,14 @@ test('the team page creates the Team Canvas and the equity split', async () => {
 });
 
 test('guide and concepts are reachable and searchable', async () => {
-  let body = await visit('#/guida?fase=esplorazione');
-  assert.equal(outlet.querySelectorAll('.phase').length, 6);
-  assert.ok(outlet.querySelector('#fase-esplorazione.is-focus'));
-  assert.match(body, /Esempio: AirBed & Breakfast/);
+  let body = await visit('#/guida?fase=clienti');
+  assert.equal(outlet.querySelectorAll('.rm-phase').length, 8);
+  assert.ok(outlet.querySelector('#fase-clienti'));
+  assert.match(body, /A che punto sono le vostre idee/);
+  assert.match(text(outlet.querySelector('.rm-table')), /Idea alfa.*La squadra.*Compilate il Team Canvas/);
+  assert.match(body, /Esempio di roadmap avanzata: Spotify/);
+  assert.match(body, /Errore da evitare/);
+  assert.equal(outlet.querySelectorAll('.rm-phase input[type="checkbox"]').length, 0, 'nella guida i passi si leggono, si segnano nell\'idea');
   body = await visit('#/concetti?c=trl');
   assert.ok(outlet.querySelector('#concetto-trl.is-focus'));
   const search = outlet.querySelector('input[type="search"]');
@@ -411,4 +417,60 @@ test('the photo never reaches Claude or the Markdown export, and history shows i
   assert.equal(view.querySelector('img.photo').getAttribute('src'), PHOTO);
   assert.match(text(view), /nessuna foto/);
   assert.doesNotMatch(text(view), /QQQQ/);
+});
+
+const stepEl = (title) => [...outlet.querySelectorAll('.rm-step')].find((li) => li.querySelector('.rm-title')?.textContent === title);
+
+test('each idea has an interactive roadmap where manual steps are marked, skipped and reopened', async () => {
+  const saved = [];
+  api.saveItem = async ({ id, snapshot, message }) => {
+    saved.push({ snapshot, message });
+    return { status: 'ok', item: { ...store.getItem(id), ...snapshot, version: store.getItem(id).version + 1 } };
+  };
+  const body = await visit(`#/idea/${IDS.idea}/roadmap`);
+  assert.match(body, /Roadmap dell'idea/);
+  assert.equal(outlet.querySelectorAll('.rm-phase').length, 8);
+  const first = stepEl('Compilate il Team Canvas');
+  assert.ok(first.classList.contains('is-next'));
+  assert.equal(first.querySelector('details').open, true);
+  assert.match(text(first), /Fatto quando/);
+  assert.ok(stepEl('Descrivete le buyer persona').querySelector('span.rm-check.is-auto'), 'la persona esiste: il sito lo vede da solo');
+  assert.match(text(outlet.querySelectorAll('.rm-phase')[1]), /La fase precedente non è completa/);
+  assert.match(text(outlet.querySelector('.rm-phase:last-child')), /si apre quando l'idea è «Scelta»/);
+
+  const box = first.querySelector('input.rm-check');
+  box.checked = true;
+  box.dispatchEvent(new Event('change'));
+  await flush(10);
+  assert.match(saved[0].snapshot.data.roadmap['team-canvas'], new RegExp(`^done\\|${ME}\\|`));
+  assert.equal(saved[0].message, 'Roadmap: «Compilate il Team Canvas» fatto');
+  assert.match(text(stepEl('Compilate il Team Canvas')), /Fatto, segnato da Anna/);
+  assert.ok(stepEl('Dichiarate ruoli e ore a settimana').classList.contains('is-next'));
+
+  const tappa = stepEl('Deep tech: prossima tappa e design partner');
+  [...tappa.querySelectorAll('button')].find((b) => /Non serve/.test(b.textContent)).click();
+  await flush(10);
+  assert.match(saved[1].snapshot.data.roadmap['tappa-tecnica'], /^skip\|/);
+  assert.ok(stepEl('Deep tech: prossima tappa e design partner').classList.contains('is-skip'));
+
+  const again = stepEl('Compilate il Team Canvas').querySelector('input.rm-check');
+  again.checked = false;
+  again.dispatchEvent(new Event('change'));
+  await flush(10);
+  assert.equal(saved[2].snapshot.data.roadmap['team-canvas'], undefined);
+  assert.equal(saved[2].message, 'Roadmap: «Compilate il Team Canvas» da fare');
+
+  const { changeView } = await import('../../assets/js/views/history.js');
+  const change = changeView('idea', { path: 'data.roadmap.team-canvas', type: 'added', kind: 'inline', before: undefined, after: saved[0].snapshot.data.roadmap['team-canvas'] });
+  assert.match(text(change), /da fare → fatto \(Anna\)/);
+});
+
+test('the example roadmap is read-only and shows the phases already passed', async () => {
+  const spotify = EXAMPLES.find((e) => e.kind === 'idea' && e.status === 'scelta');
+  await visit(`#/idea/${spotify.id}/roadmap`);
+  const boxes = [...outlet.querySelectorAll('input.rm-check')];
+  assert.ok(boxes.length > 0);
+  assert.ok(boxes.every((b) => b.disabled));
+  assert.ok([...outlet.querySelectorAll('.rm-phase')].slice(0, 7).every((p) => p.classList.contains('is-complete')));
+  assert.match(text(stepEl('Compilate il Team Canvas')), /Fatto \(esempio\)/);
 });

@@ -1,8 +1,7 @@
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate } from '../lib/format.js';
-import { IDEA_CHILD_KINDS, KINDS, optionLabel, statusLabel } from '../schema.js';
-import { phaseChecklist, phaseOf } from '../guide.js';
+import { IDEA_CHILD_KINDS, KINDS, optionLabel } from '../schema.js';
 import { api } from '../lib/api.js';
 import {
   canWrite,
@@ -23,6 +22,7 @@ import { ideaScore } from '../scoring.js';
 import { exportIdeaMarkdown } from '../export.js';
 import { canvasView } from './canvas.js';
 import { deeptechView, marketView, personaCard, vpcView } from './boards.js';
+import { ideaRoadmap, roadmapBox, roadmapPanel } from './roadmap.js';
 import { competitorsView } from './competitors.js';
 import { conceptButton } from './concept-help.js';
 import { commentsPanel } from './comments.js';
@@ -47,10 +47,11 @@ import {
   tabs,
 } from './components.js';
 
-const EXAMPLE_TABS = new Set(['panoramica', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste']);
+const EXAMPLE_TABS = new Set(['panoramica', 'roadmap', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste']);
 
 const TABS = [
   ['panoramica', 'Panoramica'],
+  ['roadmap', 'Roadmap'],
   ['canvas', 'Lean Canvas'],
   ['clienti', 'Clienti'],
   ['mercato', 'Mercato'],
@@ -80,58 +81,9 @@ export function ideaContext(ideaId) {
   };
 }
 
-function checklistContext(idea) {
-  const ideaId = idea.id;
-  const example = isExample(idea);
-  return {
-    canvases: itemsOf('canvas', { ideaId }),
-    experiments: itemsOf('experiment', { ideaId }),
-    interviews: itemsOf('interview', { ideaId }),
-    personas: itemsOf('persona', { ideaId }),
-    vpcs: itemsOf('vpc', { ideaId }),
-    markets: itemsOf('market', { ideaId }),
-    competitors: itemsOf('competitors', { ideaId }),
-    deeptechs: itemsOf('deeptech', { ideaId }),
-    contacts: itemsOf('contact', { ideaId }),
-    decisions: decisionsFor(ideaId),
-    teamcanvas: example ? { data: {} } : singleton('teamcanvas'),
-    equity: example ? { data: { founders: [{}], vesting: 'esempio' } } : singleton('equity'),
-  };
-}
-
 function nextStepBox(idea) {
-  const phase = phaseOf(idea.status);
-  if (!phase) return null;
-  const checks = phaseChecklist(idea, checklistContext(idea));
-  const done = checks.filter((c) => c.done).length;
-  const writable = canWrite() && !isExample(idea) && !idea.deleted_at;
-  const sample = exampleIdeas().find((e) => e.status === idea.status && e.id !== idea.id);
-  return h(
-    'section',
-    { class: 'next-step' },
-    h('div', { class: 'next-step-head' }, h('h2', null, icon('compass', 18), `Prossimo passo · ${statusLabel('idea', idea.status)}`), h('span', { class: 'muted small' }, `${done} di ${checks.length}`)),
-    h('p', null, phase.goal),
-    h(
-      'ul',
-      { class: 'checklist' },
-      checks.map((c) =>
-        h(
-          'li',
-          { class: ['check-item', c.done && 'is-done'] },
-          icon(c.done ? 'check' : 'circle', 16),
-          writable && !c.done ? h('a', { href: c.href }, c.label) : h('span', null, c.label),
-          c.optional ? h('span', { class: 'muted small' }, ' (se serve)') : null,
-        ),
-      ),
-    ),
-    h('p', { class: 'muted small' }, phase.exit),
-    h(
-      'div',
-      { class: 'row' },
-      h('a', { class: 'btn btn-ghost btn-small', href: `#/guida?fase=${idea.status}` }, icon('compass', 14), h('span', null, 'Guida di questa fase')),
-      sample ? h('a', { class: 'btn btn-example btn-small', href: `#/idea/${sample.id}` }, icon('idea', 14), h('span', null, `Esempio: ${sample.title.split(':')[0]}`)) : null,
-    ),
-  );
+  const sample = isExample(idea) ? null : exampleIdeas().find((e) => e.status === 'scelta');
+  return roadmapBox(idea, { sample });
 }
 
 function originNote(idea) {
@@ -471,6 +423,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       : statusPill('idea', idea.status);
     const count = (...kinds) => kinds.reduce((sum, kind) => sum + itemsOf(kind, { ideaId: idea.id }).length, 0);
     const counts = {
+      roadmap: `${ideaRoadmap(idea).percent}%`,
       canvas: count('canvas'),
       clienti: count('persona', 'vpc'),
       mercato: count('market', 'competitors'),
@@ -484,6 +437,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     commentsEl = null;
     let body;
     if (tab === 'panoramica') body = overviewTab(idea);
+    else if (tab === 'roadmap') body = roadmapPanel(idea, { writable });
     else if (tab === 'canvas') body = boardsTab(idea, writable, ['canvas']);
     else if (tab === 'clienti') body = boardsTab(idea, writable, ['persona', 'vpc']);
     else if (tab === 'mercato') body = boardsTab(idea, writable, ['market', 'competitors']);
@@ -527,7 +481,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
         if (item.id === params.id) render();
         return;
       }
-      if (item.id === params.id || item.idea_id === params.id || ['score', 'criteria', 'decision', 'teamcanvas', 'equity'].includes(item.kind)) render();
+      if (item.id === params.id || item.idea_id === params.id || ['idea', 'score', 'criteria', 'decision', 'teamcanvas', 'equity'].includes(item.kind)) render();
     }),
     on('presence', renderHere),
     on('comment-counts', () => {

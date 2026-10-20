@@ -1,5 +1,6 @@
 import { api, AppError } from './lib/api.js';
 import { KINDS, sanitizeSnapshot, snapshotProblem } from './schema.js';
+import { stepByKey } from './roadmap.js';
 import { LIMITS, cleanLine, isUuid } from './lib/validate.js';
 import { debounce } from './lib/format.js';
 import { EXAMPLES } from './examples.js';
@@ -259,6 +260,7 @@ export const criteriaList = () => singleton('criteria')?.data?.criteria || [];
 export const deletedItems = () => [...state.items.values()].filter((i) => i.deleted_at);
 
 export const labelContext = {
+  roadmapStep: (key) => stepByKey(key)?.title || null,
   ideaTitle: (id) => getItem(id)?.title || null,
   itemTitle: (id) => getItem(id)?.title || null,
   memberName: (id) => memberName(id),

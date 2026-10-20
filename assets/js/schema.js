@@ -482,6 +482,26 @@ export function optionLabel(fieldDef, value) {
   return fieldDef?.options?.find(([v]) => v === value)?.[1] ?? value;
 }
 
+// Passo della roadmap segnato a mano: «done|chi|quando» oppure «skip|chi|quando» (solo per i passi facoltativi).
+const ROADMAP_MARK_RE = /^(done|skip)\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\|(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)$/i;
+
+export function parseRoadmapMark(value) {
+  const m = typeof value === 'string' ? value.match(ROADMAP_MARK_RE) : null;
+  return m ? { state: m[1], by: m[2].toLowerCase(), at: m[3] } : null;
+}
+
+export const roadmapMark = (state, by, at = new Date().toISOString()) => `${state}|${by}|${at}`;
+
+function sanitizeRoadmap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (Object.keys(out).length >= 100) break;
+    if (/^[a-z0-9-]{1,40}$/.test(key) && parseRoadmapMark(value)) out[key] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function sanitizeField(def, value) {
   switch (def.type) {
     case 'text':
@@ -724,6 +744,10 @@ export function sanitizeSnapshot(kind, snapshot) {
     if (kind === 'idea' && typeof raw.origin === 'string' && /^[a-z0-9-]{1,40}:[a-z0-9-]{1,40}$/.test(raw.origin)) {
       data.origin = raw.origin;
     }
+    if (kind === 'idea') {
+      const roadmap = sanitizeRoadmap(raw.roadmap);
+      if (roadmap) data.roadmap = roadmap;
+    }
     if (kind === 'competitors') Object.assign(data, sanitizeCompetitors(raw));
     if (kind === 'equity') Object.assign(data, sanitizeEquity(raw));
   }
@@ -809,6 +833,7 @@ export function describePath(kind, path, ctx = {}) {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
   if (kind === 'idea' && head === 'origin') return 'Origine nel generatore';
+  if (kind === 'idea' && head === 'roadmap') return `Roadmap › ${ctx.roadmapStep?.(tail[0]) || tail[0]}`;
   return fieldOf(kind, head)?.label || head;
 }
 
@@ -816,6 +841,12 @@ export function formatValue(kind, path, value, ctx = {}) {
   if (value === undefined || value === null) return '';
   if (path === 'status') return statusLabel(kind, value);
   if (path === 'idea_id') return ctx.ideaTitle?.(value) || 'Idea';
+  if (kind === 'idea' && path.startsWith('data.roadmap.')) {
+    const mark = parseRoadmapMark(value);
+    if (!mark) return '';
+    const who = ctx.memberName?.(mark.by) || 'Membro';
+    return mark.state === 'skip' ? `non serve (${who})` : `fatto (${who})`;
+  }
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {

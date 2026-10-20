@@ -20,7 +20,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
-| Guida e Concetti | Cosa fare in ogni fase dell'idea e circa novanta concetti del manuale spiegati in breve, collegati ai campi con il pulsante «?» |
+| Roadmap, Guida e Concetti | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; alcuni si spuntano da soli dai dati, gli altri a mano con autore e data. La Guida mostra la roadmap completa e a che punto è ogni idea; i Concetti spiegano circa novanta voci del manuale, collegate ai campi con il pulsante «?» |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
 | Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, avvisi del browser, backup |
@@ -43,7 +43,7 @@ assets/js/
   store.js                  stato condiviso, aggiornamenti dal vivo, salvataggi
   router.js                 rotte con hash (#/idee, #/idea/:id, ...)
   examples.js               idee di esempio in sola lettura, una per fase
-  guide.js, concepts.js     guida per fase e concetti del manuale
+  roadmap.js, concepts.js   fasi e passi della roadmap, concetti del manuale
   scoring.js, ai.js, export.js
   lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
   views/                    una pagina per file
