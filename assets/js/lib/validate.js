@@ -9,6 +9,7 @@ export const LIMITS = Object.freeze({
   tags: 20,
   message: 500,
   comment: 20000,
+  note: 50000,
   displayName: 80,
 });
 

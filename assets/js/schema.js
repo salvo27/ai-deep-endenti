@@ -430,6 +430,19 @@ export const KINDS = {
     ],
     extraKeys: ['features', 'rivals', 'cells', 'axes', 'us'],
   },
+  note: {
+    label: 'Nota',
+    plural: 'Appunti',
+    icon: 'file',
+    titleLabel: 'Titolo',
+    titlePlaceholder: 'Per esempio: Riunione del 20 ottobre',
+    needsIdea: true,
+    statuses: null,
+    fields: [
+      field('date', 'Data', 'date'),
+      field('body', 'Testo', 'markdown', { wide: true, help: 'Markdown: # titoli, **grassetto**, - elenchi, | tabelle |. Le immagini si aggiungono con il pulsante sopra il testo.' }),
+    ],
+  },
   teamcanvas: {
     label: 'Team Canvas',
     plural: 'Team Canvas',
@@ -457,8 +470,8 @@ export const KINDS = {
   generator: { label: 'Generatore', plural: 'Generatore', icon: 'generator', titleLabel: 'Titolo', statuses: null, fields: [] },
 };
 
-export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors'];
-export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors'];
+export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note'];
+export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note'];
 export const TEAM_KINDS = ['teamcanvas', 'equity'];
 export const EDITABLE_KINDS = [...BOARD_KINDS, ...TEAM_KINDS];
 
@@ -508,6 +521,8 @@ function sanitizeField(def, value) {
       return cleanLine(value) || undefined;
     case 'textarea':
       return cleanText(value) || undefined;
+    case 'markdown':
+      return cleanText(value, LIMITS.note) || undefined;
     case 'select':
       return def.options.some(([v]) => v === value) ? value : undefined;
     case 'date':

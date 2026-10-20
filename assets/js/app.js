@@ -6,6 +6,7 @@ import { loadAll, on, startRealtime, startSync, state, stopRealtime, stopSync, s
 import { addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
+import { sweepNoteImages } from './notes.js';
 import { dashboardView } from './views/dashboard.js';
 import { ideasView } from './views/ideas.js';
 import { ideaView } from './views/idea.js';
@@ -104,6 +105,7 @@ export async function startApp(root) {
   startRealtime();
   startSync();
   startNotifications();
+  sweepNoteImages();
   stopIdle = startIdleLogout();
   on('removed', () => {
     stopApp();

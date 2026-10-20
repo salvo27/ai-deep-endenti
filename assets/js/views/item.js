@@ -4,6 +4,7 @@ import { canWrite, getItem, isExample, on, state, trackPresence } from '../store
 import { canvasView } from './canvas.js';
 import { deeptechView, marketView, personaView, vpcView } from './boards.js';
 import { competitorsView } from './competitors.js';
+import { noteView } from './notes.js';
 import { commentsPanel } from './comments.js';
 import { aiButton } from './ai-panel.js';
 import { archiveWithConfirm, changeStatus } from './actions.js';
@@ -16,7 +17,7 @@ const TABS = [
 ];
 
 const LIST_ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
-const VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView, persona: personaView };
+const VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView, persona: personaView, note: noteView };
 const CRITIQUE_KINDS = ['canvas', 'experiment', 'persona', 'vpc', 'market', 'competitors', 'deeptech'];
 
 export function itemView(outlet, params) {
@@ -59,7 +60,7 @@ export function itemView(outlet, params) {
       item.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questo elemento è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
       example ? exampleBanner(item) : null,
       pageHeader({
-        back: { href: idea ? `#/idea/${idea.id}` : `#${LIST_ROUTES[item.kind] || '/'}` },
+        back: { href: idea ? `#/idea/${idea.id}${item.kind === 'note' ? '/appunti' : ''}` : `#${LIST_ROUTES[item.kind] || '/'}` },
         eyebrow: h('span', { class: 'kind-eyebrow' }, def.label, idea ? [' di ', itemLink(idea)] : null),
         title: item.title,
         subtitle: h('span', { class: 'row' }, statusControl, metaLine(item), hereHost),

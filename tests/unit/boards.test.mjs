@@ -182,3 +182,12 @@ test('a persona photo is accepted only as a small raster data URL', () => {
   const clean = schema.sanitizeSnapshot('persona', { title: 'P', idea_id: IDEA, data: { gender: 'donna', age_range: ' 30-50 anni ', objections: 'Prezzo', info_sources: 'Blog', gender_bad: 'x' } });
   assert.deepEqual(clean.data, { age_range: '30-50 anni', gender: 'donna', objections: 'Prezzo', info_sources: 'Blog' });
 });
+
+test('a note belongs to an idea and keeps a long Markdown text', () => {
+  assert.ok(schema.IDEA_CHILD_KINDS.includes('note'));
+  const long = 'a'.repeat(30000);
+  const clean = schema.sanitizeSnapshot('note', { title: 'Riunione', idea_id: IDEA, data: { body: long, date: '2026-10-20', extra: 'x' } });
+  assert.deepEqual(clean.data, { date: '2026-10-20', body: long });
+  assert.equal(schema.sanitizeSnapshot('note', { title: 'N', data: { body: 'b'.repeat(60000) } }).data.body.length, 50000);
+  assert.equal(schema.snapshotProblem('note', { ...clean, idea_id: null }), 'Scegli l\'idea a cui appartiene.');
+});

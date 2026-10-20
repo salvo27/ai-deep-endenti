@@ -199,7 +199,7 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'teamcanvas', 'equity', 'criteria', 'score', 'generator'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator'
   )
 );
 
@@ -251,12 +251,12 @@ begin
     or (new.kind = 'interview' and new.status in ('da_fare', 'fatta', 'analizzata'))
     or (new.kind = 'decision' and new.status in ('proposta', 'presa', 'rivista'))
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
-    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'teamcanvas', 'equity', 'criteria', 'score', 'generator')
+    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator')
         and new.status is null)
   ) then
     raise exception 'Stato non valido per questo tipo di elemento';
   end if;
-  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors')
+  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note')
      and btrim(new.title) = '' then
     raise exception 'Il titolo è obbligatorio';
   end if;
@@ -635,6 +635,54 @@ create policy comments_update on public.comments
   with check ((select public.can_read()) and author_id = (select auth.uid()));
 
 -- =========================================================================
+-- Immagini delle note
+-- =========================================================================
+
+-- Spazio privato: solo JPEG già ridotti nel browser, letti dai membri con 2FA, caricati e cancellati da chi può modificare.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('note-immagini', 'note-immagini', false, 1048576, array['image/jpeg'])
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists note_images_select on storage.objects;
+create policy note_images_select on storage.objects
+  for select to authenticated
+  using (bucket_id = 'note-immagini' and (select public.can_read()));
+
+drop policy if exists note_images_insert on storage.objects;
+create policy note_images_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'note-immagini'
+    and (select public.can_write())
+    and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+  );
+
+drop policy if exists note_images_delete on storage.objects;
+create policy note_images_delete on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'note-immagini' and (select public.can_write()));
+
+-- Immagini senza puntatore in nessuna nota, cestino compreso. Senza elenco: quelle caricate da più di 24 ore
+-- (le altre possono essere in una nota non ancora salvata). Il sito poi le cancella con le API di Storage.
+create or replace function public.note_image_orphans(p_paths text[] default null)
+returns setof text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select o.name
+  from storage.objects o
+  where o.bucket_id = 'note-immagini'
+    and public.can_write()
+    and (case when p_paths is null then o.created_at < now() - interval '24 hours' else o.name = any (p_paths) end)
+    and not exists (
+      select 1 from public.items i
+      where i.kind = 'note' and strpos(coalesce(i.data ->> 'body', ''), '(immagine:' || o.name || ')') > 0
+    )
+$$;
+
+-- =========================================================================
 -- Uso di Claude (scritto solo dalla Edge Function)
 -- =========================================================================
 
@@ -740,6 +788,7 @@ revoke execute on function public.save_item(uuid, integer, text, text, jsonb, uu
 revoke execute on function public.delete_item(uuid, integer, text) from public, anon;
 revoke execute on function public.restore_item(uuid, text) from public, anon;
 revoke execute on function public.revert_item(uuid, integer, integer, text) from public, anon;
+revoke execute on function public.note_image_orphans(text[]) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
@@ -754,6 +803,7 @@ grant execute on function public.save_item(uuid, integer, text, text, jsonb, uui
 grant execute on function public.delete_item(uuid, integer, text) to authenticated;
 grant execute on function public.restore_item(uuid, text) to authenticated;
 grant execute on function public.revert_item(uuid, integer, integer, text) to authenticated;
+grant execute on function public.note_image_orphans(text[]) to authenticated;
 
 -- =========================================================================
 -- Realtime: aggiornamenti dal vivo e presenza

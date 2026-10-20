@@ -13,6 +13,7 @@ const BOARD_LABELS = {
   market: 'una stima del mercato',
   competitors: 'un\'analisi dei concorrenti',
   deeptech: 'una scheda deep tech',
+  note: 'una nota',
 };
 
 let items = [];

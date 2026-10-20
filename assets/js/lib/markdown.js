@@ -9,9 +9,10 @@ const QUOTE = /^\s*>\s?(.*)$/;
 const FENCE = /^\s*```/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-const INLINE = /(\*\*[^*\n]+?\*\*|__[^_\n]+?__|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\s][^*\n]*?\*)/;
+const INLINE = /(!\[[^\]\n]*\]\([^)\s]+\)|\*\*[^*\n]+?\*\*|__[^_\n]+?__|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\s][^*\n]*?\*)/;
 
-export function renderInline(text) {
+// opts.image(path, alt) disegna le immagini «immagine:percorso» delle note; gli altri indirizzi restano testo.
+export function renderInline(text, opts = {}) {
   const out = [];
   let rest = String(text ?? '');
   while (rest) {
@@ -22,12 +23,16 @@ export function renderInline(text) {
     }
     if (match.index) out.push(rest.slice(0, match.index));
     const token = match[0];
-    if (token.startsWith('**') || token.startsWith('__')) out.push(h('strong', null, renderInline(token.slice(2, -2))));
+    if (token.startsWith('![')) {
+      const [, alt, url] = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(token);
+      if (url.startsWith('immagine:') && opts.image) out.push(opts.image(url.slice('immagine:'.length), alt));
+      else out.push(alt || 'immagine', h('span', { class: 'muted' }, ` (${url.startsWith('data:') ? 'immagine incorporata' : url})`));
+    } else if (token.startsWith('**') || token.startsWith('__')) out.push(h('strong', null, renderInline(token.slice(2, -2), opts)));
     else if (token.startsWith('`')) out.push(h('code', null, token.slice(1, -1)));
     else if (token.startsWith('[')) {
       const [, label, url] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
       out.push(label, h('span', { class: 'muted' }, ` (${url})`));
-    } else out.push(h('em', null, renderInline(token.slice(1, -1))));
+    } else out.push(h('em', null, renderInline(token.slice(1, -1), opts)));
     rest = rest.slice(match.index + token.length);
   }
   return out;
@@ -41,7 +46,7 @@ const cells = (line) =>
     .split('|')
     .map((cell) => cell.trim());
 
-export function renderMarkdown(text) {
+export function renderMarkdown(text, opts = {}) {
   const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
   const blocks = [];
   let paragraph = [];
@@ -51,7 +56,7 @@ export function renderMarkdown(text) {
   const closeParagraph = () => {
     if (!paragraph.length) return;
     const parts = [];
-    paragraph.forEach((line, i) => parts.push(i ? h('br') : null, renderInline(line)));
+    paragraph.forEach((line, i) => parts.push(i ? h('br') : null, renderInline(line, opts)));
     blocks.push(h('p', null, parts));
     paragraph = [];
   };
@@ -83,7 +88,7 @@ export function renderMarkdown(text) {
       top = { indent, el, lastItem: null };
       lists.push(top);
     }
-    const item = h('li', null, renderInline(content));
+    const item = h('li', null, renderInline(content, opts));
     top.el.append(item);
     top.lastItem = item;
   };
@@ -118,8 +123,8 @@ export function renderMarkdown(text) {
           h(
             'table',
             { class: 'table' },
-            h('thead', null, h('tr', null, head.map((c) => h('th', null, renderInline(c))))),
-            h('tbody', null, rows.map((r) => h('tr', null, r.map((c) => h('td', null, renderInline(c)))))),
+            h('thead', null, h('tr', null, head.map((c) => h('th', null, renderInline(c, opts))))),
+            h('tbody', null, rows.map((r) => h('tr', null, r.map((c) => h('td', null, renderInline(c, opts)))))),
           ),
         ),
       );
@@ -129,7 +134,7 @@ export function renderMarkdown(text) {
     if (heading) {
       closeAll();
       const level = Math.min(heading[1].length + 2, 6);
-      blocks.push(h(`h${level}`, null, renderInline(heading[2].replace(/\s+#+\s*$/, ''))));
+      blocks.push(h(`h${level}`, null, renderInline(heading[2].replace(/\s+#+\s*$/, ''), opts)));
       continue;
     }
     if (RULE.test(line)) {
@@ -146,7 +151,7 @@ export function renderMarkdown(text) {
     }
     if (lists.length && /^\s+/.test(line)) {
       const last = lists[lists.length - 1].lastItem;
-      last.append(h('br'), ...renderInline(line.trim()));
+      last.append(h('br'), ...renderInline(line.trim(), opts));
       continue;
     }
     const quoted = QUOTE.exec(line);
@@ -157,7 +162,7 @@ export function renderMarkdown(text) {
         quote = h('blockquote');
         blocks.push(quote);
       } else quote.append(h('br'));
-      quote.append(...renderInline(quoted[1]));
+      quote.append(...renderInline(quoted[1], opts));
       continue;
     }
     closeLists();

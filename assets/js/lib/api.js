@@ -2,6 +2,8 @@ import { supabase, authFlags } from './supabase.js';
 import { CONFIG } from '../config.js';
 import { isUuid } from './validate.js';
 
+export const NOTE_BUCKET = 'note-immagini';
+
 export class AppError extends Error {
   constructor(message, { code = null, status = null } = {}) {
     super(message);
@@ -336,6 +338,29 @@ export const api = {
       allPages(() => supabase.from('comments').select('*').order('created_at')),
     ]);
     return { items, revisions, comments };
+  },
+
+  // Immagini delle note: spazio privato su Supabase Storage, regole nel database.
+  async uploadNoteImage(path, blob) {
+    const { error } = await supabase.storage.from(NOTE_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw toAppError(error, 'Caricamento dell\'immagine non riuscito.');
+  },
+
+  async downloadNoteImage(path) {
+    const { data, error } = await supabase.storage.from(NOTE_BUCKET).download(path);
+    if (error || !data) throw toAppError(error, 'Immagine non disponibile.');
+    return data;
+  },
+
+  async removeNoteImages(paths) {
+    if (!paths.length) return;
+    const { error } = await supabase.storage.from(NOTE_BUCKET).remove(paths);
+    if (error) throw toAppError(error, 'Pulizia delle immagini non riuscita.');
+  },
+
+  async noteImageOrphans(paths = null) {
+    const rows = await unwrap(supabase.rpc('note_image_orphans', { p_paths: paths }), 'Controllo delle immagini non riuscito.');
+    return (rows || []).map((row) => (typeof row === 'string' ? row : row.note_image_orphans)).filter(Boolean);
   },
 
   async setRealtimeAuth() {

@@ -23,6 +23,7 @@ import { exportIdeaMarkdown } from '../export.js';
 import { canvasView } from './canvas.js';
 import { deeptechView, marketView, personaCard, vpcView } from './boards.js';
 import { ideaRoadmap, roadmapBox, roadmapPanel } from './roadmap.js';
+import { notesTab } from './notes.js';
 import { competitorsView } from './competitors.js';
 import { conceptButton } from './concept-help.js';
 import { commentsPanel } from './comments.js';
@@ -58,6 +59,7 @@ const TABS = [
   ['deeptech', 'Deep tech'],
   ['esperimenti', 'Esperimenti'],
   ['interviste', 'Persone e interviste'],
+  ['appunti', 'Appunti'],
   ['voti', 'Voti'],
   ['commenti', 'Commenti'],
   ['storico', 'Storico'],
@@ -430,6 +432,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       deeptech: count('deeptech'),
       esperimenti: itemsOf('experiment', { ideaId: idea.id }).length,
       interviste: count('interview', 'contact'),
+      appunti: count('note'),
       commenti: [idea.id, ...childIds(idea.id)].reduce((sum, id) => sum + (state.commentCounts.get(id) || 0), 0),
     };
 
@@ -444,6 +447,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     else if (tab === 'deeptech') body = boardsTab(idea, writable, ['deeptech']);
     else if (tab === 'esperimenti') body = experimentsTab(idea, writable, query.get('vista') === 'javelin');
     else if (tab === 'interviste') body = interviewsTab(idea, writable);
+    else if (tab === 'appunti') body = notesTab(idea, writable);
     else if (tab === 'voti') body = votesTab(idea);
     else if (tab === 'commenti') body = commentsEl = commentsPanel(idea, { related: childIds(idea.id) });
     else body = historyTab(idea);

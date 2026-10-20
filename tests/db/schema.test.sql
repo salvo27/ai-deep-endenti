@@ -417,5 +417,40 @@ begin
 end
 $$;
 
+\echo 'ok - note: titolo obbligatorio, immagini private solo per il team e orfane trovate dal database'
+set role authenticated;
+select test.login('a');
+do $$
+declare
+  v_idea text := current_setting('test.idea');
+  v_used text := v_idea || '/11111111-1111-4111-8111-111111111111.jpg';
+  v_orphan text := v_idea || '/22222222-2222-4222-8222-222222222222.jpg';
+begin
+  perform test.expect_error($q$select public.create_item('note', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
+  perform public.create_item('note', 'Riunione', null, jsonb_build_object('body', 'Lavagna: ![foto](immagine:' || v_used || ')'), v_idea::uuid, null);
+  insert into storage.objects (bucket_id, name) values ('note-immagini', v_used), ('note-immagini', v_orphan);
+  perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('note-immagini', 'cartella/foto.png')$q$, 'row-level security');
+  assert (select array_agg(x) from public.note_image_orphans(array[v_used, v_orphan]) x) = array[v_orphan], 'immagine con puntatore considerata orfana';
+  assert (select count(*) from public.note_image_orphans()) = 0, 'immagini appena caricate considerate orfane';
+end
+$$;
+select test.login('c');
+do $$
+begin
+  assert (select count(*) from storage.objects where bucket_id = 'note-immagini') = 2, 'l''advisor non vede le immagini';
+  perform test.expect_error(
+    format($q$insert into storage.objects (bucket_id, name) values ('note-immagini', %L)$q$, current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg'),
+    'row-level security'
+  );
+  assert (select count(*) from public.note_image_orphans(array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
+end
+$$;
+select test.login('a', 'aal1');
+do $$
+begin
+  assert (select count(*) from storage.objects) = 0, 'immagini visibili senza 2FA';
+end
+$$;
+
 reset role;
 \echo 'tutti i test del database sono passati'

@@ -68,13 +68,13 @@ export function createClient(url, key, options) {
     removed: [],
     presence: {},
     authListeners: [],
-    responses: { rpc: {}, from: {}, auth: {}, functions: {} },
+    responses: { rpc: {}, from: {}, auth: {}, functions: {}, storage: {} },
     reset() {
       this.calls = [];
       this.channels = [];
       this.subscribed = [];
       this.removed = [];
-      this.responses = { rpc: {}, from: {}, auth: {}, functions: {} };
+      this.responses = { rpc: {}, from: {}, auth: {}, functions: {}, storage: {} };
     },
     rpc(name, params) {
       this.calls.push(['rpc', name, params]);
@@ -92,6 +92,15 @@ export function createClient(url, key, options) {
     realtime: {
       setAuth(token) {
         client.calls.push(['realtime.setAuth', token]);
+      },
+    },
+    storage: {
+      from(bucket) {
+        const call = (name) => (...args) => {
+          client.calls.push([`storage.${name}`, bucket, ...args]);
+          return respond(client.responses.storage?.[name], ...args);
+        };
+        return { upload: call('upload'), download: call('download'), remove: call('remove') };
       },
     },
     functions: {

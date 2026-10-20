@@ -37,6 +37,7 @@ import { conceptButton } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
 import { errorBox, pageHeader, photoView } from './components.js';
 import { resizePhoto } from '../lib/photo.js';
+import { MAX_NOTE_IMAGES, imagePaths, imagePointer, markdownToNote, removeUnusedImages, renderNote, uploadNoteImage } from '../notes.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -206,6 +207,120 @@ function photoInput(def, working, onChange) {
   return box;
 }
 
+// Testo Markdown della nota, con immagini caricate nello spazio privato e anteprima.
+function markdownInput(def, working, onChange) {
+  const text = autoGrow(
+    h('textarea', {
+      class: 'input md-input',
+      rows: 14,
+      value: working.data[def.key] || '',
+      placeholder: '# Titolo\n\nAppunti, **parole importanti**, elenchi con - e tabelle con |',
+      maxlength: LIMITS.note,
+      onInput: (e) => {
+        working.data[def.key] = e.target.value;
+        onChange();
+        renderCount();
+      },
+    }),
+  );
+  const preview = h('div', { class: 'md-preview', hidden: true });
+  const status = h('span', { class: 'muted small', 'aria-live': 'polite' });
+  const renderCount = () => {
+    status.textContent = `${imagePaths(text.value).size} di ${MAX_NOTE_IMAGES} immagini`;
+  };
+  const setText = (value) => {
+    text.value = value;
+    text.dispatchEvent(new Event('input'));
+  };
+  const insert = (snippet) => {
+    const start = text.selectionStart ?? text.value.length;
+    const end = text.selectionEnd ?? start;
+    setText(`${text.value.slice(0, start)}${snippet}${text.value.slice(end)}`);
+  };
+  const needsIdea = () => {
+    if (isUuid(working.idea_id)) return false;
+    toast('Scegli prima l\'idea a cui appartiene la nota.', { type: 'error' });
+    return true;
+  };
+  const imageInput = h('input', {
+    type: 'file',
+    class: 'file-input',
+    accept: 'image/jpeg,image/png,image/webp,image/*',
+    multiple: true,
+    onChange: async (e) => {
+      const files = [...(e.target.files || [])];
+      e.target.value = '';
+      if (!files.length || needsIdea()) return;
+      for (const file of files) {
+        if (imagePaths(text.value).size >= MAX_NOTE_IMAGES) {
+          toast(`Al massimo ${MAX_NOTE_IMAGES} immagini per nota.`, { type: 'error' });
+          break;
+        }
+        status.textContent = `Carico «${file.name}»…`;
+        try {
+          const path = await uploadNoteImage(working.idea_id, file);
+          insert(`\n${imagePointer(path, file.name.replace(/\.[^.]+$/, ''))}\n`);
+        } catch (error) {
+          toast(error.message, { type: 'error' });
+        }
+      }
+      renderCount();
+    },
+  });
+  const mdInput = h('input', {
+    type: 'file',
+    class: 'file-input',
+    accept: '.md,.markdown,text/markdown,text/plain',
+    onChange: async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file || needsIdea()) return;
+      try {
+        status.textContent = 'Importo il file…';
+        const imported = await markdownToNote(await file.text(), working.idea_id, {
+          onProgress: (done, total) => (status.textContent = `Carico le immagini: ${done} di ${total}`),
+        });
+        setText(text.value.trim() ? `${text.value.trimEnd()}\n\n${imported.body}` : imported.body);
+        const title = text.closest('.editor, form, main')?.querySelector('.input-title');
+        if (imported.title && title && !title.value.trim()) {
+          title.value = imported.title;
+          title.dispatchEvent(new Event('input'));
+        }
+        toast('File importato.', { type: 'success' });
+      } catch (error) {
+        toast(error.message, { type: 'error' });
+      }
+      renderCount();
+    },
+  });
+  const previewButton = h('button', {
+    type: 'button',
+    class: 'btn btn-ghost btn-small',
+    onClick: () => {
+      const show = preview.hidden;
+      if (show) mount(preview, renderNote(text.value));
+      preview.hidden = !show;
+      text.hidden = show;
+      previewButton.textContent = show ? 'Scrivi' : 'Anteprima';
+    },
+  }, 'Anteprima');
+  renderCount();
+  return h(
+    'div',
+    { class: 'md-editor' },
+    h(
+      'div',
+      { class: 'md-toolbar' },
+      h('label', { class: 'btn btn-ghost btn-small' }, icon('image', 14), h('span', null, 'Immagine'), imageInput),
+      h('label', { class: 'btn btn-ghost btn-small' }, icon('file', 14), h('span', null, 'Importa .md'), mdInput),
+      previewButton,
+      status,
+    ),
+    text,
+    preview,
+  );
+}
+
 export function fieldControl(def, working, onChange) {
   const value = working.data[def.key];
   const set = (v) => {
@@ -246,6 +361,8 @@ export function fieldControl(def, working, onChange) {
       return tagInput(def, working, onChange);
     case 'image':
       return photoInput(def, working, onChange);
+    case 'markdown':
+      return markdownInput(def, working, onChange);
     case 'money': {
       const preview = h('span', { class: 'field-help' }, value ? fmtMoney(value) : '');
       const input = h('input', {
@@ -406,7 +523,7 @@ export function editorView(outlet, params, query) {
           f.group ? h('h2', { class: 'form-group-title is-wide' }, f.group) : null,
           h(
             'div',
-            { class: ['field', (f.wide || f.type === 'textarea') && 'is-wide'] },
+            { class: ['field', (f.wide || f.type === 'textarea' || f.type === 'markdown') && 'is-wide'] },
             h('span', { class: 'field-label' }, f.label, f.concept ? conceptButton(f.concept) : null),
             fieldControl(f, working, onChange),
             f.help ? h('span', { class: 'field-help' }, f.help) : null,
@@ -458,6 +575,7 @@ export function editorView(outlet, params, query) {
         const result = await saveWithMerge({ ...editing, version: baseVersion }, base, snapshot, message.value);
         if (result.cancelled) return;
         saved = result.item;
+        if (kind === 'note') removeUnusedImages(base.data?.body, saved?.data?.body ?? snapshot.data.body).catch(() => {});
       } else {
         saved = await createItem(kind, snapshot, message.value);
         await linkContact(saved);

@@ -16,6 +16,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione; vista a colonne come il template |
 | Persone | Con chi interfacciarsi per ogni idea (clienti da intervistare, esperti, chi serve per realizzarla, ateneo, investitori), con stato, responsabile e prossimo contatto; un clic crea l'intervista |
 | Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
+| Appunti | In ogni idea, note in Markdown con titolo e data: riunioni, link, domande aperte. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate e un file .md si può importare |
 | Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi |
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |

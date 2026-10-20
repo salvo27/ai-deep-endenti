@@ -6,8 +6,8 @@ Numeri al 18 ottobre 2026:
 
 | | Test | Copertura |
 |---|---|---|
-| Database (PostgreSQL 16, script SQL) | 26 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale, regole dei nuovi tipi di scheda |
-| Sito e funzione di Claude (`node:test`, jsdom) | 233 | 96% delle righe e 85% dei rami del codice dell'app |
+| Database (PostgreSQL 16, script SQL) | 27 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale, note e immagini private, regole dei nuovi tipi di scheda |
+| Sito e funzione di Claude (`node:test`, jsdom) | 245 | 96% delle righe e 85% dei rami del codice dell'app |
 
 ## 1. Come sono stati scritti
 
@@ -29,7 +29,7 @@ I test sono **white-box**: scritti leggendo il codice, nella stessa sessione in 
 | Database | Postgres temporaneo con un ambiente che imita Supabase (`auth.uid()`, `auth.jwt()`, ruoli). Lo schema viene installato due volte per verificare che sia rieseguibile | 2FA obbligatoria, advisor in sola lettura, conflitti di versione, storico immutabile, registro di sicurezza |
 | Librerie | Funzioni pure | differenze tra versioni, unione a tre vie, "chi ha scritto cosa", validazione, classifica, Markdown delle risposte di Claude |
 | Accesso ai dati e stato | Client Supabase finto | traduzione degli errori, paginazione, filtri, dati dal vivo malformati, bozze locali |
-| Interfaccia | jsdom, interazioni simulate | ogni pagina, form, conflitti, ripristino di versioni, login e 2FA, generatore (con le persone per competenza e settore), profilo, team, idee di esempio valide e in sola lettura, nuove schede (persone, buyer persona a scheda con foto ridotta nel browser, VPC, mercato, concorrenti, deep tech, Team Canvas, quote), vista Javelin, roadmap di ogni idea (spunte solo manuali e rimovibili, suggerimenti dai dati, passi facoltativi, esempi in sola lettura), guida e concetti, notifiche, risincronizzazione dei dati e pulsante Indietro |
+| Interfaccia | jsdom, interazioni simulate | ogni pagina, form, conflitti, ripristino di versioni, login e 2FA, generatore (con le persone per competenza e settore), profilo, team, idee di esempio valide e in sola lettura, nuove schede (persone, buyer persona a scheda con foto ridotta nel browser, VPC, mercato, concorrenti, deep tech, Team Canvas, quote), vista Javelin, roadmap di ogni idea (spunte solo manuali e rimovibili, suggerimenti dai dati, passi facoltativi, esempi in sola lettura), guida e concetti, appunti con immagini (caricamento, pulizia, import ed export .md), menu laterale, notifiche, risincronizzazione dei dati e pulsante Indietro |
 | Sicurezza | Test sul DOM e controlli statici sul codice | testo malevolo in ogni campo e in ogni pagina, divieto di `innerHTML` ed `eval`, CSP, versioni fissate delle librerie, solo la chiave anon nel codice, RLS su ogni tabella |
 | Funzione di Claude | Handler con dipendenze finte | CORS, autenticazione, limiti di dimensione, compiti ammessi, limite giornaliero, rifiuti e risposte troncate, log senza contenuti |
 

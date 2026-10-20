@@ -66,3 +66,23 @@ test('empty or missing text renders nothing', () => {
   assert.deepEqual(md.renderMarkdown(''), []);
   assert.deepEqual(md.renderMarkdown(null), []);
 });
+
+test('images are drawn only for note images, every other address stays text', () => {
+  const calls = [];
+  const image = (path, alt) => {
+    calls.push([path, alt]);
+    return document.createElement('img');
+  };
+  const html = (nodes) => {
+    const box = document.createElement('div');
+    box.append(...nodes);
+    return box;
+  };
+  let box = html(md.renderMarkdown('Lavagna ![foto](immagine:a/b.jpg) e ![esterna](https://example.com/x.png)', { image }));
+  assert.deepEqual(calls, [['a/b.jpg', 'foto']]);
+  assert.equal(box.querySelectorAll('img').length, 1);
+  assert.match(box.textContent, /esterna \(https:\/\/example\.com\/x\.png\)/);
+  box = html(md.renderMarkdown('![grafico](data:image/png;base64,AAAA)'));
+  assert.equal(box.querySelectorAll('img').length, 0, 'senza opzione nessuna immagine');
+  assert.match(box.textContent, /grafico \(immagine incorporata\)/);
+});

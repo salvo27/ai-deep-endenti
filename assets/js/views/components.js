@@ -5,6 +5,7 @@ import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/fo
 import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
 import { getItem, isExample, labelContext, memberById, memberName, state } from '../store.js';
 import { conceptButton } from './concept-help.js';
+import { renderNote } from '../notes.js';
 import { canGoBack, goBack } from '../router.js';
 
 export function avatar(userId, size = 28) {
@@ -131,6 +132,8 @@ export function fieldValue(kind, def, value, item = null) {
   switch (def.type) {
     case 'textarea':
       return textBlock(value);
+    case 'markdown':
+      return renderNote(value);
     case 'tags':
       return h('div', { class: 'chips' }, value.map((tag) => h('span', { class: 'chip' }, tag)));
     case 'member':
@@ -168,7 +171,7 @@ export function fieldsGrid(item, { skip = [] } = {}) {
         f.group && !skip.includes(`group:${f.group}`) ? h('div', { class: 'fields-group is-wide' }, h('h3', null, f.group)) : null,
         h(
           'div',
-          { class: ['field-view', (f.wide || f.type === 'textarea') && 'is-wide'] },
+          { class: ['field-view', (f.wide || f.type === 'textarea' || f.type === 'markdown') && 'is-wide'] },
           h('dt', null, f.label, f.concept ? conceptButton(f.concept) : null),
           h('dd', null, fieldValue(item.kind, f, item.data?.[f.key], item)),
         ),
