@@ -20,7 +20,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
-| Roadmap, Guida e Concetti | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; alcuni si spuntano da soli dai dati, gli altri a mano con autore e data. La Guida mostra la roadmap completa e a che punto è ogni idea; i Concetti spiegano circa novanta voci del manuale, collegate ai campi con il pulsante «?» |
+| Roadmap, Guida e Concetti | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; si spuntano a mano, con autore e data, e si possono togliere; quando i dati della board fanno pensare che un passo sia fatto, la roadmap lo suggerisce. La Guida mostra la roadmap completa e a che punto è ogni idea; i Concetti spiegano circa novanta voci del manuale, collegate ai campi con il pulsante «?» |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
 | Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, avvisi del browser, backup |

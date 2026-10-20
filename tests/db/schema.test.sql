@@ -403,13 +403,17 @@ begin
 end
 $$;
 
-\echo 'ok - members_overview mostra 2FA e ultimo accesso ai membri'
+\echo 'ok - members_overview mostra 2FA e ultimo accesso reale ai membri'
+reset role;
+update auth.users set last_sign_in_at = now() - interval '3 days' where id = test.uid('c');
+insert into auth.sessions (user_id, updated_at, refreshed_at) values (test.uid('c'), now() - interval '2 hours', (now() - interval '1 hour') at time zone 'utc');
 select test.login('a');
 do $$
 begin
   assert (select count(*) from public.members_overview()) = 3, 'overview incompleta';
   assert (select mfa_enabled from public.members_overview() where user_id = test.uid('a')), '2FA non rilevata';
   assert not (select mfa_enabled from public.members_overview() where user_id = test.uid('c')), '2FA inventata';
+  assert (select last_sign_in_at >= now() - interval '61 minutes' from public.members_overview() where user_id = test.uid('c')), 'ultimo accesso fermo al login, rinnovo della sessione ignorato';
 end
 $$;
 

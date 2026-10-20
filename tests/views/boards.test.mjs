@@ -434,7 +434,10 @@ test('each idea has an interactive roadmap where manual steps are marked, skippe
   assert.ok(first.classList.contains('is-next'));
   assert.equal(first.querySelector('details').open, true);
   assert.match(text(first), /Fatto quando/);
-  assert.ok(stepEl('Descrivete le buyer persona').querySelector('span.rm-check.is-auto'), 'la persona esiste: il sito lo vede da solo');
+  const persona = stepEl('Descrivete le buyer persona');
+  assert.equal(persona.querySelector('input.rm-check').checked, false, 'nessun passo si spunta da solo');
+  assert.match(text(persona), /Sembra fatto dai dati del sito/);
+  assert.equal(outlet.querySelectorAll('span.rm-check').length, 0);
   assert.match(text(outlet.querySelectorAll('.rm-phase')[1]), /La fase precedente non è completa/);
   assert.match(text(outlet.querySelector('.rm-phase:last-child')), /si apre quando l'idea è «Scelta»/);
 
@@ -451,14 +454,21 @@ test('each idea has an interactive roadmap where manual steps are marked, skippe
   [...tappa.querySelectorAll('button')].find((b) => /Non serve/.test(b.textContent)).click();
   await flush(10);
   assert.match(saved[1].snapshot.data.roadmap['tappa-tecnica'], /^skip\|/);
-  assert.ok(stepEl('Deep tech: prossima tappa e design partner').classList.contains('is-skip'));
+  const skipped = stepEl('Deep tech: prossima tappa e design partner');
+  assert.ok(skipped.classList.contains('is-skip'));
+  const skipBox = skipped.querySelector('input.rm-check');
+  assert.equal(skipBox.disabled, false, 'anche «non serve» si può togliere');
+  skipBox.checked = false;
+  skipBox.dispatchEvent(new Event('change'));
+  await flush(10);
+  assert.equal(saved[2].snapshot.data.roadmap['tappa-tecnica'], undefined);
 
   const again = stepEl('Compilate il Team Canvas').querySelector('input.rm-check');
   again.checked = false;
   again.dispatchEvent(new Event('change'));
   await flush(10);
-  assert.equal(saved[2].snapshot.data.roadmap['team-canvas'], undefined);
-  assert.equal(saved[2].message, 'Roadmap: «Compilate il Team Canvas» da fare');
+  assert.equal(saved[3].snapshot.data.roadmap, undefined, 'tolte tutte le spunte, la roadmap dell\'idea torna vuota');
+  assert.equal(saved[3].message, 'Roadmap: «Compilate il Team Canvas» da fare');
 
   const { changeView } = await import('../../assets/js/views/history.js');
   const change = changeView('idea', { path: 'data.roadmap.team-canvas', type: 'added', kind: 'inline', before: undefined, after: saved[0].snapshot.data.roadmap['team-canvas'] });

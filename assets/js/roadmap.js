@@ -1,6 +1,6 @@
 // Roadmap di ogni idea: tutti i passi in ordine, dalla squadra alla società, per non saltare nulla e ridurre il rischio.
 // Segue il percorso del manuale (Customer Development, Lean Startup, team, finanza, aspetti legali, deep tech).
-// I controlli automatici leggono i dati della board; gli altri passi si segnano a mano e restano nell'idea (data.roadmap).
+// Un passo è fatto solo quando lo segna qualcuno (data.roadmap); i controlli sui dati della board sono solo suggerimenti.
 
 import { STRONG_COMMITMENTS, parseRoadmapMark } from './schema.js';
 
@@ -783,13 +783,12 @@ export function roadmapState(idea, ctx) {
   const phases = ROADMAP.map((phase, index) => {
     const steps = phase.steps.map((step) => {
       const mark = parseRoadmapMark(marks[step.key]);
-      const auto = Boolean(step.auto?.(full));
       let status = 'todo';
       if (mark?.state === 'skip' && step.optional) status = 'skip';
-      else if (auto) status = 'auto';
       else if (mark?.state === 'done') status = 'done';
       else if (full.example && index < reached) status = 'done';
-      return { step, status, mark, href: step.href?.(full) || null, progress: step.progress?.(full) || null };
+      const suggested = status === 'todo' && Boolean(step.auto?.(full));
+      return { step, status, mark, suggested, href: step.href?.(full) || null, progress: step.progress?.(full) || null };
     });
     const required = steps.filter((s) => !s.step.optional);
     const complete = (s) => s.status !== 'todo';

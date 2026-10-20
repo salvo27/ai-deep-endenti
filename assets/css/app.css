@@ -2945,7 +2945,6 @@ dialog::backdrop {
 }
 
 .rm-step.is-done,
-.rm-step.is-auto,
 .rm-step.is-skip {
   background: var(--surface-2);
 }
@@ -2959,14 +2958,6 @@ dialog::backdrop {
   width: 1.15rem;
   height: 1.15rem;
   margin-top: 0.15rem;
-}
-
-span.rm-check {
-  display: inline-grid;
-  place-items: center;
-  border-radius: 4px;
-  background: var(--ok);
-  color: var(--surface);
 }
 
 .rm-main {
@@ -3030,6 +3021,10 @@ span.rm-check {
 
 .rm-status {
   margin: 0.3rem 0 0;
+}
+
+.rm-suggest {
+  color: var(--ok);
 }
 
 .rm-gate {

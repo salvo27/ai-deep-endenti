@@ -139,11 +139,13 @@ test('the roadmap starts from the team, follows the board data and remembers man
   assert.equal(step('ruoli-tempo').isNext, true);
   assert.equal(step('deeptech').status, 'skip', 'un passo facoltativo può non servire');
   assert.equal(step('vincoli').status, 'todo', 'un passo obbligatorio non si salta');
-  assert.equal(step('frase').status, 'auto');
-  assert.equal(step('dieci-idee').status, 'auto');
-  assert.equal(step('interviste').status, 'todo');
+  assert.equal(step('frase').status, 'todo', 'i dati suggeriscono, ma il passo lo segna una persona');
+  assert.equal(step('frase').suggested, true);
+  assert.equal(step('dieci-idee').suggested, true);
+  assert.equal(step('interviste').suggested, false);
   assert.equal(step('interviste').progress, '19 su 20');
-  assert.equal(step('impegni').status, 'auto');
+  assert.equal(step('impegni').suggested, true);
+  assert.equal(step('team-canvas').suggested, false, 'un passo segnato non è più un suggerimento');
   assert.equal(rm.phases[1].previousIncomplete, true);
 
   const example = roadmap.roadmapState({ id: IDEA, status: 'validazione', data: {} }, { example: true });

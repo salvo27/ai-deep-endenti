@@ -11,6 +11,7 @@ create schema auth;
 grant usage on schema auth to anon, authenticated, service_role;
 create table auth.users (id uuid primary key, email text, last_sign_in_at timestamptz);
 create table auth.mfa_factors (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id), status text);
+create table auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id), updated_at timestamptz, refreshed_at timestamp);
 
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', '')::uuid

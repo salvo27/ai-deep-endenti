@@ -68,7 +68,7 @@ function progressBar(done, total, label) {
 }
 
 function statusLine(s, example) {
-  if (s.status === 'auto') return 'Fatto: lo vede il sito dai dati.';
+  if (s.suggested) return 'Sembra fatto dai dati del sito: spuntatelo se è davvero completo.';
   if (s.status === 'skip') return `Non serve, segnato da ${memberName(s.mark.by)} il ${fmtDate(s.mark.at)}.`;
   if (s.status === 'done') return s.mark ? `Fatto, segnato da ${memberName(s.mark.by)} il ${fmtDate(s.mark.at)}.` : example ? 'Fatto (esempio).' : 'Fatto.';
   return null;
@@ -80,25 +80,22 @@ function stepRow(s, { idea, writable, reference }) {
   const opened = openSteps.get(idea?.id || 'guida') || new Set();
   let control = null;
   if (!reference) {
-    control =
-      status === 'auto'
-        ? h('span', { class: 'rm-check is-auto', title: 'Fatto: lo vede il sito dai dati', role: 'img', 'aria-label': 'Fatto, rilevato dal sito' }, icon('check', 14))
-        : h('input', {
-            type: 'checkbox',
-            class: 'rm-check',
-            checked: done,
-            disabled: !writable || status === 'skip',
-            'aria-label': `Fatto: ${step.title}`,
-            onChange: async (e) => {
-              const box = e.target;
-              box.disabled = true;
-              const ok = await setMark(idea.id, step, box.checked ? 'done' : null);
-              if (!ok) {
-                box.checked = !box.checked;
-                box.disabled = false;
-              }
-            },
-          });
+    control = h('input', {
+      type: 'checkbox',
+      class: 'rm-check',
+      checked: done,
+      disabled: !writable,
+      'aria-label': `Fatto: ${step.title}`,
+      onChange: async (e) => {
+        const box = e.target;
+        box.disabled = true;
+        const ok = await setMark(idea.id, step, box.checked ? 'done' : null);
+        if (!ok) {
+          box.checked = !box.checked;
+          box.disabled = false;
+        }
+      },
+    });
   }
   const line = reference ? null : statusLine(s, isExample(idea));
   const details = h(
@@ -147,7 +144,7 @@ function stepRow(s, { idea, writable, reference }) {
     'li',
     { class: ['rm-step', `is-${status}`, s.isNext && !reference && 'is-next'] },
     control,
-    h('div', { class: 'rm-main' }, details, line ? h('p', { class: 'muted small rm-status' }, line) : null),
+    h('div', { class: 'rm-main' }, details, line ? h('p', { class: ['small', 'rm-status', s.suggested ? 'rm-suggest' : 'muted'] }, line) : null),
   );
 }
 
@@ -189,7 +186,7 @@ export function roadmapPanel(idea, { writable }) {
       h(
         'p',
         { class: 'muted small' },
-        'Un segno di spunta pieno vuol dire che il sito lo vede dai dati; le caselle le segnate voi quando il passo è davvero fatto. Le fasi vanno in ordine: saltarne una aumenta il rischio.',
+        'Un passo è fatto solo quando lo spuntate voi, e ogni spunta si può togliere. Se i dati del sito fanno pensare che un passo sia fatto, ve lo suggerisce. Le fasi vanno in ordine: saltarne una aumenta il rischio.',
       ),
     ),
     rm.phases.map((p) => phaseSection(p, { idea, writable })),

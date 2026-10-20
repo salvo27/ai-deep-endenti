@@ -68,7 +68,7 @@ export function guideView(outlet, params, query) {
         { class: 'rm-howto' },
         h('li', null, `${ROADMAP.length} fasi e ${ROADMAP_STEPS.length} passi, nell'ordine che riduce il rischio: prima le persone e il problema, poi la soluzione, solo alla fine l'azienda.`),
         h('li', null, 'Ogni passo dice cosa fare, come farlo, quando si può considerare fatto e l\'errore più comune da evitare.'),
-        h('li', null, 'Alcuni passi si spuntano da soli quando il sito lo vede dai dati, per esempio 20 interviste registrate; gli altri li segnate voi, e resta scritto chi e quando.'),
+        h('li', null, 'Un passo è fatto solo quando lo spuntate voi: resta scritto chi e quando, e la spunta si può togliere. Se i dati del sito fanno pensare che sia fatto, per esempio 20 interviste registrate, la roadmap ve lo suggerisce.'),
         h('li', null, 'Ogni fase finisce con un cancello: cosa deve essere vero prima di andare avanti. Se una fase non è completa, quella dopo ve lo ricorda.'),
         h('li', null, 'Ogni idea ha la sua roadmap, perché squadra, clienti e tempi possono essere diversi da un\'idea all\'altra.'),
       ),

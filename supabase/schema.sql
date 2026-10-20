@@ -114,6 +114,7 @@ begin
 end
 $$;
 
+-- Ultimo accesso reale: login, rinnovo della sessione (circa ogni ora a sito aperto), modifiche o commenti.
 create or replace function public.members_overview()
 returns table (
   user_id uuid,
@@ -125,18 +126,25 @@ returns table (
   mfa_enabled boolean,
   created_at timestamptz
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
+begin
+  return query
   select
     m.user_id,
     m.display_name,
     m.role,
     m.color,
     u.email::text,
-    u.last_sign_in_at,
+    greatest(
+      u.last_sign_in_at,
+      (select max(greatest(s.updated_at, s.refreshed_at at time zone 'utc')) from auth.sessions s where s.user_id = m.user_id),
+      (select max(r.created_at) from public.revisions r where r.author_id = m.user_id),
+      (select max(c.created_at) from public.comments c where c.author_id = m.user_id)
+    ),
     exists (
       select 1 from auth.mfa_factors f where f.user_id = m.user_id and f.status = 'verified'
     ),
@@ -144,7 +152,8 @@ as $$
   from public.members m
   join auth.users u on u.id = m.user_id
   where public.can_read()
-  order by m.created_at
+  order by m.created_at;
+end
 $$;
 
 alter table public.members enable row level security;
