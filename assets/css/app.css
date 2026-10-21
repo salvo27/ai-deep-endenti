@@ -3137,6 +3137,14 @@ button.chat-quote {
   white-space: nowrap;
 }
 
+.chat-message.is-pending .chat-body {
+  opacity: 0.6;
+}
+
+.chat-failed {
+  color: var(--danger);
+}
+
 .chat-message.is-highlight {
   border-radius: 8px;
   background: var(--primary-soft);

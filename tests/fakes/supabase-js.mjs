@@ -57,6 +57,8 @@ function fakeChannel(client, name, options) {
   return channel;
 }
 
+export const processLock = async (name, timeout, fn) => fn();
+
 export function createClient(url, key, options) {
   const client = {
     url,

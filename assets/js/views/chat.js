@@ -129,6 +129,24 @@ export function chatView(outlet, params) {
 
   const findMessage = (id) => messages.find((m) => m.id === id) || quoted.get(id) || null;
 
+  // Il messaggio compare subito; quando il server risponde diventa quello vero. Si inviano in ordine, uno alla volta.
+  let queue = Promise.resolve();
+  function deliver(draft) {
+    const pending = { ...draft, created_at: new Date().toISOString(), pending: true, failed: false };
+    upsert(pending);
+    queue = queue.then(async () => {
+      try {
+        const row = await api.sendMessage(pending.chat_id, pending.body, pending.reply_to);
+        messages = messages.filter((m) => m.id !== pending.id);
+        upsert(row);
+        markChatRead(pending.chat_id);
+      } catch (error) {
+        upsert({ ...pending, pending: false, failed: true });
+        toast(error.message, { type: 'error' });
+      }
+    });
+  }
+
   // Citazioni di messaggi non ancora caricati: si recuperano tutte insieme.
   let fetchingQuotes = false;
   async function fetchQuotes() {
@@ -215,7 +233,7 @@ export function chatView(outlet, params) {
     } else body = messageBody(m.body);
     return h(
       'article',
-      { class: ['chat-message', mine && 'is-mine'], id: `msg-${m.id}` },
+      { class: ['chat-message', mine && 'is-mine', m.pending && 'is-pending', m.failed && 'is-failed'], id: `msg-${m.id}` },
       avatar(m.author_id, 32),
       h(
         'div',
@@ -226,7 +244,18 @@ export function chatView(outlet, params) {
           h('strong', null, memberName(m.author_id)),
           time,
           m.edited_at && !m.deleted_at ? h('span', { class: 'muted small' }, 'modificato') : null,
-          !m.deleted_at && editingId !== m.id && !chat()?.archived_at
+          m.pending ? h('span', { class: 'muted small chat-pending' }, 'Invio…') : null,
+          m.failed
+            ? h(
+                'span',
+                { class: 'chat-failed small' },
+                'Non inviato · ',
+                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); deliver(m); } }, 'Riprova'),
+                ' · ',
+                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); renderMessages(); } }, 'Scarta'),
+              )
+            : null,
+          !m.deleted_at && !m.pending && !m.failed && editingId !== m.id && !chat()?.archived_at
             ? h(
                 'span',
                 { class: 'chat-message-actions' },
@@ -280,6 +309,11 @@ export function chatView(outlet, params) {
   }
 
   function upsert(row) {
+    // Il mio messaggio vero, arrivato dal vivo, prende il posto della sua copia in invio.
+    if (!row.pending && !row.failed && row.author_id === state.user?.id) {
+      const twin = messages.findIndex((m) => m.pending && m.body === row.body && m.chat_id === row.chat_id);
+      if (twin >= 0) messages.splice(twin, 1);
+    }
     const index = messages.findIndex((m) => m.id === row.id);
     const stick = nearBottom();
     if (index >= 0) messages[index] = row;
@@ -321,22 +355,14 @@ export function chatView(outlet, params) {
       }),
     );
     const sendButton = button('Invia', { kind: 'primary', onClick: () => send() });
-    async function send() {
+    function send() {
       const text = input.value.trim();
-      if (!text || sendButton.disabled) return;
-      sendButton.disabled = true;
-      try {
-        upsert(await api.sendMessage(c.id, text, replyTo?.id || null));
-        setReply(null);
-        input.value = '';
-        input.dispatchEvent(new Event('input'));
-        markChatRead(c.id);
-      } catch (error) {
-        toast(error.message, { type: 'error' });
-      } finally {
-        sendButton.disabled = false;
-        input.focus();
-      }
+      if (!text) return;
+      deliver({ id: `tmp-${crypto.randomUUID()}`, chat_id: c.id, author_id: state.user?.id, body: text, reply_to: replyTo?.id || null });
+      setReply(null);
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      input.focus();
     }
     const fileInput = h('input', {
       type: 'file',

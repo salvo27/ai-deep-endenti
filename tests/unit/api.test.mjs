@@ -11,6 +11,8 @@ beforeEach(() => fake.reset());
 test('the client uses PKCE and a persisted, auto refreshed session', () => {
   assert.equal(fake.options.auth.flowType, 'pkce');
   assert.equal(fake.options.auth.persistSession, true);
+  assert.equal(typeof fake.options.auth.lock, 'function', 'blocco della sessione per singola scheda');
+  assert.equal(typeof fake.options.global.fetch, 'function');
   assert.match(fake.url, /^https:\/\/[a-z]+\.supabase\.co$/);
 });
 

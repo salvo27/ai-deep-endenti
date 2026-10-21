@@ -122,10 +122,53 @@ test('Enter sends, Shift+Enter goes to a new line', async () => {
   input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }));
   assert.equal(calls.sent.length, 0);
   input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  assert.equal(input.value, '');
+  const pending = outlet.querySelector('.chat-message.is-pending');
+  assert.match(text(pending), /Prima riga.*|Invio…/, 'il messaggio compare subito, prima della risposta del server');
+  assert.match(text(pending), /Invio…/);
   await flush(5);
   assert.deepEqual(calls.sent, [[GENERAL, 'Prima riga']]);
-  assert.equal(input.value, '');
-  assert.match(text(outlet.querySelector('.chat-messages')), /Prima riga/);
+  assert.equal(outlet.querySelector('.chat-message.is-pending'), null);
+  assert.equal([...outlet.querySelectorAll('.chat-body')].filter((b) => /Prima riga/.test(b.textContent)).length, 1, 'nessun doppione');
+});
+
+test('messages go out in order, and a failed one can be sent again', async () => {
+  const order = [];
+  let fail = true;
+  api.sendMessage = async (chatId, body) => {
+    order.push(body);
+    if (fail && body === 'due') throw new Error('Rete assente');
+    return msg({ id: crypto.randomUUID(), chat_id: chatId, author_id: ME, body, created_at: new Date().toISOString() });
+  };
+  await visit(`#/chat/${GENERAL}`);
+  const input = outlet.querySelector('textarea.chat-input');
+  for (const body of ['uno', 'due', 'tre']) {
+    input.value = body;
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  }
+  await flush(10);
+  assert.deepEqual(order, ['uno', 'due', 'tre']);
+  const failed = outlet.querySelector('.chat-message.is-failed');
+  assert.match(text(failed), /due.*Non inviato|Non inviato/);
+  fail = false;
+  byText(failed, 'button', 'Riprova').click();
+  await flush(10);
+  assert.deepEqual(order, ['uno', 'due', 'tre', 'due']);
+  assert.equal(outlet.querySelector('.chat-message.is-failed'), null);
+});
+
+test('my own message arriving live before the server answers is not shown twice', async () => {
+  let release;
+  api.sendMessage = (chatId, body) => new Promise((resolve) => (release = () => resolve(msg({ id: 'eeeeeeee-0000-4000-8000-0000000000ff', chat_id: chatId, author_id: ME, body }))));
+  await visit(`#/chat/${GENERAL}`);
+  const input = outlet.querySelector('textarea.chat-input');
+  input.value = 'Eccomi';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  await flush(2);
+  store.emit('chat-message', { row: msg({ id: 'eeeeeeee-0000-4000-8000-0000000000ff', author_id: ME, body: 'Eccomi', created_at: '2026-10-21T12:00:00Z' }), inserted: true });
+  release();
+  await flush(5);
+  assert.equal([...outlet.querySelectorAll('.chat-body')].filter((b) => /Eccomi/.test(b.textContent)).length, 1);
 });
 
 test('messages arriving live appear in the open chat and count as unread elsewhere', async () => {
