@@ -11,7 +11,21 @@ export function attachMentions(textarea, { above = false } = {}) {
   let active = 0;
   let current = null;
 
+  // Sopra o sotto il campo, dal lato con più spazio visibile; si ricalcola scorrendo o quando si apre la tastiera.
+  const place = () => {
+    const viewport = window.visualViewport?.height ?? window.innerHeight;
+    const rect = textarea.getBoundingClientRect();
+    const below = viewport - rect.bottom;
+    menu.classList.toggle('is-above', above || (below < 240 && rect.top > below));
+  };
+  const follow = (on) => {
+    const method = on ? 'addEventListener' : 'removeEventListener';
+    window[method]('scroll', place, true);
+    window[method]('resize', place);
+    window.visualViewport?.[method]('resize', place);
+  };
   const close = () => {
+    if (!menu.hidden) follow(false);
     menu.hidden = true;
     textarea.mentionOpen = false;
     current = null;
@@ -46,10 +60,10 @@ export function attachMentions(textarea, { above = false } = {}) {
             role: 'option',
             class: ['mention-option', i === active && 'is-active'],
             'aria-selected': String(i === active),
-            onMousedown: (e) => {
-              e.preventDefault();
-              choose(i);
-            },
+            // Sul telefono il tocco non deve togliere il fuoco al campo, altrimenti la tastiera si chiude.
+            onPointerdown: (e) => e.preventDefault(),
+            onMousedown: (e) => e.preventDefault(),
+            onClick: () => choose(i),
           },
           item.all ? [h('strong', null, '@tutti'), h('span', { class: 'muted small' }, 'avvisa tutta la squadra')] : [avatar(item.id, 20), h('span', null, item.name)],
         ),
@@ -65,6 +79,8 @@ export function attachMentions(textarea, { above = false } = {}) {
     active = Math.min(active, items.length - 1);
     if (!menu.isConnected) textarea.after(menu);
     textarea.parentElement?.classList.add('has-mentions');
+    place();
+    if (menu.hidden) follow(true);
     menu.hidden = false;
     textarea.mentionOpen = true;
     render();

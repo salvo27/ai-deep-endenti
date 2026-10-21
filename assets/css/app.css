@@ -2934,6 +2934,13 @@ dialog::backdrop {
   background: var(--primary-soft);
 }
 
+@media (pointer: coarse) {
+  .mention-option {
+    min-height: 44px;
+    padding: 0.55rem 0.6rem;
+  }
+}
+
 .bell-badge-important {
   background: var(--warn);
 }

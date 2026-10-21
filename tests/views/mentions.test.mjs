@@ -154,3 +154,28 @@ test('a new tag arrives live with a notice, and disappears if the message is del
   store.emit('mention-row', { row: { id: 3 }, removed: true });
   assert.equal(badge.textContent, '1');
 });
+
+test('on a phone a tap picks the person, and the list opens above when the keyboard would cover it', async () => {
+  api.listComments = async () => [];
+  const panel = comments.commentsPanel(store.getItem(IDS.idea));
+  document.body.append(panel);
+  await flush(3);
+  const area = panel.querySelector('textarea');
+  area.getBoundingClientRect = () => ({ top: 600, bottom: 700, left: 0, right: 300, width: 300, height: 100 });
+  type(area, 'Per @ch');
+  const menu = panel.querySelector('.mention-menu');
+  assert.ok(menu.classList.contains('is-above'), 'il campo è in basso: si apre sopra');
+  area.getBoundingClientRect = () => ({ top: 40, bottom: 140, left: 0, right: 300, width: 300, height: 100 });
+  window.dispatchEvent(new window.Event('scroll'));
+  assert.equal(menu.classList.contains('is-above'), false, 'scorrendo, il campo è in alto: l\'elenco passa sotto');
+  area.getBoundingClientRect = () => ({ top: 600, bottom: 700, left: 0, right: 300, width: 300, height: 100 });
+  window.dispatchEvent(new window.Event('scroll'));
+  assert.ok(menu.classList.contains('is-above'));
+  const option = menu.querySelector('.mention-option');
+  const down = new window.Event('pointerdown', { cancelable: true });
+  option.dispatchEvent(down);
+  assert.equal(down.defaultPrevented, true, 'il tocco non chiude la tastiera');
+  option.click();
+  assert.equal(area.value, 'Per @[Chiara] ');
+  panel.remove();
+});
