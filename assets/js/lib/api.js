@@ -332,12 +332,63 @@ export const api = {
   },
 
   async exportAll() {
-    const [items, revisions, comments] = await Promise.all([
+    const [items, revisions, comments, chats, chatMessages] = await Promise.all([
       allPages(() => supabase.from('items').select('*').order('created_at')),
       allPages(() => supabase.from('revisions').select('*').order('id')),
       allPages(() => supabase.from('comments').select('*').order('created_at')),
+      allPages(() => supabase.from('chats').select('*').order('created_at')),
+      allPages(() => supabase.from('chat_messages').select('*').order('created_at')),
     ]);
-    return { items, revisions, comments };
+    return { items, revisions, comments, chats, chatMessages };
+  },
+
+  // Chat della squadra: una Generale e chat per argomento, messaggi e letture.
+  async listChats() {
+    return unwrap(supabase.from('chats').select('*').order('created_at'));
+  },
+
+  async chatOverview() {
+    return (await unwrap(supabase.rpc('chat_overview'))) || [];
+  },
+
+  async createChat({ title, ideaId = null }) {
+    return unwrap(supabase.from('chats').insert({ title, idea_id: ideaId }).select().single(), 'Chat non creata.');
+  },
+
+  async updateChat(id, patch) {
+    return unwrap(supabase.from('chats').update(patch).eq('id', requireUuid(id)).select().single(), 'Modifica non salvata.');
+  },
+
+  async listMessages(chatId, { before = null, limit = 50 } = {}) {
+    let query = supabase.from('chat_messages').select('*').eq('chat_id', requireUuid(chatId)).order('created_at', { ascending: false }).limit(limit);
+    if (before) query = query.lt('created_at', before);
+    return ((await unwrap(query)) || []).reverse();
+  },
+
+  async sendMessage(chatId, body, replyTo = null) {
+    const row = { chat_id: requireUuid(chatId), body, reply_to: replyTo ? requireUuid(replyTo) : null };
+    return unwrap(supabase.from('chat_messages').insert(row).select().single(), 'Messaggio non inviato.');
+  },
+
+  // I messaggi citati in una risposta che non sono tra quelli già caricati.
+  async getMessages(ids) {
+    if (!ids.length) return [];
+    return (await unwrap(supabase.from('chat_messages').select('*').in('id', ids.map(requireUuid)))) || [];
+  },
+
+  async editMessage(id, body) {
+    return unwrap(supabase.from('chat_messages').update({ body }).eq('id', requireUuid(id)).select().single(), 'Modifica non salvata.');
+  },
+
+  async deleteMessage(id) {
+    return unwrap(
+      supabase.from('chat_messages').update({ deleted_at: new Date().toISOString() }).eq('id', requireUuid(id)).select().single(),
+      'Eliminazione non riuscita.',
+    );
+  },
+
+  async markChatRead(chatId) {
+    await unwrap(supabase.rpc('mark_chat_read', { p_chat: requireUuid(chatId) }));
   },
 
   // Immagini delle note: spazio privato su Supabase Storage, regole nel database.
@@ -368,13 +419,15 @@ export const api = {
     if (session) await supabase.realtime.setAuth(session.access_token);
   },
 
-  subscribeDb({ onItem, onRevision, onComment, onMembers, onStatus }) {
+  subscribeDb({ onItem, onRevision, onComment, onMembers, onChat, onChatMessage, onStatus }) {
     const channel = supabase
       .channel('db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, (p) => onItem?.(p.new))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'revisions' }, (p) => onRevision?.(p.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, (p) => onComment?.(p.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => onMembers?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (p) => onChat?.(p.new))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (p) => onChatMessage?.(p.new, p.eventType))
       .subscribe((status) => onStatus?.(status));
     return () => supabase.removeChannel(channel);
   },

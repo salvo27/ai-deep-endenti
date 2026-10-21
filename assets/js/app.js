@@ -7,6 +7,7 @@ import { addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
+import { startChats, stopChats } from './chat.js';
 import { dashboardView } from './views/dashboard.js';
 import { ideasView } from './views/ideas.js';
 import { ideaView } from './views/idea.js';
@@ -18,6 +19,7 @@ import { generatorView } from './views/generator.js';
 import { diffView, itemHistoryView, logView } from './views/history.js';
 import { trashView } from './views/trash.js';
 import { teamView } from './views/team.js';
+import { chatView } from './views/chat.js';
 import { profileView } from './views/profile.js';
 import { squadView } from './views/squad.js';
 import { guideView } from './views/guide.js';
@@ -32,6 +34,7 @@ export function registerRoutes() {
   addRoute('/esperimenti', listView('experiment'));
   addRoute('/interviste', listView('interview'));
   addRoute('/decisioni', listView('decision'));
+  addRoute('/chat/:id?', chatView);
   addRoute('/nuovo/:kind', editorView);
   addRoute('/modifica/:id', editorView);
   addRoute('/valutazione', scoringView);
@@ -78,6 +81,7 @@ export function stopApp() {
   stopRealtime();
   stopSync();
   stopNotifications();
+  stopChats();
   stopRouter();
 }
 
@@ -104,6 +108,7 @@ export async function startApp(root) {
   startRealtime();
   startSync();
   startNotifications();
+  startChats();
   sweepNoteImages();
   stopIdle = startIdleLogout();
   on('removed', () => {

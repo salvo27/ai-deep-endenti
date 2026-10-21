@@ -94,11 +94,11 @@ test('commentCounts groups comments by item', async () => {
   assert.equal(counts.get('b'), 1);
 });
 
-test('realtime subscribes to the four tables and presence uses a private channel', () => {
+test('realtime subscribes to the board and chat tables and presence uses a private channel', () => {
   const seen = [];
   const off = api.subscribeDb({ onItem: (r) => seen.push(['item', r]), onRevision: (r) => seen.push(['rev', r]), onStatus: (s) => seen.push(['status', s]) });
   const channel = fake.channels[0];
-  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'members']);
+  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages']);
   channel.emit('postgres_changes', { table: 'items', new: { id: 'x' } });
   assert.deepEqual(seen, [['status', 'SUBSCRIBED'], ['item', { id: 'x' }]]);
   off();
@@ -132,6 +132,9 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   fake.responses.from.audit_log = { data: [], error: null };
   fake.responses.from.ai_usage = { count: 4, error: null };
   fake.responses.from.items = { data: [], error: null };
+  fake.responses.from.chats = (ops) => (ops.some((o) => o[0] === 'single') ? { data: { id: ID, title: 'Generale' }, error: null } : { data: [], error: null });
+  fake.responses.from.chat_messages = (ops) => (ops.some((o) => o[0] === 'single') ? { data: { id: ID, body: 'ciao' }, error: null } : { data: [{ id: 'b' }, { id: 'a' }], error: null });
+  fake.responses.rpc.chat_overview = { data: [{ chat_id: ID, unread: 2 }], error: null };
   for (const name of ['create_item', 'delete_item', 'restore_item', 'revert_item', 'add_member']) {
     fake.responses.rpc[name] = { data: { status: 'ok' }, error: null };
   }
@@ -160,7 +163,22 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   assert.deepEqual(await api.auditLog(), []);
   assert.equal(await api.aiUsageLastDay(ID), 4);
   const backup = await api.exportAll();
-  assert.deepEqual(Object.keys(backup), ['items', 'revisions', 'comments']);
+  assert.deepEqual(Object.keys(backup), ['items', 'revisions', 'comments', 'chats', 'chatMessages']);
+  assert.deepEqual(await api.listChats(), []);
+  assert.deepEqual(await api.chatOverview(), [{ chat_id: ID, unread: 2 }]);
+  assert.equal((await api.createChat({ title: 'Nutrizione', ideaId: ID })).title, 'Generale');
+  await api.updateChat(ID, { archived_at: null });
+  assert.deepEqual(await api.listMessages(ID, { before: '2026-10-21T10:00:00Z', limit: 2 }), [{ id: 'a' }, { id: 'b' }], 'i messaggi tornano dal più vecchio');
+  const query = fake.calls.filter((c) => c[0] === 'from' && c[1] === 'chat_messages').at(-1)[2];
+  assert.deepEqual(query.find((o) => o[0] === 'lt'), ['lt', 'created_at', '2026-10-21T10:00:00Z']);
+  assert.equal((await api.sendMessage(ID, 'ciao', ID)).body, 'ciao');
+  assert.equal(fake.calls.filter((c) => c[0] === 'from' && c[1] === 'chat_messages').at(-1)[2].find((o) => o[0] === 'insert')[1].reply_to, ID);
+  assert.deepEqual(await api.getMessages([]), []);
+  await api.getMessages([ID]);
+  await api.editMessage(ID, 'ciao 2');
+  await api.deleteMessage(ID);
+  await api.markChatRead(ID);
+  assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_chat_read').at(-1)[2], { p_chat: ID });
   await api.setRealtimeAuth();
   const off = api.onAuthChange(() => {});
   off();

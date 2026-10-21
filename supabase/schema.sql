@@ -635,10 +635,220 @@ create policy comments_update on public.comments
   with check ((select public.can_read()) and author_id = (select auth.uid()));
 
 -- =========================================================================
+-- Chat della squadra
+-- =========================================================================
+
+-- Una chat «Generale» sempre presente e chat per argomento, collegabili a un'idea. Si archiviano, non si cancellano.
+create table if not exists public.chats (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(btrim(title)) between 1 and 80),
+  idea_id uuid references public.items (id),
+  is_general boolean not null default false,
+  archived_at timestamptz,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists chats_one_general_idx on public.chats (is_general) where is_general;
+
+create or replace function public.chats_before_write()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    -- Dal sito non si crea un'altra chat generale; dal SQL Editor (senza utente) sì, una volta sola.
+    if auth.uid() is not null then
+      new.is_general := false;
+    end if;
+    new.created_by := auth.uid();
+    new.created_at := now();
+    new.archived_at := null;
+  else
+    new.id := old.id;
+    new.is_general := old.is_general;
+    new.created_by := old.created_by;
+    new.created_at := old.created_at;
+    if old.is_general then
+      new.archived_at := null;
+      new.idea_id := null;
+    end if;
+  end if;
+  new.title := btrim(new.title);
+  if new.idea_id is not null
+     and (tg_op = 'INSERT' or new.idea_id is distinct from old.idea_id)
+     and not exists (select 1 from public.items i where i.id = new.idea_id and i.kind = 'idea') then
+    raise exception 'La chat si può collegare solo a un''idea';
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists chats_before_write on public.chats;
+create trigger chats_before_write
+  before insert or update on public.chats
+  for each row execute function public.chats_before_write();
+
+insert into public.chats (title, is_general)
+select 'Generale', true
+where not exists (select 1 from public.chats where is_general);
+
+create table if not exists public.chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  chat_id uuid not null references public.chats (id) on delete cascade,
+  author_id uuid references auth.users (id) on delete set null,
+  body text not null check (char_length(btrim(body)) between 1 and 4000),
+  created_at timestamptz not null default now(),
+  edited_at timestamptz,
+  deleted_at timestamptz
+);
+
+-- Risposta a un messaggio specifico, come su WhatsApp.
+alter table public.chat_messages add column if not exists reply_to uuid references public.chat_messages (id) on delete set null;
+
+create index if not exists chat_messages_chat_idx on public.chat_messages (chat_id, created_at desc);
+
+create or replace function public.chat_messages_before_write()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.author_id := auth.uid();
+    new.created_at := now();
+    new.edited_at := null;
+    new.deleted_at := null;
+    if exists (select 1 from public.chats c where c.id = new.chat_id and c.archived_at is not null) then
+      raise exception 'Questa chat è archiviata';
+    end if;
+    if new.reply_to is not null
+       and not exists (select 1 from public.chat_messages m where m.id = new.reply_to and m.chat_id = new.chat_id) then
+      raise exception 'Si può rispondere solo a un messaggio della stessa chat';
+    end if;
+    return new;
+  end if;
+  new.id := old.id;
+  new.chat_id := old.chat_id;
+  new.reply_to := old.reply_to;
+  new.author_id := old.author_id;
+  new.created_at := old.created_at;
+  if old.deleted_at is not null then
+    raise exception 'Il messaggio è già stato eliminato';
+  end if;
+  -- Un messaggio eliminato perde davvero il testo.
+  if new.deleted_at is not null then
+    new.deleted_at := now();
+    new.body := 'eliminato';
+    new.edited_at := old.edited_at;
+  elsif new.body is distinct from old.body then
+    new.edited_at := now();
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists chat_messages_before_write on public.chat_messages;
+create trigger chat_messages_before_write
+  before insert or update on public.chat_messages
+  for each row execute function public.chat_messages_before_write();
+
+create table if not exists public.chat_reads (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  chat_id uuid not null references public.chats (id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (user_id, chat_id)
+);
+
+alter table public.chats enable row level security;
+alter table public.chat_messages enable row level security;
+alter table public.chat_reads enable row level security;
+
+-- Come i commenti: scrivono tutti i membri con 2FA, advisor compresi; ognuno modifica solo i propri messaggi.
+drop policy if exists chats_select on public.chats;
+create policy chats_select on public.chats
+  for select to authenticated
+  using ((select public.can_read()));
+
+drop policy if exists chats_insert on public.chats;
+create policy chats_insert on public.chats
+  for insert to authenticated
+  with check ((select public.can_read()));
+
+drop policy if exists chats_update on public.chats;
+create policy chats_update on public.chats
+  for update to authenticated
+  using ((select public.can_read()))
+  with check ((select public.can_read()));
+
+drop policy if exists chat_messages_select on public.chat_messages;
+create policy chat_messages_select on public.chat_messages
+  for select to authenticated
+  using ((select public.can_read()));
+
+drop policy if exists chat_messages_insert on public.chat_messages;
+create policy chat_messages_insert on public.chat_messages
+  for insert to authenticated
+  with check ((select public.can_read()));
+
+drop policy if exists chat_messages_update on public.chat_messages;
+create policy chat_messages_update on public.chat_messages
+  for update to authenticated
+  using ((select public.can_read()) and author_id = (select auth.uid()))
+  with check ((select public.can_read()) and author_id = (select auth.uid()));
+
+drop policy if exists chat_reads_select on public.chat_reads;
+create policy chat_reads_select on public.chat_reads
+  for select to authenticated
+  using ((select public.can_read()) and user_id = (select auth.uid()));
+
+-- Per ogni chat: ultimo messaggio e messaggi degli altri non ancora letti da chi chiede.
+-- Senza letture registrate si parte da quando la persona è entrata nel team.
+create or replace function public.chat_overview()
+returns table (chat_id uuid, last_message_at timestamptz, unread integer)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    c.id,
+    (select max(m.created_at) from public.chat_messages m where m.chat_id = c.id and m.deleted_at is null),
+    (
+      select count(*)::integer
+      from public.chat_messages m
+      where m.chat_id = c.id
+        and m.deleted_at is null
+        and m.author_id is distinct from auth.uid()
+        and m.created_at > coalesce(
+          (select r.last_read_at from public.chat_reads r where r.chat_id = c.id and r.user_id = auth.uid()),
+          (select mb.created_at from public.members mb where mb.user_id = auth.uid())
+        )
+    )
+  from public.chats c
+  where public.can_read()
+$$;
+
+create or replace function public.mark_chat_read(p_chat uuid)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  insert into public.chat_reads (user_id, chat_id, last_read_at)
+  select auth.uid(), c.id, now()
+  from public.chats c
+  where c.id = p_chat and public.can_read()
+  on conflict (user_id, chat_id) do update set last_read_at = excluded.last_read_at
+$$;
+
+-- =========================================================================
 -- Immagini delle note
 -- =========================================================================
 
--- Spazio privato: solo JPEG già ridotti nel browser, letti dai membri con 2FA, caricati e cancellati da chi può modificare.
+-- Spazio privato per le immagini di note e chat: solo JPEG già ridotti nel browser, letti e caricati dai membri con 2FA,
+-- cancellati da chi può modificare.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('note-immagini', 'note-immagini', false, 1048576, array['image/jpeg'])
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
@@ -653,7 +863,7 @@ create policy note_images_insert on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'note-immagini'
-    and (select public.can_write())
+    and (select public.can_read())
     and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
   );
 
@@ -662,7 +872,7 @@ create policy note_images_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'note-immagini' and (select public.can_write()));
 
--- Immagini senza puntatore in nessuna nota, cestino compreso. Senza elenco: quelle caricate da più di 24 ore
+-- Immagini senza puntatore in nessuna nota (cestino compreso) e in nessun messaggio. Senza elenco: quelle caricate da più di 24 ore
 -- (le altre possono essere in una nota non ancora salvata). Il sito poi le cancella con le API di Storage.
 create or replace function public.note_image_orphans(p_paths text[] default null)
 returns setof text
@@ -679,6 +889,10 @@ as $$
     and not exists (
       select 1 from public.items i
       where i.kind = 'note' and strpos(coalesce(i.data ->> 'body', ''), '(immagine:' || o.name || ')') > 0
+    )
+    and not exists (
+      select 1 from public.chat_messages m
+      where m.deleted_at is null and strpos(m.body, '(immagine:' || o.name || ')') > 0
     )
 $$;
 
@@ -759,14 +973,17 @@ create policy audit_log_select on public.audit_log
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log from authenticated;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads from anon;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads from authenticated;
 grant select on public.audit_log to authenticated;
 grant select, update, delete on public.members to authenticated;
 grant select, insert, update on public.items to authenticated;
 grant select on public.revisions to authenticated;
 grant select, insert, update on public.comments to authenticated;
 grant select on public.ai_usage to authenticated;
+grant select, insert, update on public.chats to authenticated;
+grant select, insert, update on public.chat_messages to authenticated;
+grant select on public.chat_reads to authenticated;
 
 -- Le funzioni dei trigger non devono essere chiamabili via API.
 revoke execute on function public.items_before_write() from public, anon, authenticated;
@@ -774,6 +991,8 @@ revoke execute on function public.items_after_write() from public, anon, authent
 revoke execute on function public.comments_before_write() from public, anon, authenticated;
 revoke execute on function public.members_before_update() from public, anon, authenticated;
 revoke execute on function public.members_audit() from public, anon, authenticated;
+revoke execute on function public.chats_before_write() from public, anon, authenticated;
+revoke execute on function public.chat_messages_before_write() from public, anon, authenticated;
 
 revoke execute on function public.my_role() from public, anon;
 revoke execute on function public.has_mfa() from public, anon;
@@ -789,6 +1008,8 @@ revoke execute on function public.delete_item(uuid, integer, text) from public, 
 revoke execute on function public.restore_item(uuid, text) from public, anon;
 revoke execute on function public.revert_item(uuid, integer, integer, text) from public, anon;
 revoke execute on function public.note_image_orphans(text[]) from public, anon;
+revoke execute on function public.chat_overview() from public, anon;
+revoke execute on function public.mark_chat_read(uuid) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
@@ -804,6 +1025,8 @@ grant execute on function public.delete_item(uuid, integer, text) to authenticat
 grant execute on function public.restore_item(uuid, text) to authenticated;
 grant execute on function public.revert_item(uuid, integer, integer, text) to authenticated;
 grant execute on function public.note_image_orphans(text[]) to authenticated;
+grant execute on function public.chat_overview() to authenticated;
+grant execute on function public.mark_chat_read(uuid) to authenticated;
 
 -- =========================================================================
 -- Realtime: aggiornamenti dal vivo e presenza
@@ -814,7 +1037,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['items', 'revisions', 'comments', 'members'] loop
+    foreach t in array array['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

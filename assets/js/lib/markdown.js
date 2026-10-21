@@ -9,7 +9,14 @@ const QUOTE = /^\s*>\s?(.*)$/;
 const FENCE = /^\s*```/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-const INLINE = /(!\[[^\]\n]*\]\([^)\s]+\)|\*\*[^*\n]+?\*\*|__[^_\n]+?__|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|\*[^*\s][^*\n]*?\*)/;
+const BARE_URL = '(?:https?:\\/\\/|mailto:)[^\\s<>()\\[\\]]*[^\\s<>()\\[\\].,;:!?\'"]';
+const INLINE = new RegExp(
+  `(!\\[[^\\]\\n]*\\]\\([^)\\s]+\\)|\\*\\*[^*\\n]+?\\*\\*|__[^_\\n]+?__|\`[^\`\\n]+\`|\\[[^\\]\\n]+\\]\\([^)\\s]+\\)|${BARE_URL}|\\*[^*\\s][^*\\n]*?\\*)`,
+);
+const LINKABLE = /^(https?:\/\/|mailto:)/i;
+
+// Con opts.links i link http(s) e mailto diventano cliccabili e si aprono in una nuova scheda; senza, restano testo.
+const link = (href, label) => h('a', { href, class: 'md-link', target: '_blank', rel: 'noopener noreferrer nofollow' }, label);
 
 // opts.image(path, alt) disegna le immagini «immagine:percorso» delle note; gli altri indirizzi restano testo.
 export function renderInline(text, opts = {}) {
@@ -31,8 +38,10 @@ export function renderInline(text, opts = {}) {
     else if (token.startsWith('`')) out.push(h('code', null, token.slice(1, -1)));
     else if (token.startsWith('[')) {
       const [, label, url] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-      out.push(label, h('span', { class: 'muted' }, ` (${url})`));
-    } else out.push(h('em', null, renderInline(token.slice(1, -1), opts)));
+      if (opts.links && LINKABLE.test(url)) out.push(link(url, label));
+      else out.push(label, h('span', { class: 'muted' }, ` (${url})`));
+    } else if (LINKABLE.test(token)) out.push(opts.links ? link(token, token.replace(/^mailto:/i, '')) : token);
+    else out.push(h('em', null, renderInline(token.slice(1, -1), opts)));
     rest = rest.slice(match.index + token.length);
   }
   return out;

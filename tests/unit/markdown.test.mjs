@@ -86,3 +86,15 @@ test('images are drawn only for note images, every other address stays text', ()
   assert.equal(box.querySelectorAll('img').length, 0, 'senza opzione nessuna immagine');
   assert.match(box.textContent, /grafico \(immagine incorporata\)/);
 });
+
+test('links become clickable only when asked, and only for http(s) and mailto', () => {
+  const box = document.createElement('div');
+  box.append(...md.renderMarkdown('Sito https://example.com/a_b, mail mailto:info@x.it, [doc](https://x.it) e [male](javascript:alert(1))', { links: true }));
+  const links = [...box.querySelectorAll('a')];
+  assert.deepEqual(links.map((a) => a.getAttribute('href')), ['https://example.com/a_b', 'mailto:info@x.it', 'https://x.it']);
+  assert.ok(links.every((a) => a.getAttribute('rel') === 'noopener noreferrer nofollow' && a.getAttribute('target') === '_blank'));
+  assert.doesNotMatch(box.innerHTML, /<em>/, 'gli underscore negli indirizzi non diventano corsivo');
+  const plain = document.createElement('div');
+  plain.append(...md.renderMarkdown('Sito https://example.com e [doc](https://x.it)'));
+  assert.equal(plain.querySelectorAll('a').length, 0, 'senza l\'opzione restano testo, come nelle risposte di Claude');
+});

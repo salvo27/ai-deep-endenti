@@ -141,7 +141,7 @@ test('external scripts are pinned to exact versions', () => {
 test('every public table in the schema has row level security', () => {
   const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'comments', 'items', 'members', 'revisions']);
+  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'items', 'members', 'revisions']);
   for (const table of tables) {
     assert.match(schema, new RegExp(`alter table public\\.${table} enable row level security`), table);
   }

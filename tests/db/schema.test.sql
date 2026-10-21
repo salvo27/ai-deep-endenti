@@ -438,10 +438,8 @@ select test.login('c');
 do $$
 begin
   assert (select count(*) from storage.objects where bucket_id = 'note-immagini') = 2, 'l''advisor non vede le immagini';
-  perform test.expect_error(
-    format($q$insert into storage.objects (bucket_id, name) values ('note-immagini', %L)$q$, current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg'),
-    'row-level security'
-  );
+  insert into storage.objects (bucket_id, name) values ('note-immagini', current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg');
+  perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('note-immagini', 'x/y.jpg')$q$, 'row-level security');
   assert (select count(*) from public.note_image_orphans(array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
 end
 $$;
@@ -449,6 +447,87 @@ select test.login('a', 'aal1');
 do $$
 begin
   assert (select count(*) from storage.objects) = 0, 'immagini visibili senza 2FA';
+end
+$$;
+
+\echo 'ok - chat: una sola Generale, scrivono anche gli advisor, ognuno modifica i suoi messaggi, non letti per persona'
+set role authenticated;
+select test.login('a');
+do $$
+declare
+  v_general uuid := (select id from public.chats where is_general);
+  v_topic uuid;
+  v_msg uuid;
+begin
+  assert v_general is not null, 'manca la chat Generale';
+  insert into public.chats (title, is_general, idea_id) values ('  Nutrizione  ', true, current_setting('test.idea')::uuid) returning id into v_topic;
+  assert (select count(*) from public.chats where is_general) = 1, 'creata una seconda chat Generale';
+  assert (select title from public.chats where id = v_topic) = 'Nutrizione', 'titolo non ripulito';
+  perform test.expect_error(format($q$insert into public.chats (title, idea_id) values ('x', %L)$q$, v_topic), 'solo a un''idea');
+  update public.chats set archived_at = now() where id = v_general;
+  assert (select archived_at from public.chats where id = v_general) is null, 'archiviata la chat Generale';
+  insert into public.chat_messages (chat_id, body, author_id) values (v_topic, 'Ciao', test.uid('c')) returning id into v_msg;
+  assert (select author_id from public.chat_messages where id = v_msg) = test.uid('a'), 'autore falsificato';
+  perform set_config('test.topic', v_topic::text, false);
+  perform set_config('test.msg', v_msg::text, false);
+end
+$$;
+select test.login('c');
+do $$
+declare
+  v_topic uuid := current_setting('test.topic')::uuid;
+  v_mine uuid;
+begin
+  insert into public.chat_messages (chat_id, body) values (v_topic, 'Foto: ![lavagna](immagine:' || current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg)') returning id into v_mine;
+  update public.chat_messages set body = 'cambiato' where id = current_setting('test.msg')::uuid;
+  assert (select body from public.chat_messages where id = current_setting('test.msg')::uuid) = 'Ciao', 'modificato il messaggio di un altro';
+  perform set_config('test.mine', v_mine::text, false);
+  declare
+    v_reply uuid;
+    v_elsewhere uuid;
+  begin
+    insert into public.chat_messages (chat_id, body, reply_to) values (v_topic, 'Rispondo', current_setting('test.msg')::uuid) returning id into v_reply;
+    assert (select reply_to from public.chat_messages where id = v_reply) = current_setting('test.msg')::uuid, 'risposta non collegata';
+    insert into public.chat_messages (chat_id, body) select id, 'Altrove' from public.chats where is_general returning id into v_elsewhere;
+    perform test.expect_error(format($q$insert into public.chat_messages (chat_id, body, reply_to) values (%L, 'x', %L)$q$, v_topic, v_elsewhere), 'stessa chat');
+    update public.chat_messages set reply_to = v_elsewhere, body = 'Rispondo meglio' where id = v_reply;
+    assert (select reply_to from public.chat_messages where id = v_reply) = current_setting('test.msg')::uuid, 'risposta spostata su un altro messaggio';
+  end;
+end
+$$;
+select test.login('a');
+do $$
+declare
+  v_topic uuid := current_setting('test.topic')::uuid;
+  v_img text := current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg';
+begin
+  assert (select unread from public.chat_overview() where chat_id = v_topic) = 2, 'non letti sbagliati';
+  perform public.mark_chat_read(v_topic);
+  assert (select unread from public.chat_overview() where chat_id = v_topic) = 0, 'lettura non registrata';
+  assert (select count(*) from public.note_image_orphans(array[v_img])) = 0, 'immagine di un messaggio considerata orfana';
+end
+$$;
+select test.login('c');
+do $$
+begin
+  update public.chat_messages set deleted_at = now() where id = current_setting('test.mine')::uuid;
+  assert (select body from public.chat_messages where id = current_setting('test.mine')::uuid) = 'eliminato', 'il testo eliminato resta nel database';
+  perform test.expect_error(format($q$update public.chat_messages set body = 'di nuovo' where id = %L$q$, current_setting('test.mine')), 'già stato eliminato');
+end
+$$;
+select test.login('a');
+do $$
+begin
+  assert (select count(*) from public.note_image_orphans(array[current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg'])) = 1, 'immagine di un messaggio eliminato non considerata orfana';
+  update public.chats set archived_at = now() where id = current_setting('test.topic')::uuid;
+  perform test.expect_error(format($q$insert into public.chat_messages (chat_id, body) values (%L, 'tardi')$q$, current_setting('test.topic')), 'archiviata');
+end
+$$;
+select test.login('a', 'aal1');
+do $$
+begin
+  assert (select count(*) from public.chats) = 0, 'chat visibili senza 2FA';
+  assert (select count(*) from public.chat_messages) = 0, 'messaggi visibili senza 2FA';
 end
 $$;
 

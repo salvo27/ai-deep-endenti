@@ -3,6 +3,7 @@ import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';
 import { CONFIG } from '../config.js';
 import { BOARD_KINDS, routeFor } from '../schema.js';
+import { totalUnread } from '../chat.js';
 import { on, state } from '../store.js';
 import { navigate, onRouteChange } from '../router.js';
 import { avatar, kindBadge } from './components.js';
@@ -15,6 +16,7 @@ export const NAV = [
   ['/esperimenti', 'Esperimenti', 'experiment'],
   ['/interviste', 'Interviste', 'interview'],
   ['/decisioni', 'Decisioni', 'decision'],
+  ['/chat', 'Chat', 'comment'],
   ['/generatore', 'Generatore', 'generator'],
   ['/squadra', 'Squadra', 'heart'],
   ['/guida', 'Guida', 'compass'],
@@ -86,9 +88,17 @@ function globalSearch() {
 
 export function buildShell(root, { onSignOut }) {
   const outlet = h('main', { class: 'content', id: 'content', tabindex: '-1' });
+  const chatBadge = h('span', { class: 'nav-badge', hidden: true });
   const links = NAV.map(([path, label, iconName]) =>
-    h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label)),
+    h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label), path === '/chat' ? chatBadge : null),
   );
+  const renderChatBadge = () => {
+    const n = totalUnread();
+    chatBadge.hidden = n === 0;
+    chatBadge.textContent = n > 99 ? '99+' : String(n);
+    chatBadge.setAttribute('aria-label', `${n} messaggi da leggere`);
+    menuButton.classList.toggle('has-unread', n > 0);
+  };
   const sidebar = h(
     'aside',
     { class: 'sidebar', id: 'menu' },
@@ -158,6 +168,8 @@ export function buildShell(root, { onSignOut }) {
   };
 
   on('presence', renderPresence);
+  on('chats', renderChatBadge);
+  renderChatBadge();
   on('realtime', renderLive);
   onRouteChange(highlight);
   window.addEventListener('online', () => (offline.hidden = true));

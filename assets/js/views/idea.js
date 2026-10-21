@@ -1,4 +1,5 @@
-import { h, mount } from '../lib/dom.js';
+import { h, mount, busy, toast } from '../lib/dom.js';
+import { navigate } from '../router.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate } from '../lib/format.js';
 import { IDEA_CHILD_KINDS, KINDS, optionLabel } from '../schema.js';
@@ -24,6 +25,7 @@ import { canvasView } from './canvas.js';
 import { deeptechView, marketView, personaCard, vpcView } from './boards.js';
 import { ideaRoadmap, roadmapBox, roadmapPanel } from './roadmap.js';
 import { notesTab } from './notes.js';
+import { ideaChat, openIdeaChat, unreadOf } from '../chat.js';
 import { competitorsView } from './competitors.js';
 import { conceptButton } from './concept-help.js';
 import { commentsPanel } from './comments.js';
@@ -81,6 +83,24 @@ export function ideaContext(ideaId) {
     interviews: itemsOf('interview', { ideaId }),
     boards: EXTRA_KINDS.flatMap((kind) => itemsOf(kind, { ideaId })),
   };
+}
+
+// Apre la chat dell'idea, creandola la prima volta.
+function chatButton(idea) {
+  const chat = ideaChat(idea.id);
+  const unread = chat ? unreadOf(chat.id) : 0;
+  const el = button(unread ? `Chat dell'idea (${unread})` : 'Chat dell\'idea', { iconName: 'comment' });
+  el.addEventListener(
+    'click',
+    busy(el, async () => {
+      try {
+        navigate(`/chat/${(await openIdeaChat(getItem(idea.id))).id}`);
+      } catch (error) {
+        toast(error.message, { type: 'error' });
+      }
+    }),
+  );
+  return el;
 }
 
 function nextStepBox(idea) {
@@ -462,6 +482,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
         subtitle: h('span', { class: 'row' }, statusSelect, idea.data.sector ? h('span', { class: 'muted' }, idea.data.sector) : null, metaLine(idea), hereHost),
         actions: [
           example ? null : aiButton('critique', () => ideaContext(idea.id), { item: idea, label: 'Critica l\'idea' }),
+          example ? null : chatButton(idea),
           writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${idea.id}` }) : null,
           button('', { iconName: 'file', title: 'Esporta in Markdown', onClick: () => exportIdeaMarkdown(idea) }),
           writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(idea, { backTo: '/idee' }) }) : null,

@@ -183,6 +183,12 @@ export function startRealtime() {
       refreshCommentCounts();
     },
     onMembers: () => reloadMembers().catch(() => {}),
+    onChat: (row) => {
+      if (isUuid(row?.id)) emit('chat-row', row);
+    },
+    onChatMessage: (row, eventType) => {
+      if (isUuid(row?.id) && isUuid(row?.chat_id)) emit('chat-message', { row, inserted: eventType === 'INSERT' });
+    },
     onStatus: (status) => {
       const reconnected = status === 'SUBSCRIBED' && everSubscribed && state.realtime !== 'SUBSCRIBED';
       if (status === 'SUBSCRIBED') everSubscribed = true;

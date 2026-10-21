@@ -186,7 +186,7 @@ export function noteImageNode(path, alt) {
   return img;
 }
 
-export const renderNote = (text) => h('div', { class: 'markdown note-body' }, renderMarkdown(text, { image: noteImageNode }));
+export const renderNote = (text) => h('div', { class: 'markdown note-body' }, renderMarkdown(text, { image: noteImageNode, links: true }));
 
 export function noteExcerpt(text, max = 180) {
   const plain = String(text || '')
