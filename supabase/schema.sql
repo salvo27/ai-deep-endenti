@@ -844,6 +844,140 @@ as $$
 $$;
 
 -- =========================================================================
+-- Menzioni: @[Nome Cognome] o @[tutti] in messaggi, commenti e note
+-- =========================================================================
+
+-- Le crea solo il database, dai testi salvati; ognuno vede solo le proprie.
+create table if not exists public.mentions (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  author_id uuid references auth.users (id) on delete set null,
+  source text not null check (source in ('chat', 'comment', 'note')),
+  source_id uuid not null,
+  chat_id uuid references public.chats (id) on delete cascade,
+  item_id uuid references public.items (id) on delete cascade,
+  excerpt text not null default '',
+  created_at timestamptz not null default now(),
+  read_at timestamptz,
+  unique (user_id, source, source_id)
+);
+
+create index if not exists mentions_user_idx on public.mentions (user_id, created_at desc);
+
+alter table public.mentions enable row level security;
+
+drop policy if exists mentions_select on public.mentions;
+create policy mentions_select on public.mentions
+  for select to authenticated
+  using ((select public.can_read()) and user_id = (select auth.uid()));
+
+-- Chi è menzionato in un testo: i membri il cui nome compare come @[Nome], tutti con @[tutti], mai chi scrive.
+create or replace function public.mentioned_users(p_text text, p_author uuid)
+returns setof uuid
+language sql
+stable
+set search_path = ''
+as $$
+  select m.user_id
+  from public.members m
+  where m.user_id is distinct from p_author
+    and (
+      coalesce(p_text, '') ~* '@\[tutti\]'
+      or exists (
+        select 1 from regexp_matches(coalesce(p_text, ''), '@\[([^]\n]{1,80})\]', 'g') as x(name)
+        where lower(btrim(x.name[1])) = lower(m.display_name)
+      )
+    )
+$$;
+
+-- Una menzione per persona e per testo: modificando si aggiungono solo le persone nuove.
+create or replace function public.record_mentions(p_source text, p_source_id uuid, p_text text, p_author uuid, p_chat uuid, p_item uuid)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  insert into public.mentions (user_id, author_id, source, source_id, chat_id, item_id, excerpt)
+  select
+    u, p_author, p_source, p_source_id, p_chat, p_item,
+    left(btrim(regexp_replace(regexp_replace(regexp_replace(p_text, '!\[[^]\n]*\]\([^)]*\)', '[immagine]', 'g'), '@\[([^]\n]{1,80})\]', '@\1', 'g'), '\s+', ' ', 'g')), 200)
+  from public.mentioned_users(p_text, p_author) as u
+  on conflict (user_id, source, source_id) do nothing
+$$;
+
+create or replace function public.chat_messages_mentions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.deleted_at is not null then
+    delete from public.mentions where source = 'chat' and source_id = new.id;
+  else
+    perform public.record_mentions('chat', new.id, new.body, new.author_id, new.chat_id, null);
+  end if;
+  return null;
+end
+$$;
+
+drop trigger if exists chat_messages_mentions on public.chat_messages;
+create trigger chat_messages_mentions
+  after insert or update on public.chat_messages
+  for each row execute function public.chat_messages_mentions();
+
+create or replace function public.comments_mentions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.deleted_at is not null then
+    delete from public.mentions where source = 'comment' and source_id = new.id;
+  else
+    perform public.record_mentions('comment', new.id, new.body, new.author_id, null, new.item_id);
+  end if;
+  return null;
+end
+$$;
+
+drop trigger if exists comments_mentions on public.comments;
+create trigger comments_mentions
+  after insert or update on public.comments
+  for each row execute function public.comments_mentions();
+
+create or replace function public.notes_mentions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.kind = 'note' and new.deleted_at is null then
+    perform public.record_mentions('note', new.id, new.data ->> 'body', new.updated_by, null, new.id);
+  end if;
+  return null;
+end
+$$;
+
+drop trigger if exists notes_mentions on public.items;
+create trigger notes_mentions
+  after insert or update on public.items
+  for each row execute function public.notes_mentions();
+
+create or replace function public.mark_mentions_read(p_ids bigint[] default null)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.mentions
+  set read_at = now()
+  where user_id = auth.uid() and read_at is null and public.can_read() and (p_ids is null or id = any (p_ids))
+$$;
+
+-- =========================================================================
 -- Immagini delle note
 -- =========================================================================
 
@@ -973,8 +1107,8 @@ create policy audit_log_select on public.audit_log
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads from authenticated;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions from anon;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions from authenticated;
 grant select on public.audit_log to authenticated;
 grant select, update, delete on public.members to authenticated;
 grant select, insert, update on public.items to authenticated;
@@ -984,6 +1118,7 @@ grant select on public.ai_usage to authenticated;
 grant select, insert, update on public.chats to authenticated;
 grant select, insert, update on public.chat_messages to authenticated;
 grant select on public.chat_reads to authenticated;
+grant select on public.mentions to authenticated;
 
 -- Le funzioni dei trigger non devono essere chiamabili via API.
 revoke execute on function public.items_before_write() from public, anon, authenticated;
@@ -993,6 +1128,11 @@ revoke execute on function public.members_before_update() from public, anon, aut
 revoke execute on function public.members_audit() from public, anon, authenticated;
 revoke execute on function public.chats_before_write() from public, anon, authenticated;
 revoke execute on function public.chat_messages_before_write() from public, anon, authenticated;
+revoke execute on function public.chat_messages_mentions() from public, anon, authenticated;
+revoke execute on function public.comments_mentions() from public, anon, authenticated;
+revoke execute on function public.notes_mentions() from public, anon, authenticated;
+revoke execute on function public.record_mentions(text, uuid, text, uuid, uuid, uuid) from public, anon, authenticated;
+revoke execute on function public.mentioned_users(text, uuid) from public, anon, authenticated;
 
 revoke execute on function public.my_role() from public, anon;
 revoke execute on function public.has_mfa() from public, anon;
@@ -1010,6 +1150,7 @@ revoke execute on function public.revert_item(uuid, integer, integer, text) from
 revoke execute on function public.note_image_orphans(text[]) from public, anon;
 revoke execute on function public.chat_overview() from public, anon;
 revoke execute on function public.mark_chat_read(uuid) from public, anon;
+revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
@@ -1027,6 +1168,7 @@ grant execute on function public.revert_item(uuid, integer, integer, text) to au
 grant execute on function public.note_image_orphans(text[]) to authenticated;
 grant execute on function public.chat_overview() to authenticated;
 grant execute on function public.mark_chat_read(uuid) to authenticated;
+grant execute on function public.mark_mentions_read(bigint[]) to authenticated;
 
 -- =========================================================================
 -- Realtime: aggiornamenti dal vivo e presenza
@@ -1037,7 +1179,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages'] loop
+    foreach t in array array['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages', 'mentions'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

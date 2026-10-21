@@ -2874,6 +2874,85 @@ dialog::backdrop {
   margin: 0.15rem 0 0;
 }
 
+/* Menzioni */
+
+.mention {
+  padding: 0 0.2rem;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mention.is-me {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.has-mentions {
+  position: relative;
+}
+
+.mention-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  min-width: 220px;
+  max-width: 320px;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.mention-menu.is-above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.mention-menu[hidden] {
+  display: none;
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mention-option.is-active,
+.mention-option:hover {
+  background: var(--primary-soft);
+}
+
+.bell-badge-important {
+  background: var(--warn);
+}
+
+.mention-item .mention-excerpt {
+  display: block;
+  margin: 0.15rem 0;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.chat-message.mentions-me {
+  margin: 0 -0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-soft);
+}
+
 /* Chat */
 
 .nav-badge {

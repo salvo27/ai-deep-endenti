@@ -98,3 +98,22 @@ test('links become clickable only when asked, and only for http(s) and mailto', 
   plain.append(...md.renderMarkdown('Sito https://example.com e [doc](https://x.it)'));
   assert.equal(plain.querySelectorAll('a').length, 0, 'senza l\'opzione restano testo, come nelle risposte di Claude');
 });
+
+test('tags are recognised while typing and shown as @Name, highlighted only when asked', async () => {
+  const mentions = await import('../../assets/js/lib/mentions.js');
+  assert.deepEqual(mentions.mentionQuery('Ciao @Bru', 9), { start: 5, query: 'Bru' });
+  assert.deepEqual(mentions.mentionQuery('@', 1), { start: 0, query: '' });
+  assert.equal(mentions.mentionQuery('email@dominio', 13), null, 'una @ dentro una parola non è un tag');
+  assert.equal(mentions.mentionQuery('@[Bruno] fatto', 14), null);
+  assert.equal(mentions.mentionToken('Bruno [x]'), '@[Bruno  x]');
+  const plain = document.createElement('div');
+  plain.append(...md.renderMarkdown('Ciao @[Bruno Rossi], vedi'));
+  assert.equal(plain.textContent, 'Ciao @Bruno Rossi, vedi');
+  const rich = document.createElement('div');
+  rich.append(...md.renderMarkdown('Ciao @[Bruno Rossi]', { mention: (name) => Object.assign(document.createElement('b'), { textContent: name }) }));
+  assert.equal(rich.querySelector('b').textContent, 'Bruno Rossi');
+  const text = document.createElement('div');
+  text.append(...mentions.renderMentions('A @[tutti] e @[Bruno]!', (name) => Object.assign(document.createElement('i'), { textContent: name })));
+  assert.deepEqual([...text.querySelectorAll('i')].map((i) => i.textContent), ['tutti', 'Bruno']);
+  assert.equal(text.textContent, 'A tutti e Bruno!');
+});

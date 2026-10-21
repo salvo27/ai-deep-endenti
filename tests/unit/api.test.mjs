@@ -100,7 +100,7 @@ test('realtime subscribes to the board and chat tables and presence uses a priva
   const seen = [];
   const off = api.subscribeDb({ onItem: (r) => seen.push(['item', r]), onRevision: (r) => seen.push(['rev', r]), onStatus: (s) => seen.push(['status', s]) });
   const channel = fake.channels[0];
-  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages']);
+  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages', 'mentions']);
   channel.emit('postgres_changes', { table: 'items', new: { id: 'x' } });
   assert.deepEqual(seen, [['status', 'SUBSCRIBED'], ['item', { id: 'x' }]]);
   off();
@@ -180,6 +180,10 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   await api.editMessage(ID, 'ciao 2');
   await api.deleteMessage(ID);
   await api.markChatRead(ID);
+  fake.responses.from.mentions = { data: [{ id: 1 }], error: null };
+  assert.deepEqual(await api.listMentions(), [{ id: 1 }]);
+  await api.markMentionsRead([1]);
+  assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_mentions_read').at(-1)[2], { p_ids: [1] });
   assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_chat_read').at(-1)[2], { p_chat: ID });
   await api.setRealtimeAuth();
   const off = api.onAuthChange(() => {});

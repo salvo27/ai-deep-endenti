@@ -391,6 +391,15 @@ export const api = {
     await unwrap(supabase.rpc('mark_chat_read', { p_chat: requireUuid(chatId) }));
   },
 
+  // Menzioni: le crea il database; qui si leggono le proprie e si segnano come lette.
+  async listMentions() {
+    return (await unwrap(supabase.from('mentions').select('*').order('created_at', { ascending: false }).limit(50))) || [];
+  },
+
+  async markMentionsRead(ids = null) {
+    await unwrap(supabase.rpc('mark_mentions_read', { p_ids: ids }));
+  },
+
   // Immagini delle note: spazio privato su Supabase Storage, regole nel database.
   async uploadNoteImage(path, blob) {
     const { error } = await supabase.storage.from(NOTE_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
@@ -419,7 +428,7 @@ export const api = {
     if (session) await supabase.realtime.setAuth(session.access_token);
   },
 
-  subscribeDb({ onItem, onRevision, onComment, onMembers, onChat, onChatMessage, onStatus }) {
+  subscribeDb({ onItem, onRevision, onComment, onMembers, onChat, onChatMessage, onMention, onStatus }) {
     const channel = supabase
       .channel('db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, (p) => onItem?.(p.new))
@@ -428,6 +437,7 @@ export const api = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => onMembers?.())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (p) => onChat?.(p.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (p) => onChatMessage?.(p.new, p.eventType))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mentions' }, (p) => onMention?.(p.eventType === 'DELETE' ? p.old : p.new, p.eventType))
       .subscribe((status) => onStatus?.(status));
     return () => supabase.removeChannel(channel);
   },

@@ -11,11 +11,12 @@ const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const BARE_URL = '(?:https?:\\/\\/|mailto:)[^\\s<>()\\[\\]]*[^\\s<>()\\[\\].,;:!?\'"]';
 const INLINE = new RegExp(
-  `(!\\[[^\\]\\n]*\\]\\([^)\\s]+\\)|\\*\\*[^*\\n]+?\\*\\*|__[^_\\n]+?__|\`[^\`\\n]+\`|\\[[^\\]\\n]+\\]\\([^)\\s]+\\)|${BARE_URL}|\\*[^*\\s][^*\\n]*?\\*)`,
+  `(!\\[[^\\]\\n]*\\]\\([^)\\s]+\\)|@\\[[^\\]\\n]{1,80}\\]|\\*\\*[^*\\n]+?\\*\\*|__[^_\\n]+?__|\`[^\`\\n]+\`|\\[[^\\]\\n]+\\]\\([^)\\s]+\\)|${BARE_URL}|\\*[^*\\s][^*\\n]*?\\*)`,
 );
 const LINKABLE = /^(https?:\/\/|mailto:)/i;
 
 // Con opts.links i link http(s) e mailto diventano cliccabili e si aprono in una nuova scheda; senza, restano testo.
+// I tag @[Nome] si mostrano come «@Nome», evidenziati con opts.mention.
 const link = (href, label) => h('a', { href, class: 'md-link', target: '_blank', rel: 'noopener noreferrer nofollow' }, label);
 
 // opts.image(path, alt) disegna le immagini «immagine:percorso» delle note; gli altri indirizzi restano testo.
@@ -30,7 +31,10 @@ export function renderInline(text, opts = {}) {
     }
     if (match.index) out.push(rest.slice(0, match.index));
     const token = match[0];
-    if (token.startsWith('![')) {
+    if (token.startsWith('@[')) {
+      const name = token.slice(2, -1).trim();
+      out.push(opts.mention ? opts.mention(name) : `@${name}`);
+    } else if (token.startsWith('![')) {
       const [, alt, url] = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(token);
       if (url.startsWith('immagine:') && opts.image) out.push(opts.image(url.slice('immagine:'.length), alt));
       else out.push(alt || 'immagine', h('span', { class: 'muted' }, ` (${url.startsWith('data:') ? 'immagine incorporata' : url})`));

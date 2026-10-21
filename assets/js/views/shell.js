@@ -7,7 +7,7 @@ import { totalUnread } from '../chat.js';
 import { on, state } from '../store.js';
 import { navigate, onRouteChange } from '../router.js';
 import { avatar, kindBadge } from './components.js';
-import { notificationBell } from './notifications.js';
+import { mentionsButton, notificationBell } from './notifications.js';
 
 export const NAV = [
   ['/', 'Dashboard', 'dashboard'],
@@ -144,7 +144,7 @@ export function buildShell(root, { onSignOut }) {
       { class: 'app' },
       sidebar,
       backdrop,
-      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, notificationBell(), userButton), offline, outlet),
+      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, mentionsButton(), notificationBell(), userButton), offline, outlet),
     ),
   );
 

@@ -1,4 +1,8 @@
 import { h, busy, confirmDialog, mount, toast } from '../lib/dom.js';
+import { renderMentions } from '../lib/mentions.js';
+import { mentionChip } from './mention-chip.js';
+import { attachMentions } from './mention-input.js';
+import { markReadWhere } from '../mentions.js';
 import { api } from '../lib/api.js';
 import { LIMITS, cleanText } from '../lib/validate.js';
 import { renderMarkdown } from '../lib/markdown.js';
@@ -9,8 +13,9 @@ import { avatar, errorBox, itemLink, loading, timeAgo } from './components.js';
 // Con «related» il pannello mostra anche i commenti di altri elementi, per esempio le schede di un'idea.
 export function commentsPanel(item, { related = [] } = {}) {
   const ids = [item.id, ...related.filter((id) => id !== item.id)];
+  markReadWhere((m) => m.source === 'comment' && ids.includes(m.item_id));
   const list = h('div', { class: 'comments' }, loading());
-  const textarea = h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, placeholder: 'Scrivi un commento', 'aria-label': 'Nuovo commento' });
+  const textarea = attachMentions(h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, placeholder: 'Scrivi un commento; con @ tagghi qualcuno', 'aria-label': 'Nuovo commento' }));
   const send = h('button', { type: 'button', class: 'btn btn-primary' }, 'Commenta');
   let comments = [];
 
@@ -24,7 +29,7 @@ export function commentsPanel(item, { related = [] } = {}) {
 
   const commentView = (c) => {
     const mine = c.author_id === state.user?.id;
-    const body = c.ai_task ? h('div', { class: 'markdown' }, renderMarkdown(c.body)) : h('div', { class: 'text-block' }, c.body);
+    const body = c.ai_task ? h('div', { class: 'markdown' }, renderMarkdown(c.body)) : h('div', { class: 'text-block' }, renderMentions(c.body, mentionChip));
     const actions = mine
       ? h(
           'div',
@@ -65,7 +70,7 @@ export function commentsPanel(item, { related = [] } = {}) {
   };
 
   const edit = (c, bodyEl) => {
-    const area = h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, value: c.body });
+    const area = attachMentions(h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, value: c.body }));
     const save = h('button', { type: 'button', class: 'btn btn-small btn-primary' }, 'Salva');
     save.addEventListener('click', busy(save, async () => {
       const text = cleanText(area.value, LIMITS.comment);

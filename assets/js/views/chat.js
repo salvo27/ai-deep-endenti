@@ -9,6 +9,9 @@ import { imagePointer, noteExcerpt, noteImageNode, removeUnusedImages, uploadNot
 import { emit, getItem, ideas, memberName, on, state } from '../store.js';
 import { navigate } from '../router.js';
 import { avatar, button, emptyState, itemLink, timeAgo } from './components.js';
+import { mentionChip, mentionsMe } from './mention-chip.js';
+import { attachMentions } from './mention-input.js';
+import { markReadWhere } from '../mentions.js';
 
 const PAGE = 50;
 const MAX_MESSAGE = 4000;
@@ -72,9 +75,9 @@ async function updateChat(chat, patch) {
   }
 }
 
-const messageBody = (body) => h('div', { class: 'markdown chat-body' }, renderMarkdown(body, { image: noteImageNode, links: true }));
+const messageBody = (body) => h('div', { class: 'markdown chat-body' }, renderMarkdown(body, { image: noteImageNode, links: true, mention: mentionChip }));
 
-export function chatView(outlet, params) {
+export function chatView(outlet, params, query = new URLSearchParams()) {
   const chatId = isUuid(params.id) ? params.id : null;
   let messages = [];
   let hasMore = false;
@@ -203,7 +206,7 @@ export function chatView(outlet, params) {
     let body;
     if (m.deleted_at) body = h('p', { class: 'muted small' }, 'Messaggio eliminato');
     else if (editingId === m.id) {
-      const input = autoGrow(h('textarea', { class: 'input', rows: 2, maxlength: MAX_MESSAGE, value: m.body }));
+      const input = attachMentions(autoGrow(h('textarea', { class: 'input', rows: 2, maxlength: MAX_MESSAGE, value: m.body })));
       body = h(
         'div',
         { class: 'stack' },
@@ -233,7 +236,7 @@ export function chatView(outlet, params) {
     } else body = messageBody(m.body);
     return h(
       'article',
-      { class: ['chat-message', mine && 'is-mine', m.pending && 'is-pending', m.failed && 'is-failed'], id: `msg-${m.id}` },
+      { class: ['chat-message', mine && 'is-mine', m.pending && 'is-pending', m.failed && 'is-failed', !mine && !m.deleted_at && mentionsMe(m.body) && 'mentions-me'], id: `msg-${m.id}` },
       avatar(m.author_id, 32),
       h(
         'div',
@@ -338,14 +341,15 @@ export function chatView(outlet, params) {
 
   function composer(c) {
     if (c.archived_at) return h('p', { class: 'banner' }, 'Chat archiviata: si può leggere, ma non scrivere. ', h('button', { type: 'button', class: 'link-btn', onClick: () => updateChat(c, { archived_at: null }) }, 'Riattivala'));
-    const input = autoGrow(
+    const input = attachMentions(autoGrow(
       h('textarea', {
         class: 'input chat-input',
         rows: 1,
         maxlength: MAX_MESSAGE,
-        placeholder: 'Scrivi un messaggio. Invio per mandarlo, Maiusc+Invio per andare a capo.',
+        placeholder: 'Scrivi un messaggio; @ per taggare. Invio per mandarlo, Maiusc+Invio per andare a capo.',
         'aria-label': 'Messaggio',
         onKeydown: (e) => {
+          if (e.target.mentionOpen) return;
           if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
             e.preventDefault();
             send();
@@ -353,7 +357,7 @@ export function chatView(outlet, params) {
           if (e.key === 'Escape' && replyTo) setReply(null);
         },
       }),
-    );
+    ), { above: true });
     const sendButton = button('Invia', { kind: 'primary', onClick: () => send() });
     function send() {
       const text = input.value.trim();
@@ -472,6 +476,9 @@ export function chatView(outlet, params) {
     renderMessages();
     toBottom();
     markChatRead(chatId);
+    markReadWhere((m) => m.source === 'chat' && m.chat_id === chatId);
+    const target = query.get('messaggio');
+    if (isUuid(target)) jumpTo(target);
   }
 
   renderList();
@@ -498,7 +505,10 @@ export function chatView(outlet, params) {
     on('chat-message', ({ row }) => {
       if (row.chat_id !== chatId) return;
       upsert(row);
-      if (document.visibilityState === 'visible') markChatRead(chatId);
+      if (document.visibilityState === 'visible') {
+        markChatRead(chatId);
+        markReadWhere((m) => m.source === 'chat' && m.chat_id === chatId);
+      }
     }),
   ];
   return () => {

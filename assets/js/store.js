@@ -186,6 +186,9 @@ export function startRealtime() {
     onChat: (row) => {
       if (isUuid(row?.id)) emit('chat-row', row);
     },
+    onMention: (row, eventType) => {
+      if (row?.id != null) emit('mention-row', { row, removed: eventType === 'DELETE' });
+    },
     onChatMessage: (row, eventType) => {
       if (isUuid(row?.id) && isUuid(row?.chat_id)) emit('chat-message', { row, inserted: eventType === 'INSERT' });
     },

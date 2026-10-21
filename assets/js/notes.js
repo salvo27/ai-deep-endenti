@@ -1,6 +1,7 @@
 import { api } from './lib/api.js';
 import { h } from './lib/dom.js';
 import { renderMarkdown } from './lib/markdown.js';
+import { mentionChip } from './views/mention-chip.js';
 import { canWrite, readLocal, writeLocal } from './store.js';
 
 // Immagini delle note: file JPEG nello spazio privato «note-immagini», indicati nel testo con ![descrizione](immagine:idea/uuid.jpg).
@@ -186,7 +187,7 @@ export function noteImageNode(path, alt) {
   return img;
 }
 
-export const renderNote = (text) => h('div', { class: 'markdown note-body' }, renderMarkdown(text, { image: noteImageNode, links: true }));
+export const renderNote = (text) => h('div', { class: 'markdown note-body' }, renderMarkdown(text, { image: noteImageNode, links: true, mention: mentionChip }));
 
 export function noteExcerpt(text, max = 180) {
   const plain = String(text || '')

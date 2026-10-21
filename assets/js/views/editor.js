@@ -36,6 +36,7 @@ import { equityEditor } from './equity.js';
 import { conceptButton } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
 import { errorBox, pageHeader, photoView } from './components.js';
+import { attachMentions } from './mention-input.js';
 import { resizePhoto } from '../lib/photo.js';
 import { MAX_NOTE_IMAGES, imagePaths, imagePointer, markdownToNote, noteTitle, removeUnusedImages, renderNote, uploadNoteImage } from '../notes.js';
 
@@ -210,7 +211,7 @@ function photoInput(def, working, onChange) {
 // Testo Markdown della nota, con immagini caricate nello spazio privato e anteprima.
 function markdownInput(def, working, onChange) {
   const titleLine = h('p', { class: 'small md-title' });
-  const text = autoGrow(
+  const text = attachMentions(autoGrow(
     h('textarea', {
       class: 'input md-input',
       rows: 14,
@@ -232,7 +233,7 @@ function markdownInput(def, working, onChange) {
         }
       },
     }),
-  );
+  ));
   const preview = h('div', { class: 'md-preview', hidden: true });
   const status = h('span', { class: 'muted small', 'aria-live': 'polite' });
   const renderCount = () => {

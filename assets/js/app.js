@@ -8,6 +8,7 @@ import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
 import { startChats, stopChats } from './chat.js';
+import { startMentions, stopMentions } from './mentions.js';
 import { dashboardView } from './views/dashboard.js';
 import { ideasView } from './views/ideas.js';
 import { ideaView } from './views/idea.js';
@@ -82,6 +83,7 @@ export function stopApp() {
   stopSync();
   stopNotifications();
   stopChats();
+  stopMentions();
   stopRouter();
 }
 
@@ -109,6 +111,7 @@ export async function startApp(root) {
   startSync();
   startNotifications();
   startChats();
+  startMentions();
   sweepNoteImages();
   stopIdle = startIdleLogout();
   on('removed', () => {

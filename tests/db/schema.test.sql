@@ -531,5 +531,48 @@ begin
 end
 $$;
 
+\echo 'ok - menzioni: create dal database, solo per chi è taggato, mai per chi scrive, lette e rimosse con il messaggio'
+set role authenticated;
+select test.login('c');
+do $$
+declare
+  v_msg uuid;
+begin
+  insert into public.chat_messages (chat_id, body)
+  select id, 'Ciao @[Admin], guarda ![foto](immagine:x/y.jpg) e @[Nessuno] e @[Advisor]' from public.chats where is_general
+  returning id into v_msg;
+  assert (select count(*) from public.mentions) = 0, 'chi scrive vede menzioni sue o di altri';
+  perform set_config('test.mention_msg', v_msg::text, false);
+  perform test.expect_error($q$insert into public.mentions (user_id, source, source_id) values (auth.uid(), 'chat', gen_random_uuid())$q$, 'permission denied');
+end
+$$;
+select test.login('a');
+do $$
+begin
+  assert (select count(*) from public.mentions where source = 'chat') = 1, 'menzione in chat mancante';
+  assert (select excerpt from public.mentions where source = 'chat') = 'Ciao @Admin, guarda [immagine] e @Nessuno e @Advisor', 'estratto sbagliato';
+  perform public.mark_mentions_read();
+  assert (select read_at from public.mentions where source = 'chat') is not null, 'menzione non segnata come letta';
+  insert into public.comments (item_id, body) values (current_setting('test.idea')::uuid, 'Avviso @[tutti]');
+  perform public.create_item('note', 'Riunione', null, '{"body":"Riunione\n\n@[Advisor] porta i dati"}'::jsonb, current_setting('test.idea')::uuid, null);
+  assert (select count(*) from public.mentions where source <> 'chat') = 0, 'menzionato da se stesso';
+end
+$$;
+select test.login('c');
+do $$
+begin
+  assert (select count(*) from public.mentions where source = 'comment') = 1, '@[tutti] non arriva';
+  assert (select count(*) from public.mentions where source = 'note') = 1, 'menzione nella nota mancante';
+  assert (select count(*) from public.mentions where user_id <> auth.uid()) = 0, 'menzioni altrui visibili';
+  update public.chat_messages set deleted_at = now() where id = current_setting('test.mention_msg')::uuid;
+end
+$$;
+select test.login('a');
+do $$
+begin
+  assert (select count(*) from public.mentions where source = 'chat') = 0, 'menzione di un messaggio eliminato ancora presente';
+end
+$$;
+
 reset role;
 \echo 'tutti i test del database sono passati'

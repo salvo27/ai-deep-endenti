@@ -3,6 +3,7 @@ import { icon } from '../lib/icons.js';
 import { downloadFile, fmtDate, slugFile } from '../lib/format.js';
 import { imagePaths, noteBody, noteExcerpt, noteToMarkdown, renderNote } from '../notes.js';
 import { itemsOf } from '../store.js';
+import { markReadWhere } from '../mentions.js';
 import { button, emptyState, itemLink, memberChip } from './components.js';
 
 const byDate = (a, b) => (b.data.date || b.created_at || '').localeCompare(a.data.date || a.created_at || '');
@@ -44,6 +45,7 @@ export function notesTab(idea, writable) {
 }
 
 export function noteView(note) {
+  markReadWhere((m) => m.source === 'note' && m.item_id === note.id);
   const download = button('Scarica .md', { iconName: 'download' });
   download.addEventListener(
     'click',
