@@ -149,6 +149,44 @@ test('scoring shows team averages with disagreement and lets me save my votes', 
   assert.equal(saved.snapshot.data.scores[IDS.idea].cliente, 4);
 });
 
+test('a photo of the scores is saved with a name and compared with now', async () => {
+  const PHOTO = 'a8888888-8888-4888-8888-888888888888';
+  let created = null;
+  api.createItem = async (args) => {
+    created = args;
+    return item({ id: PHOTO, kind: 'scoresnap', title: args.title, data: args.data, created_by: ME, updated_by: ME, created_at: '2026-10-25T18:00:00Z' });
+  };
+  assert.match(await visit('#/valutazione?vista=fotografie'), /Nessuna fotografia/);
+  await visit('#/valutazione');
+  byText(outlet, 'button', 'Salva fotografia').click();
+  const dialog = document.querySelector('dialog');
+  const name = dialog.querySelector('input');
+  assert.match(name.value, /^Fotografia del /);
+  name.value = 'Prima della riunione';
+  byText(dialog, 'button', 'Salva fotografia').click();
+  await flush(10);
+  assert.equal(created.kind, 'scoresnap');
+  assert.equal(created.title, 'Prima della riunione');
+  assert.deepEqual(created.data.votes[OTHER][IDS.idea], { cliente: 5, mercato: 2 });
+  assert.equal(created.data.names[OTHER], 'Bruno');
+  assert.deepEqual(created.data.criteria.map((c) => [c.key, c.weight]), [['cliente', 3], ['mercato', 1]]);
+
+  store.applyItem(item({ id: IDS.score, kind: 'score', title: 'Voti di Bruno', version: 2, created_by: OTHER, updated_by: OTHER, data: { scores: { [IDS.idea]: { cliente: 2, mercato: 2 } } } }));
+  store.applyItem(item({ ...store.getItem(IDS.criteria), version: 2, data: { criteria: [{ key: 'cliente', label: 'Cliente', weight: 3 }, { key: 'mercato', label: 'Mercato', weight: 2 }] } }));
+  const body = await visit('#/valutazione?vista=fotografie');
+  assert.match(body, /Prima della riunione/);
+  assert.match(body, /«Mercato»: peso da ×1 a ×2/);
+  assert.match(body, /Bruno: 1 voto cambiato/);
+  const row = [...outlet.querySelectorAll('.compare-table tbody tr')].find((tr) => /Idea alfa/.test(text(tr)));
+  assert.ok(row.querySelector('.delta.is-down'), 'il punteggio di Idea alfa scende');
+  assert.match(text(outlet.querySelector('.compare-means')), /Cliente: 5\.0 → 2\.0/);
+
+  const photo = await visit(`#/valutazione?foto=${PHOTO}`);
+  assert.match(photo, /Fotografia «Prima della riunione»/);
+  assert.equal(outlet.querySelector('.matrix .score-cell').textContent, '5.0', 'la fotografia mostra i voti di allora');
+  assert.match(await visit(`#/valutazione?foto=${IDS.idea}`), /Fotografia non trovata/);
+});
+
 test('the criteria editor saves reordered and new criteria', async () => {
   await visit('#/valutazione');
   let saved = null;

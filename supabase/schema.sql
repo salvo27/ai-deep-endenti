@@ -199,7 +199,7 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap'
   )
 );
 
@@ -251,19 +251,19 @@ begin
     or (new.kind = 'interview' and new.status in ('da_fare', 'fatta', 'analizzata'))
     or (new.kind = 'decision' and new.status in ('proposta', 'presa', 'rivista'))
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
-    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator')
+    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap')
         and new.status is null)
   ) then
     raise exception 'Stato non valido per questo tipo di elemento';
   end if;
-  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note')
+  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap')
      and btrim(new.title) = '' then
     raise exception 'Il titolo è obbligatorio';
   end if;
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
-  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator') and new.idea_id is not null then
+  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap') and new.idea_id is not null then
     raise exception 'Questo elemento non può appartenere a un''idea';
   end if;
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)

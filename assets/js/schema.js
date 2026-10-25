@@ -467,6 +467,7 @@ export const KINDS = {
   },
   criteria: { label: 'Criteri di valutazione', plural: 'Criteri', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   score: { label: 'Voti', plural: 'Voti', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
+  scoresnap: { label: 'Fotografia della valutazione', plural: 'Fotografie della valutazione', icon: 'image', titleLabel: 'Nome', statuses: null, fields: [] },
   generator: { label: 'Generatore', plural: 'Generatore', icon: 'generator', titleLabel: 'Titolo', statuses: null, fields: [] },
 };
 
@@ -698,6 +699,43 @@ function sanitizeScore(data) {
   return { scores, notes };
 }
 
+// Fotografia della valutazione: criteri, idee e voti di tutti così com'erano in quel momento.
+function sanitizeScoreSnap(data) {
+  const { criteria } = sanitizeCriteria(data);
+  const keys = new Set(criteria.map((c) => c.key));
+  const ideas = [];
+  const ideaIds = new Set();
+  for (const row of Array.isArray(data?.ideas) ? data.ideas : []) {
+    const title = cleanLine(row?.title, LIMITS.title);
+    if (!isUuid(row?.id) || ideaIds.has(row.id) || !title) continue;
+    ideaIds.add(row.id);
+    const status = KINDS.idea.statuses.some(([v]) => v === row.status) ? row.status : defaultStatus('idea');
+    ideas.push({ id: row.id, title, status });
+    if (ideas.length >= 200) break;
+  }
+  const votes = {};
+  const names = {};
+  for (const [memberId, byIdea] of Object.entries(data?.votes || {})) {
+    if (!isUuid(memberId) || !byIdea || typeof byIdea !== 'object') continue;
+    const clean = {};
+    for (const [ideaId, values] of Object.entries(byIdea)) {
+      if (!ideaIds.has(ideaId) || !values || typeof values !== 'object') continue;
+      const row = {};
+      for (const [key, value] of Object.entries(values)) {
+        const n = intInRange(value, 1, 5);
+        if (keys.has(key) && n !== null) row[key] = n;
+      }
+      if (Object.keys(row).length) clean[ideaId] = row;
+    }
+    if (!Object.keys(clean).length) continue;
+    votes[memberId] = clean;
+    const name = cleanLine(data?.names?.[memberId], LIMITS.displayName);
+    if (name) names[memberId] = name;
+    if (Object.keys(votes).length >= 50) break;
+  }
+  return { criteria, ideas, votes, names };
+}
+
 function sanitizeAxis(list) {
   const seen = new Set();
   const out = [];
@@ -743,6 +781,7 @@ export function sanitizeSnapshot(kind, snapshot) {
 
   if (kind === 'criteria') data = sanitizeCriteria(raw);
   else if (kind === 'score') data = sanitizeScore(raw);
+  else if (kind === 'scoresnap') data = sanitizeScoreSnap(raw);
   else if (kind === 'generator') data = sanitizeGenerator(raw);
   else {
     for (const f of def.fields) {
@@ -787,6 +826,7 @@ export function snapshotProblem(kind, snapshot) {
   const def = KINDS[kind];
   if (BOARD_KINDS.includes(kind) && !snapshot.title) return `Manca il campo "${def.titleLabel}".`;
   if (def.needsIdea && !snapshot.idea_id) return 'Scegli l\'idea a cui appartiene.';
+  if (kind === 'scoresnap' && !snapshot.title) return 'Dai un nome alla fotografia.';
   return null;
 }
 
@@ -844,6 +884,7 @@ export function describePath(kind, path, ctx = {}) {
     if (head.startsWith('founders')) return 'Fondatori';
     if (head === 'scores') return 'Punteggi';
   }
+  if (kind === 'scoresnap') return { criteria: 'Criteri', ideas: 'Idee', votes: 'Voti', names: 'Nomi' }[head.split('#')[0]] || head;
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -883,6 +924,7 @@ export function routeFor(item) {
   if (!item) return '#/';
   if (item.kind === 'idea') return `#/idea/${item.id}`;
   if (item.kind === 'criteria' || item.kind === 'score') return '#/valutazione';
+  if (item.kind === 'scoresnap') return `#/valutazione?foto=${item.id}`;
   if (item.kind === 'generator') return '#/generatore';
   if (item.kind === 'teamcanvas') return '#/squadra';
   if (item.kind === 'equity') return '#/squadra/quote';

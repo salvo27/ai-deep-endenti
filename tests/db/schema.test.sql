@@ -292,6 +292,20 @@ begin
 end
 $$;
 
+\echo 'ok - le fotografie della valutazione sono più di una, con un nome, e si archiviano'
+do $$
+declare
+  v_photo uuid;
+begin
+  v_photo := (public.create_item('scoresnap', 'Prima della riunione', null, '{"criteria":[],"ideas":[],"votes":{}}')).id;
+  perform public.create_item('scoresnap', 'Dopo la riunione', null, '{}');
+  perform test.expect_error($q$select public.create_item('scoresnap', '  ', null, '{}')$q$, 'titolo');
+  perform test.expect_error($q$select public.create_item('scoresnap', 'X', 'nuova', '{}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('scoresnap', 'X', null, '{}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  assert public.delete_item(v_photo, 1) ->> 'status' = 'ok', 'fotografia non archiviata';
+end
+$$;
+
 \echo 'ok - archiviare e ripristinare lascia traccia e blocca le modifiche nel frattempo'
 do $$
 declare

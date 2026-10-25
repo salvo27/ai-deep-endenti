@@ -101,6 +101,36 @@ test('criteria, scores and generator are sanitized by shape', () => {
   assert.deepEqual(gen.data.cells, { 'r-a:c-x': { text: 'ok', potential: 2 } });
 });
 
+test('a scoring photo keeps only well formed criteria, ideas and votes', () => {
+  const OTHER_IDEA = '22222222-2222-4222-8222-222222222222';
+  const MEMBER = '33333333-3333-4333-8333-333333333333';
+  const photo = sanitizeSnapshot('scoresnap', {
+    title: '  Prima della riunione  ',
+    idea_id: IDEA,
+    data: {
+      criteria: [{ key: 'mercato', label: 'Mercato', weight: 3 }, { label: '' }],
+      ideas: [{ id: IDEA, title: 'Alfa', status: 'boh' }, { id: IDEA, title: 'doppia' }, { id: 'non uuid', title: 'X' }, { id: OTHER_IDEA, title: '' }],
+      votes: {
+        [MEMBER]: { [IDEA]: { mercato: 4, team: 3, 'Bad Key': 2 }, [OTHER_IDEA]: { mercato: 5 } },
+        'non uuid': { [IDEA]: { mercato: 1 } },
+        [IDEA]: { [IDEA]: { mercato: 9 } },
+      },
+      names: { [MEMBER]: '  Anna  ', [IDEA]: 'nessuno' },
+    },
+  });
+  assert.equal(photo.title, 'Prima della riunione');
+  assert.equal(photo.idea_id, null, 'una fotografia non appartiene a un\'idea');
+  assert.deepEqual(photo.data, {
+    criteria: [{ key: 'mercato', label: 'Mercato', description: '', weight: 3 }],
+    ideas: [{ id: IDEA, title: 'Alfa', status: 'nuova' }],
+    votes: { [MEMBER]: { [IDEA]: { mercato: 4 } } },
+    names: { [MEMBER]: 'Anna' },
+  });
+  assert.match(snapshotProblem('scoresnap', { title: '', idea_id: null }), /nome/);
+  assert.equal(routeFor({ kind: 'scoresnap', id: IDEA }), `#/valutazione?foto=${IDEA}`);
+  assert.equal(describePath('scoresnap', 'data.votes'), 'Voti');
+});
+
 test('snapshotProblem requires titles and parent ideas where the database does', () => {
   assert.match(snapshotProblem('idea', { title: '', idea_id: null }), /Nome/);
   assert.match(snapshotProblem('experiment', { title: 'E', idea_id: null }), /idea/);

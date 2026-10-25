@@ -6,8 +6,8 @@ Numeri al 18 ottobre 2026:
 
 | | Test | Copertura |
 |---|---|---|
-| Database (PostgreSQL 16, script SQL) | 29 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), regole dei nuovi tipi di scheda |
-| Sito e funzione di Claude (`node:test`, jsdom) | 270 | 96% delle righe e 85% dei rami del codice dell'app |
+| Database (PostgreSQL 16, script SQL) | 30 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), fotografie della valutazione, regole dei nuovi tipi di scheda |
+| Sito e funzione di Claude (`node:test`, jsdom) | 275 | 96% delle righe e 85% dei rami del codice dell'app |
 
 ## 1. Come sono stati scritti
 

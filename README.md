@@ -19,7 +19,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Chat | Chat di gruppo dal vivo: una «Generale» per tutta la squadra e chat per argomento, collegabili a un'idea (dalla pagina dell'idea: «Chat dell'idea»). Testo formattato, immagini e link cliccabili, risposta a un messaggio specifico con citazione, modifica ed eliminazione dei propri messaggi, non letti ricordati per persona e contatore nel menu. Le chat si archiviano, non si cancellano |
 | Menzioni | Con @ in chat, commenti e note si tagga un membro o @tutti, scegliendo da un elenco. Le menzioni sono notifiche importanti, separate dalla campanella: pulsante «@» con il suo contatore, elenco con chi, dove ed estratto, link al punto esatto |
 | Appunti | In ogni idea, note con data in cui la prima riga è il titolo: riunioni, link, domande aperte. Pulsanti per dimensione del testo, grassetto, corsivo, elenchi e tabelle, oppure Markdown scritto a mano. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate e un file .md si può importare |
-| Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi |
+| Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi; le fotografie salvano criteri e voti di un momento e si confrontano tra loro o con adesso |
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
