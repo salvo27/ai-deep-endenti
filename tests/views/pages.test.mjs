@@ -161,7 +161,7 @@ test('a photo of the scores is saved with a name and compared with now', async (
   byText(outlet, 'button', 'Salva fotografia').click();
   const dialog = document.querySelector('dialog');
   const name = dialog.querySelector('input');
-  assert.match(name.value, /^Fotografia del /);
+  assert.equal(name.value, 'Fotografia 1', 'nome predefinito con numero crescente');
   name.value = 'Prima della riunione';
   byText(dialog, 'button', 'Salva fotografia').click();
   await flush(10);
@@ -185,6 +185,25 @@ test('a photo of the scores is saved with a name and compared with now', async (
   assert.match(photo, /Fotografia «Prima della riunione»/);
   assert.equal(outlet.querySelector('.matrix .score-cell').textContent, '5.0', 'la fotografia mostra i voti di allora');
   assert.match(await visit(`#/valutazione?foto=${IDS.idea}`), /Fotografia non trovata/);
+
+  let renamed = null;
+  api.saveItem = async (args) => {
+    renamed = args;
+    return { status: 'ok', item: item({ ...store.getItem(PHOTO), version: 2, title: args.snapshot.title }) };
+  };
+  await visit('#/valutazione?vista=fotografie');
+  byText(outlet, 'button', 'Rinomina').click();
+  const renameDialog = document.querySelector('dialog');
+  renameDialog.querySelector('input').value = 'Dopo la riunione';
+  byText(renameDialog, 'button', 'Rinomina').click();
+  await flush(10);
+  assert.equal(renamed.snapshot.title, 'Dopo la riunione');
+  assert.deepEqual(renamed.snapshot.data, store.getItem(PHOTO).data, 'rinominare non tocca i voti salvati');
+  assert.match(text(outlet), /Dopo la riunione/);
+
+  store.applyItem(item({ id: 'a9999999-9999-4999-8999-999999999999', kind: 'scoresnap', title: 'Fotografia 7', data: {}, deleted_at: '2026-10-25T19:00:00Z' }));
+  byText(outlet, 'button', 'Salva fotografia').click();
+  assert.equal(document.querySelector('dialog:last-of-type input').value, 'Fotografia 8', 'il numero non si ripete dopo un\'archiviazione');
 });
 
 test('the criteria editor saves reordered and new criteria', async () => {

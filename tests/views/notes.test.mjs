@@ -96,6 +96,53 @@ test('a note page renders Markdown with its private images and can be downloaded
   assert.ok(downloads >= 1);
 });
 
+test('a note can be saved as PDF: it waits for the images, prints only title, date, text and images, then restores the page', async () => {
+  const { fmtDate } = await import('../../assets/js/lib/format.js');
+  await visit(`#/elemento/${NOTE}`);
+  const pageTitle = document.title;
+  let loaded = false;
+  const proto = window.HTMLImageElement.prototype;
+  const savedComplete = Object.getOwnPropertyDescriptor(proto, 'complete');
+  Object.defineProperty(proto, 'complete', { configurable: true, get: () => loaded });
+  let printed = null;
+  window.print = () => {
+    const root = document.getElementById('print-root');
+    const img = root.querySelector('img.note-image');
+    printed = {
+      active: document.body.classList.contains('print-note'),
+      title: document.title,
+      heading: root.querySelector('h1').textContent,
+      text: text(root),
+      image: img?.getAttribute('src'),
+      loading: img?.getAttribute('loading'),
+    };
+  };
+  try {
+    byText(outlet, 'button', 'Scarica PDF').click();
+    await flush(20);
+    const img = document.querySelector('#print-root img.note-image');
+    assert.match(img.getAttribute('src'), /^blob:/);
+    assert.equal(printed, null, 'prima aspetta che l\'immagine sia caricata');
+    loaded = true;
+    img.dispatchEvent(new window.Event('load'));
+    await flush(20);
+  } finally {
+    Object.defineProperty(proto, 'complete', savedComplete);
+  }
+  assert.ok(printed, 'il dialogo di stampa si apre');
+  assert.equal(printed.active, true);
+  assert.equal(printed.title, 'Riunione con il mentor', 'il nome del file proposto è il titolo della nota');
+  assert.equal(printed.heading, 'Riunione con il mentor');
+  assert.ok(printed.text.includes(fmtDate('2026-10-20')));
+  assert.match(printed.text, /Parlare con 3 clienti/);
+  assert.match(printed.image, /^blob:/);
+  assert.equal(printed.loading, 'eager', 'le immagini si caricano subito anche se fuori schermo');
+  window.dispatchEvent(new window.Event('afterprint'));
+  assert.equal(document.getElementById('print-root'), null);
+  assert.equal(document.body.classList.contains('print-note'), false);
+  assert.equal(document.title, pageTitle);
+});
+
 test('a missing image is shown as missing, never as a broken link', async () => {
   api.downloadNoteImage = async () => {
     throw new Error('not found');

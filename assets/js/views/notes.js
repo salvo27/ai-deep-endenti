@@ -1,7 +1,7 @@
 import { h, busy, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { downloadFile, fmtDate, slugFile } from '../lib/format.js';
-import { imagePaths, noteBody, noteExcerpt, noteToMarkdown, renderNote } from '../notes.js';
+import { imagePaths, noteBody, noteExcerpt, noteToMarkdown, printNote, renderNote } from '../notes.js';
 import { itemsOf } from '../store.js';
 import { markReadWhere } from '../mentions.js';
 import { button, emptyState, itemLink, memberChip } from './components.js';
@@ -57,10 +57,21 @@ export function noteView(note) {
       }
     }),
   );
+  const pdf = button('Scarica PDF', { iconName: 'file' });
+  pdf.addEventListener(
+    'click',
+    busy(pdf, async () => {
+      try {
+        await printNote(note);
+      } catch (error) {
+        toast(error.message, { type: 'error' });
+      }
+    }),
+  );
   return h(
     'div',
     { class: 'stack' },
-    h('div', { class: 'row note-meta' }, note.data.date ? h('span', { class: 'muted' }, fmtDate(note.data.date)) : null, download),
+    h('div', { class: 'row note-meta' }, note.data.date ? h('span', { class: 'muted' }, fmtDate(note.data.date)) : null, h('div', { class: 'row' }, download, pdf)),
     noteBody(note.data.body, note.title).trim() ? renderNote(noteBody(note.data.body, note.title)) : emptyState('La nota è vuota.'),
   );
 }

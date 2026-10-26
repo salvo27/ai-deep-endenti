@@ -3877,3 +3877,34 @@ button.chat-quote {
     transition: none !important;
   }
 }
+
+.print-root {
+  display: none;
+}
+
+@media print {
+  body.print-note > :not(.print-root) {
+    display: none !important;
+  }
+
+  html,
+  body.print-note {
+    background: #fff;
+  }
+
+  body.print-note .print-root {
+    --bg: #f5f6fa;
+    --border: #dfe3ec;
+    --text: #000;
+    --muted: #444;
+    --primary: #1d2a8f;
+    display: block;
+    color: #000;
+    color-scheme: light;
+  }
+
+  .print-root .note-image {
+    max-width: 100%;
+    break-inside: avoid;
+  }
+}

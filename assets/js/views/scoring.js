@@ -125,27 +125,26 @@ function currentPhoto() {
   }).data;
 }
 
-function takePhoto() {
-  const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.title, value: `Fotografia del ${fmtDateTime(new Date())}`, 'aria-label': 'Nome della fotografia' });
+// Il numero continua anche dopo archiviazioni e rinomine, così non si ripete.
+function nextPhotoName() {
+  const all = itemsOf('scoresnap', { includeDeleted: true });
+  const numbers = all.map((p) => Number(/^Fotografia (\d+)$/.exec(p.title)?.[1]) || 0);
+  return `Fotografia ${Math.max(all.length, ...numbers) + 1}`;
+}
+
+function nameDialog({ title, value, okLabel, intro, save }) {
+  const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.title, value, 'aria-label': 'Nome della fotografia' });
   openModal({
-    title: 'Salva una fotografia',
-    body: h(
-      'div',
-      { class: 'stack' },
-      h('p', { class: 'muted' }, 'Salva criteri, pesi e voti di tutti come sono adesso. Potrai confrontarla con le fotografie successive o con la situazione del momento.'),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome'), name),
-    ),
+    title,
+    body: h('div', { class: 'stack' }, intro ? h('p', { class: 'muted' }, intro) : null, h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome'), name)),
     actions: [
       { label: 'Annulla', value: false },
       {
-        label: 'Salva fotografia',
+        label: okLabel,
         kind: 'primary',
         onClick: async () => {
-          const title = name.value.trim();
           try {
-            await createItem('scoresnap', { title, data: currentPhoto() }, `Fotografia: ${title}`);
-            toast('Fotografia salvata.', { type: 'success' });
-            location.hash = PHOTOS_PATH;
+            await save(name.value.trim());
             return false;
           } catch (error) {
             toast(error.message, { type: 'error' });
@@ -154,6 +153,34 @@ function takePhoto() {
         },
       },
     ],
+  });
+}
+
+function takePhoto() {
+  nameDialog({
+    title: 'Salva una fotografia',
+    value: nextPhotoName(),
+    okLabel: 'Salva fotografia',
+    intro: 'Salva criteri, pesi e voti di tutti come sono adesso. Potrai confrontarla con le fotografie successive o con la situazione del momento.',
+    save: async (title) => {
+      await createItem('scoresnap', { title, data: currentPhoto() }, `Fotografia: ${title}`);
+      toast('Fotografia salvata.', { type: 'success' });
+      location.hash = PHOTOS_PATH;
+    },
+  });
+}
+
+function renamePhoto(photo) {
+  nameDialog({
+    title: 'Rinomina la fotografia',
+    value: photo.title,
+    okLabel: 'Rinomina',
+    save: async (title) => {
+      const current = getItem(photo.id) || photo;
+      const base = snapshotOf(current);
+      const result = await saveWithMerge(current, base, { ...base, title }, `Fotografia rinominata in «${title}»`);
+      if (!result.cancelled) toast('Fotografia rinominata.', { type: 'success' });
+    },
   });
 }
 
@@ -338,6 +365,7 @@ function photosPanel(query, keep) {
                 'td',
                 { class: 'row-actions' },
                 h('a', { class: 'btn btn-ghost btn-small', href: hrefWith(query, { da: p.id, a: 'adesso' }) }, 'Confronta con adesso'),
+                canWrite() ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => renamePhoto(p) }, 'Rinomina') : null,
                 canWrite()
                   ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => archiveWithConfirm(p, { backTo: PHOTOS_PATH }) }, 'Archivia')
                   : null,
@@ -469,6 +497,7 @@ export function scoringView(outlet, params, query) {
           tab('I miei voti', '#/valutazione?vista=miei', mode === 'mine'),
           tab('Fotografie', `#${PHOTOS_PATH}`, mode === 'photos' || mode === 'photo'),
           mode === 'photo' && photo?.kind === 'scoresnap' ? button('Confronta con adesso', { iconName: 'diff', href: `#${PHOTOS_PATH}&da=${photo.id}&a=adesso` }) : null,
+          canWrite() && mode === 'photo' && photo?.kind === 'scoresnap' && !photo.deleted_at ? button('Rinomina', { iconName: 'edit', onClick: () => renamePhoto(photo) }) : null,
           canWrite() && mode === 'team' ? button('Salva fotografia', { iconName: 'image', onClick: takePhoto }) : null,
           canWrite() ? button('Criteri', { iconName: 'edit', onClick: () => criteriaEditor(criteria, saveCriteria) }) : null,
         ],

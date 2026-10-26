@@ -1,5 +1,6 @@
 import { api } from './lib/api.js';
 import { h } from './lib/dom.js';
+import { fmtDate } from './lib/format.js';
 import { renderMarkdown } from './lib/markdown.js';
 import { mentionChip } from './views/mention-chip.js';
 import { canWrite, readLocal, writeLocal } from './store.js';
@@ -188,6 +189,50 @@ export function noteImageNode(path, alt) {
 }
 
 export const renderNote = (text) => h('div', { class: 'markdown note-body' }, renderMarkdown(text, { image: noteImageNode, links: true, mention: mentionChip }));
+
+const PRINT_WAIT = 8000;
+
+const whenLoaded = (img) =>
+  img.complete
+    ? Promise.resolve()
+    : new Promise((done) => {
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      });
+
+// PDF dal dialogo di stampa del browser: la nota si copia in un blocco a parte, che in stampa è l'unica cosa visibile.
+export async function printNote(note) {
+  document.getElementById('print-root')?.remove();
+  const body = noteBody(note.data?.body, note.title);
+  const root = h(
+    'div',
+    { id: 'print-root', class: 'print-root' },
+    h('h1', null, note.title),
+    note.data?.date ? h('p', { class: 'muted' }, fmtDate(note.data.date)) : null,
+    body.trim() ? renderNote(body) : null,
+  );
+  root.querySelectorAll('img').forEach((img) => img.setAttribute('loading', 'eager'));
+  document.body.append(root);
+  await Promise.all([...imagePaths(body)].map(imageUrl));
+  let timer;
+  const images = [...root.querySelectorAll('img.note-image')].filter((img) => img.getAttribute('src'));
+  await Promise.race([Promise.all(images.map(whenLoaded)), new Promise((done) => (timer = setTimeout(done, PRINT_WAIT)))]);
+  clearTimeout(timer);
+
+  const previousTitle = document.title;
+  document.title = note.title;
+  document.body.classList.add('print-note');
+  window.addEventListener(
+    'afterprint',
+    () => {
+      document.title = previousTitle;
+      document.body.classList.remove('print-note');
+      root.remove();
+    },
+    { once: true },
+  );
+  window.print();
+}
 
 export function noteExcerpt(text, max = 180) {
   const plain = String(text || '')
