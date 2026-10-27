@@ -42,6 +42,7 @@ beforeEach(async () => {
   api.listComments = async (id) => [{ id: 'c0000000-0000-4000-8000-000000000001', item_id: id, author_id: ME, body: XSS, created_at: '2026-10-17T10:00:00Z' }];
   api.activitySince = async () => [];
   api.auditLog = async () => [];
+  api.membersOverview = async () => members().map((m) => ({ ...m, display_name: `${m.display_name} ${XSS}` }));
   api.listFactors = async () => [{ id: 'f1', factor_type: 'totp', status: 'verified', friendly_name: XSS, created_at: '2026-10-01T10:00:00Z' }];
   api.aiUsageLastDay = async () => 0;
   outlet = document.createElement('main');
@@ -141,7 +142,7 @@ test('external scripts are pinned to exact versions', () => {
 test('every public table in the schema has row level security', () => {
   const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'items', 'members', 'mentions', 'revisions']);
+  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'items', 'member_activity', 'members', 'mentions', 'revisions']);
   for (const table of tables) {
     assert.match(schema, new RegExp(`alter table public\\.${table} enable row level security`), table);
   }

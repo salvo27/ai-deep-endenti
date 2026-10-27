@@ -114,7 +114,8 @@ begin
 end
 $$;
 
--- Ultimo accesso reale: login, rinnovo della sessione (circa ogni ora a sito aperto), modifiche o commenti.
+-- Ultimo accesso reale: login, rinnovo della sessione, attività salvata dal sito, modifiche, commenti, chat e menzioni lette.
+-- Le sessioni si cancellano a ogni uscita: member_activity resta, così l'ultimo accesso non torna indietro.
 create or replace function public.members_overview()
 returns table (
   user_id uuid,
@@ -143,7 +144,11 @@ begin
       u.last_sign_in_at,
       (select max(greatest(s.updated_at, s.refreshed_at at time zone 'utc')) from auth.sessions s where s.user_id = m.user_id),
       (select max(r.created_at) from public.revisions r where r.author_id = m.user_id),
-      (select max(c.created_at) from public.comments c where c.author_id = m.user_id)
+      (select max(c.created_at) from public.comments c where c.author_id = m.user_id),
+      (select a.last_seen_at from public.member_activity a where a.user_id = m.user_id),
+      (select max(x.created_at) from public.chat_messages x where x.author_id = m.user_id),
+      (select max(cr.last_read_at) from public.chat_reads cr where cr.user_id = m.user_id),
+      (select max(mn.read_at) from public.mentions mn where mn.user_id = m.user_id)
     ),
     exists (
       select 1 from auth.mfa_factors f where f.user_id = m.user_id and f.status = 'verified'
@@ -153,6 +158,33 @@ begin
   join auth.users u on u.id = m.user_id
   where public.can_read()
   order by m.created_at;
+end
+$$;
+
+-- Ultima attività sul sito: una data per persona, letta e scritta solo dalle funzioni qui sotto.
+create table if not exists public.member_activity (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  last_seen_at timestamptz not null default now()
+);
+
+alter table public.member_activity enable row level security;
+
+-- Chiamata dal sito all'apertura e ogni 5 minuti di uso; più spesso non scrive nulla.
+create or replace function public.touch_activity()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.can_read() then
+    return;
+  end if;
+  insert into public.member_activity (user_id, last_seen_at)
+  values (auth.uid(), now())
+  on conflict (user_id) do update
+    set last_seen_at = excluded.last_seen_at
+    where public.member_activity.last_seen_at < now() - interval '4 minutes';
 end
 $$;
 
@@ -1141,6 +1173,7 @@ revoke execute on function public.can_write() from public, anon;
 revoke execute on function public.is_admin() from public, anon;
 revoke execute on function public.add_member(text, text, text) from public, anon;
 revoke execute on function public.members_overview() from public, anon;
+revoke execute on function public.touch_activity() from public, anon;
 revoke execute on function public.create_item(text, text, text, jsonb, uuid, text) from public, anon;
 revoke execute on function public.item_write_result(uuid, integer) from public, anon;
 revoke execute on function public.save_item(uuid, integer, text, text, jsonb, uuid, text) from public, anon;
@@ -1159,6 +1192,7 @@ grant execute on function public.can_write() to authenticated;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.add_member(text, text, text) to authenticated;
 grant execute on function public.members_overview() to authenticated;
+grant execute on function public.touch_activity() to authenticated;
 grant execute on function public.create_item(text, text, text, jsonb, uuid, text) to authenticated;
 grant execute on function public.item_write_result(uuid, integer) to authenticated;
 grant execute on function public.save_item(uuid, integer, text, text, jsonb, uuid, text) to authenticated;

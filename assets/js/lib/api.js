@@ -148,6 +148,10 @@ export const api = {
     return unwrap(supabase.rpc('members_overview'));
   },
 
+  async touchActivity() {
+    return unwrap(supabase.rpc('touch_activity'));
+  },
+
   async listItems() {
     return allPages(() => supabase.from('items').select('*').order('created_at', { ascending: true }));
   },

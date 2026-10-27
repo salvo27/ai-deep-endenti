@@ -431,6 +431,40 @@ begin
 end
 $$;
 
+\echo 'ok - l ultima attività resta quando la sessione si chiude, al massimo una scrittura ogni pochi minuti, mai per gli estranei'
+set role authenticated;
+select test.login('c');
+select public.touch_activity();
+reset role;
+delete from auth.sessions where user_id = test.uid('c');
+update auth.users set last_sign_in_at = now() - interval '8 days' where id = test.uid('c');
+update public.member_activity set last_seen_at = now() - interval '2 minutes' where user_id = test.uid('c');
+set role authenticated;
+select test.login('c');
+select public.touch_activity();
+select test.login('d');
+select public.touch_activity();
+reset role;
+do $$
+begin
+  assert (select last_seen_at between now() - interval '3 minutes' and now() - interval '1 minute' from public.member_activity where user_id = test.uid('c')),
+    'attività persa con la sessione, o riscritta troppo spesso';
+  assert not exists (select 1 from public.member_activity where user_id = test.uid('d')), 'un estraneo salva la sua attività';
+end
+$$;
+update public.member_activity set last_seen_at = '2100-01-01 00:00:00+00' where user_id = test.uid('c');
+set role authenticated;
+select test.login('a');
+do $$
+begin
+  assert (select count(*) from public.member_activity) = 0, 'la tabella delle attività si legge direttamente';
+  assert (select last_sign_in_at = '2100-01-01 00:00:00+00' from public.members_overview() where user_id = test.uid('c')), 'l ultimo accesso ignora l attività salvata';
+end
+$$;
+reset role;
+update public.member_activity set last_seen_at = now() where user_id = test.uid('c');
+set role authenticated;
+
 \echo 'ok - note: titolo obbligatorio, immagini private solo per il team e orfane trovate dal database'
 set role authenticated;
 select test.login('a');

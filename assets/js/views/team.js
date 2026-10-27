@@ -172,11 +172,15 @@ export function teamView(outlet) {
   };
 
   render();
-  loadActivity();
-  loadAudit();
-  return on('members', () => {
+  const off = on('members', () => {
     render();
     loadActivity();
     loadAudit();
   });
+  // Gli ultimi accessi cambiano mentre il sito resta aperto: si ricaricano a ogni apertura della pagina.
+  reloadMembers().catch(() => {
+    loadActivity();
+    loadAudit();
+  });
+  return off;
 }

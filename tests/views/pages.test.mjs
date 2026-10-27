@@ -34,6 +34,7 @@ function fakeApi() {
   api.auditLog = async () => [{ id: 1, event: 'member_role_changed', actor_id: ME, target_id: OTHER, details: { from: 'member', to: 'advisor' }, created_at: '2026-10-17T10:00:00Z' }];
   api.listFactors = async () => [{ id: 'f1', factor_type: 'totp', status: 'verified', friendly_name: 'iPhone', created_at: '2026-10-01T10:00:00Z' }];
   api.aiUsageLastDay = async () => 3;
+  api.membersOverview = async () => members();
 }
 
 beforeEach(async () => {
@@ -255,12 +256,19 @@ test('trash lists archived items and restores them', async () => {
 });
 
 test('team page shows 2FA status, activity and the security log to the admin', async () => {
+  let reloads = 0;
+  api.membersOverview = async () => {
+    reloads += 1;
+    return members().map((m) => (m.user_id === OTHER ? { ...m, last_sign_in_at: new Date().toISOString() } : m));
+  };
   const body = await visit('#/team');
+  assert.equal(reloads, 1, 'aprendo la pagina gli ultimi accessi si ricaricano');
+  assert.match(body, /Bruno.*adesso/s, 'l\'ultimo accesso aggiornato compare senza ricaricare il sito');
   assert.match(body, /non ancora attiva/);
   assert.match(body, /Registro di sicurezza/);
   assert.match(body, /ha cambiato il ruolo di Bruno \(Membro → Advisor\)/);
   assert.equal(outlet.querySelectorAll('tbody tr td:nth-child(6)')[0].textContent, '2');
-  store.setMembers(members().map((m) => (m.user_id === ME ? { ...m, role: 'member' } : m)));
+  api.membersOverview = async () => members().map((m) => (m.user_id === ME ? { ...m, role: 'member' } : m));
   assert.doesNotMatch(await visit('#/team'), /Registro di sicurezza/);
 });
 

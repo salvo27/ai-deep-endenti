@@ -74,11 +74,34 @@ export function startIdleLogout(minutes = CONFIG.idleLogoutMinutes, signOut = ()
   };
 }
 
+// Ultima attività salvata a ogni gesto, al massimo ogni pochi minuti. Niente timer: una pagina aperta senza nessuno davanti non conta.
+export function startActivityPing(minutes = CONFIG.activityPingMinutes, touch = () => api.touchActivity()) {
+  let last = 0;
+  const ping = () => {
+    if (document.visibilityState === 'hidden' || Date.now() - last < minutes * 60 * 1000) return;
+    last = Date.now();
+    Promise.resolve()
+      .then(touch)
+      .catch(() => {
+        last = 0;
+      });
+  };
+  const events = ['pointerdown', 'keydown', 'scroll', 'visibilitychange'];
+  events.forEach((e) => window.addEventListener(e, ping, { passive: true, capture: true }));
+  ping();
+  return () => {
+    events.forEach((e) => window.removeEventListener(e, ping, { capture: true }));
+  };
+}
+
 let stopIdle = null;
+let stopActivity = null;
 
 export function stopApp() {
   stopIdle?.();
   stopIdle = null;
+  stopActivity?.();
+  stopActivity = null;
   stopRealtime();
   stopSync();
   stopNotifications();
@@ -114,6 +137,7 @@ export async function startApp(root) {
   startMentions();
   sweepNoteImages();
   stopIdle = startIdleLogout();
+  stopActivity = startActivityPing();
   on('removed', () => {
     stopApp();
     notMemberScreen(root);

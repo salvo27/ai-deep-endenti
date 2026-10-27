@@ -6,4 +6,5 @@ export const CONFIG = Object.freeze({
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4aG5xZWFiY3RrcGZsd2tkYXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzMjUwNzYsImV4cCI6MjEwNzkwMTA3Nn0.YTx78AgQHOdvKrygiwP6URDQM2aeCjUGrvCtPJXlCqU',
   claudeFunction: 'claude',
   idleLogoutMinutes: 240,
+  activityPingMinutes: 5,
 });

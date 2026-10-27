@@ -232,6 +232,31 @@ test('idle logout signs out after inactivity and resets on activity', async () =
   stop();
 });
 
+test('activity is saved on opening and on use, at most once per interval, and never from a hidden tab', async () => {
+  let touches = 0;
+  const stop = app.startActivityPing(0.0005, async () => touches++);
+  await flush();
+  assert.equal(touches, 1, 'all\'apertura');
+  window.dispatchEvent(new window.Event('keydown'));
+  await flush();
+  assert.equal(touches, 1, 'non più di una volta per intervallo');
+  await new Promise((r) => setTimeout(r, 40));
+  document.body.dispatchEvent(new window.Event('scroll'));
+  await flush();
+  assert.equal(touches, 2, 'anche scorrendo dentro un riquadro');
+  await new Promise((r) => setTimeout(r, 40));
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  window.dispatchEvent(new window.Event('visibilitychange'));
+  await flush();
+  assert.equal(touches, 2, 'una scheda nascosta non conta');
+  delete document.visibilityState;
+  stop();
+  await new Promise((r) => setTimeout(r, 40));
+  window.dispatchEvent(new window.Event('keydown'));
+  await flush();
+  assert.equal(touches, 2, 'fermato con l\'uscita dal sito');
+});
+
 test('the eye button shows and hides the password without losing it', () => {
   auth.loginScreen(root, () => {});
   const input = root.querySelector('input[name="password"]');
