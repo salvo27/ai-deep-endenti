@@ -1,4 +1,4 @@
--- Test del database: permessi, 2FA, storico, conflitti, registro di sicurezza.
+-- Test del database: permessi, 2FA, storico, conflitti, registro di sicurezza, questionari e link pubblico.
 -- Utenti di prova: a = admin, b = membro, c = advisor, d = estraneo (account senza ruolo nel team).
 
 \set ON_ERROR_STOP 1
@@ -102,6 +102,36 @@ begin
 end
 $$;
 
+\echo 'ok - anon esegue solo le tre funzioni del link pubblico dei questionari e non ha permessi su tabelle e sequenze'
+do $$
+begin
+  assert (
+    select array_agg(p.proname::text order by p.proname)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
+  ) = array['public_survey', 'submit_survey', 'survey_event'], 'anon esegue altre funzioni';
+  assert not exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and (
+      (c.relkind in ('r', 'v', 'm', 'p') and has_table_privilege('anon', c.oid, 'select, insert, update, delete, truncate, references, trigger'))
+      or (c.relkind = 'S' and has_sequence_privilege('anon', c.oid, 'usage, select, update'))
+    )
+  ), 'anon ha permessi su tabelle o sequenze';
+  perform test.expect_error('select count(*) from public.survey_responses', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_events', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_limits', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_salts', 'permission denied');
+  perform test.expect_error('select count(*) from public.member_activity', 'permission denied');
+  perform test.expect_error($q$insert into public.survey_responses (survey_id, answers) values (gen_random_uuid(), '{}')$q$, 'permission denied');
+  perform test.expect_error('select public.survey_funnel(gen_random_uuid())', 'permission denied');
+  perform test.expect_error('select public.delete_survey_responses(gen_random_uuid())', 'permission denied');
+  perform test.expect_error('select public.survey_client(gen_random_uuid())', 'permission denied');
+  perform test.expect_error($q$select public.survey_public_questions('{}')$q$, 'permission denied');
+  perform test.expect_error($q$select * from public.survey_by_token('TokenCheNonEsiste00000')$q$, 'permission denied');
+  perform test.expect_error('select public.touch_activity()', 'permission denied');
+end
+$$;
+
 reset role;
 set role authenticated;
 
@@ -199,6 +229,549 @@ begin
   assert res ->> 'status' <> 'ok', 'le quote non si archiviano';
 end
 $$;
+
+-- Questionari. Link di prova: aperto (poi rinnovato), secondo (senza domande obbligatorie), terzo (chiuso).
+reset role;
+create function test.survey_data(p_token text, p_experiment uuid default null)
+returns jsonb
+language sql
+as $$
+  select jsonb_strip_nulls(jsonb_build_object('token', p_token, 'experiment_id', p_experiment)) || $j${
+    "intro": "Ci aiuti a capire come organizzi i turni.",
+    "privacy": "Le risposte le legge solo il team.",
+    "thanks": "Grazie del tempo.",
+    "layout": "sezioni",
+    "progress": "barra",
+    "show_time": false,
+    "appearance": {"theme": "scuro", "accent": "#aa3300"},
+    "questions": [
+      {"id": "s-1", "type": "sezione", "label": "Chi sei", "help": "Due domande veloci"},
+      {"id": "ruolo", "type": "scelta", "label": "Che lavoro fai?", "required": true, "role": "persona",
+       "options": [{"id": "a", "label": "Medico"}, {"id": "b", "label": "Infermiere"}, {"id": "non-rispondo", "label": "Id riservato"}], "allow_other": true},
+      {"id": "canali", "type": "scelte", "label": "Dove ti informi?", "role": "persona", "prefer_not": true,
+       "options": [{"id": "web", "label": "Siti"}, {"id": "riviste", "label": "Riviste"}], "allow_other": true},
+      {"id": "fatica", "type": "scala", "label": "Quanto ti pesa?", "required": true, "role": "problema",
+       "scale": {"points": 7, "min_label": "Poco", "max_label": "Molto"}},
+      {"id": "ore", "type": "numero", "label": "Quante ore a settimana?", "number": {"min": 0, "max": 80}},
+      {"id": "parola", "type": "breve", "label": "In una parola?"},
+      {"id": "racconto", "type": "lunga", "label": "Raccontaci l'ultima volta"},
+      {"id": "mail", "type": "email", "label": "La tua email", "role": "contatto"},
+      {"id": "mail-2", "type": "email", "label": "Un'altra email"},
+      {"id": "vuota", "type": "scelta", "label": "Senza opzioni"},
+      {"id": "Non Valida", "type": "breve", "label": "Id non valido"}
+    ]
+  }$j$::jsonb
+$$;
+-- Un invio completo in una volta sola: sessione nuova e ultimo invio, salvo diversa indicazione in p_meta.
+create function test.send(p_token text, p_answers jsonb, p_meta jsonb default '{}')
+returns jsonb
+language sql
+as $$
+  select public.submit_survey(p_token, p_answers, jsonb_build_object('session', gen_random_uuid(), 'final', true) || p_meta)
+$$;
+set role authenticated;
+select test.login('a');
+
+\echo 'ok - questionari: stati, titolo, idea, link, impostazioni, aspetto ed esperimento controllati dal database'
+do $$
+declare
+  v_idea uuid := (public.create_item('idea', 'Idea dei questionari', 'esplorazione', '{}')).id;
+  v_exp uuid := (public.create_item('experiment', 'Sondaggio online', 'pianificato', '{}', v_idea)).id;
+  v_other_exp uuid := (public.create_item('experiment', 'Esperimento di un''altra idea', 'pianificato', '{}', current_setting('test.idea')::uuid)).id;
+  v_many jsonb := jsonb_build_object('questions', (select jsonb_agg(jsonb_build_object('id', 'q' || g, 'type', 'breve', 'label', 'D')) from generate_series(1, 41) g));
+  s public.items;
+begin
+  perform set_config('test.sidea', v_idea::text, false);
+  perform set_config('test.sexp', v_exp::text, false);
+  perform test.expect_error($q$select public.create_item('survey', 'Q', 'bozza', '{}')$q$, 'appartenere a un''idea');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'nuova', '{}', %L)$q$, v_idea), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', null, '{}', %L)$q$, v_idea), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('survey', '  ', 'bozza', '{}', %L)$q$, v_idea), 'titolo');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":"corto"}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":"Token con spazi e punti."}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":1234567890123456789012}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"layout":"tutte"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"progress":"percentuale"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"show_time":"si"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"questions":{}}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', %L, %L)$q$, v_many, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"theme":"rosa"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"red"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"#AA3300"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"#aa3300; background: url(x)"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"font":"Comic Sans"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":"scuro"}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":"x"}', %L)$q$, v_idea), 'esperimento collegato non è valido');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_other_exp::text), v_idea), 'stessa idea');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_idea::text), v_idea), 'stessa idea');
+
+  s := public.create_item('survey', 'Turni in reparto', 'bozza', test.survey_data('TokenDiProvaAperto0001', v_exp), v_idea, 'nuovo questionario');
+  assert s.version = 1 and s.status = 'bozza' and s.idea_id = v_idea, 'questionario non creato';
+  perform set_config('test.survey', s.id::text, false);
+  perform test.expect_error(format($q$select public.create_item('survey', 'Copia', 'bozza', '{"token":"TokenDiProvaAperto0001"}', %L)$q$, v_idea), 'items_survey_token_idx');
+  perform test.expect_error(
+    format($q$select public.save_item(%L, 1, 'Turni in reparto', 'bozza', test.survey_data('TokenDiProvaAperto0001', %L), %L)$q$, s.id, v_exp, current_setting('test.idea')),
+    'stessa idea'
+  );
+  perform set_config('test.survey2', (public.create_item('survey', 'Seconda', 'aperto', '{"token":"TokenDiProvaSecondo_02","questions":[{"id":"nota","type":"breve","label":"Qualcosa da aggiungere?"}]}', v_idea)).id::text, false);
+  perform set_config('test.survey3', (public.create_item('survey', 'Chiuso', 'chiuso', '{"token":"TokenDiProvaTerzo-0003","questions":[{"id":"nota","type":"breve","label":"Nota"}]}', v_idea)).id::text, false);
+end
+$$;
+
+\echo 'ok - questionari: il link pubblico mostra solo i questionari aperti, senza identificativi interni'
+reset role;
+set role anon;
+select set_config('request.jwt.claims', '{"role":"anon"}', false);
+do $$
+begin
+  assert public.public_survey('TokenDiProvaAperto0001') = '{"status":"chiuso"}'::jsonb, 'una bozza è visibile';
+  assert public.public_survey('TokenDiProvaTerzo-0003') = '{"status":"chiuso"}'::jsonb, 'un questionario chiuso è visibile';
+  assert public.public_survey('TokenCheNonEsiste00000') = '{"status":"non_trovato"}'::jsonb, 'link inesistente';
+  assert public.public_survey($q$x' or '1'='1$q$) ->> 'status' = 'non_trovato', 'link malformato';
+  assert public.public_survey(null) ->> 'status' = 'non_trovato', 'link vuoto';
+end
+$$;
+reset role;
+set role authenticated;
+select test.login('a');
+select public.save_item(current_setting('test.survey')::uuid, 1, 'Turni in reparto', 'aperto', test.survey_data('TokenDiProvaAperto0001', current_setting('test.sexp')::uuid), current_setting('test.sidea')::uuid, 'aperto');
+reset role;
+set role anon;
+select set_config('request.jwt.claims', '{"role":"anon"}', false);
+do $$
+declare
+  r jsonb := public.public_survey('TokenDiProvaAperto0001');
+  q jsonb := (select jsonb_object_agg(x ->> 'id', x) from jsonb_array_elements(r -> 'questions') x);
+  v_id text;
+begin
+  assert r ->> 'status' = 'aperto', 'questionario aperto non visibile: ' || r::text;
+  assert (select array_agg(k order by k) from jsonb_object_keys(r) k)
+    = array['appearance', 'intro', 'layout', 'median_seconds', 'privacy', 'progress', 'questions', 'show_time', 'status', 'thanks', 'title'], 'campi inattesi: ' || r::text;
+  assert r -> 'median_seconds' = 'null'::jsonb, 'durata mediana senza risposte';
+  assert r ->> 'title' = 'Turni in reparto' and r ->> 'intro' = 'Ci aiuti a capire come organizzi i turni.' and r ->> 'thanks' = 'Grazie del tempo.', 'testi';
+  assert r ->> 'layout' = 'sezioni' and r ->> 'progress' = 'barra' and r -> 'show_time' = 'false'::jsonb, 'impostazioni';
+  assert r -> 'appearance' = '{"theme":"scuro","accent":"#aa3300"}'::jsonb, 'aspetto: ' || (r -> 'appearance')::text;
+  assert (select array_agg(x ->> 'id' order by n) from jsonb_array_elements(r -> 'questions') with ordinality e (x, n))
+    = array['s-1', 'ruolo', 'canali', 'fatica', 'ore', 'parola', 'racconto', 'mail'], 'domande mostrate: ' || (r -> 'questions')::text;
+  assert q -> 'ruolo' = '{"id":"ruolo","type":"scelta","label":"Che lavoro fai?","help":"","required":true,"options":[{"id":"a","label":"Medico"},{"id":"b","label":"Infermiere"}],"allow_other":true,"prefer_not":false}'::jsonb,
+    'scelta, senza l''opzione con l''id riservato: ' || (q -> 'ruolo')::text;
+  assert q -> 'canali' -> 'prefer_not' = 'true'::jsonb, '«Preferisco non rispondere» mancante';
+  assert q -> 's-1' = '{"id":"s-1","type":"sezione","label":"Chi sei","help":"Due domande veloci","required":false}'::jsonb, 'sezione: ' || (q -> 's-1')::text;
+  assert q -> 'fatica' -> 'scale' = '{"points":7,"min_label":"Poco","max_label":"Molto"}'::jsonb, 'scala';
+  assert q -> 'ore' -> 'number' = '{"min":0,"max":80}'::jsonb, 'limiti del numero';
+  assert not exists (select 1 from jsonb_array_elements(r -> 'questions') x where x ? 'role'), 'il ruolo interno delle domande è pubblico';
+  foreach v_id in array array[current_setting('test.survey'), current_setting('test.sidea'), current_setting('test.sexp'), test.uid('a')::text, 'TokenDiProvaAperto0001'] loop
+    assert position(v_id in r::text) = 0, 'identificativo interno nel questionario pubblico: ' || v_id;
+  end loop;
+end
+$$;
+
+\echo 'ok - questionari: ogni risposta si controlla nel database contro le domande salvate'
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.0.0.1"}', false);
+do $$
+declare
+  t text := 'TokenDiProvaAperto0001';
+  r jsonb;
+begin
+  r := test.send(
+    t,
+    '{"ruolo":"a","canali":["web","riviste"],"canali:altro":"Podcast","fatica":6,"ore":12,"parola":"Stress","racconto":"Ieri sera...","mail":"  Persona@Esempio.IT "}',
+    '{"duration_seconds":95.4,"recontact":true,"device":"computer","altro":"ignorato"}'
+  );
+  assert r = '{"status":"ok"}'::jsonb, 'risposta valida rifiutata: ' || r::text;
+  r := test.send(t, '{"ruolo:altro":"Farmacista","fatica":1,"parola":null}');
+  assert r ->> 'status' = 'ok', '«Altro» non vale come risposta: ' || r::text;
+  r := test.send(t, '{"ruolo":"b","fatica":2,"canali":["non-rispondo"]}');
+  assert r ->> 'status' = 'ok', '«Preferisco non rispondere» rifiutato: ' || r::text;
+
+  r := test.send(t, '{"ruolo":"z","fatica":3}');
+  assert r ->> 'status' = 'errore' and r ->> 'question' = 'ruolo' and r ->> 'reason' = 'Risposte non valide.', 'opzione inventata: ' || r::text;
+  assert test.send(t, '{"ruolo":"non-rispondo","fatica":3}') ->> 'question' = 'ruolo', '«Preferisco non rispondere» dove non è previsto';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"canali":["non-rispondo","web"]}') ->> 'reason' like '%una sola%', '«Preferisco non rispondere» insieme a un''opzione';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"canali":["non-rispondo"],"canali:altro":"Radio"}') ->> 'reason' like '%una sola%', '«Preferisco non rispondere» insieme ad «Altro»';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"canali":["web","web"]}') ->> 'question' = 'canali', 'opzioni ripetute';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"canali":["tv"]}') ->> 'question' = 'canali', 'opzione multipla inventata';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"canali":"web"}') ->> 'question' = 'canali', 'scelta multipla senza elenco';
+  assert test.send(t, '{"ruolo":["a"],"fatica":3}') ->> 'question' = 'ruolo', 'scelta singola con elenco';
+  r := test.send(t, '{"ruolo":"a"}');
+  assert r ->> 'reason' like '%obbligatorie%' and r ->> 'question' = 'fatica', 'domanda obbligatoria mancante: ' || r::text;
+  assert test.send(t, '{"ruolo":"","fatica":3}') ->> 'question' = 'ruolo', 'una risposta vuota vale come data';
+  assert test.send(t, '{"ruolo":"a","ruolo:altro":"Farmacista","fatica":3}') ->> 'reason' like '%una sola%', 'opzione e «Altro» insieme';
+  assert test.send(t, jsonb_build_object('ruolo', 'a', 'fatica', 3, 'parola', repeat('x', 301))) ->> 'reason' like '%troppo lunga%', 'risposta breve troppo lunga';
+  assert test.send(t, jsonb_build_object('ruolo', 'a', 'fatica', 3, 'racconto', repeat('x', 3001))) ->> 'question' = 'racconto', 'risposta lunga troppo lunga';
+  assert test.send(t, jsonb_build_object('ruolo', 'a', 'fatica', 3, 'canali:altro', repeat('x', 301))) ->> 'question' = 'canali', '«Altro» troppo lungo';
+  assert test.send(t, jsonb_build_object('racconto', repeat('x', 25000))) ->> 'reason' like '%troppo lunghe%', 'oltre 20 KB';
+  foreach r in array array[
+    '{"ruolo":"a","fatica":3,"boh":"x"}', '{"ruolo":"a","fatica":3,"s-1":"x"}', '{"ruolo":"a","fatica":3,"mail-2":"a@esempio.it"}',
+    '{"ruolo":"a","fatica":3,"parola:altro":"x"}', '{"ruolo":"a","fatica":3,"vuota":"a"}', '{"ruolo":"a","fatica":3,"Non Valida":"x"}',
+    '{"ruolo":"a","fatica":3,":altro":"x"}', '{"ruolo":"a","fatica":3,"parola":5}', '{"ruolo":"a","fatica":3,"s-1":null}'
+  ]::jsonb[] loop
+    assert test.send(t, r) ->> 'reason' = 'Risposte non valide.', 'chiave o tipo non ammessi: ' || r::text;
+  end loop;
+  foreach r in array array['{"fatica":8}', '{"fatica":0}', '{"fatica":2.5}', '{"fatica":"3"}']::jsonb[] loop
+    assert test.send(t, r || '{"ruolo":"a"}') ->> 'question' = 'fatica', 'scala fuori misura: ' || r::text;
+  end loop;
+  assert test.send(t, '{"ruolo":"a","fatica":3,"ore":81}') ->> 'reason' like '%intervallo%', 'numero oltre il massimo';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"ore":-1}') ->> 'reason' like '%intervallo%', 'numero sotto il minimo';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"ore":1.5}') ->> 'reason' like '%intero%', 'numero con decimali';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"ore":"12"}') ->> 'reason' like '%intero%', 'numero come testo';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"mail":"non-una-mail"}') ->> 'reason' like '%email%', 'email non valida';
+  assert test.send(t, jsonb_build_object('ruolo', 'a', 'fatica', 3, 'mail', repeat('x', 250) || '@esempio.it')) ->> 'reason' like '%email%', 'email troppo lunga';
+  assert test.send(t, '{"ruolo":"a","fatica":3}', '{"recontact":true}') ->> 'reason' like '%ricontattare%', 'ricontatto senza email';
+  assert test.send(t, '{"ruolo":"a","fatica":3,"mail":"a@esempio.it"}', '{"recontact":"si"}') ->> 'reason' = 'Risposte non valide.', 'ricontatto non booleano';
+  assert test.send(t, '{"ruolo":"a","fatica":3}', '{"device":"tablet"}') ->> 'reason' = 'Risposte non valide.', 'dispositivo inventato';
+  assert test.send(t, '{"ruolo":"a","fatica":3}', '{"final":"si"}') ->> 'reason' = 'Risposte non valide.', 'ultimo invio non booleano';
+  foreach r in array array['{"session":null}', '{"session":"x"}', '{"session":5}', '{"session":"6ba7b810-9dad-11d1-80b4-00c04fd430c8"}']::jsonb[] loop
+    assert test.send(t, '{"ruolo":"a","fatica":3}', r) ->> 'reason' like '%Sessione%', 'sessione non valida accettata: ' || r::text;
+  end loop;
+  assert test.send(t, '{"ruolo":"a","fatica":3}', '{"website":"https://spam.example"}') = '{"status":"ok"}'::jsonb, 'il bot si accorge della trappola';
+  assert test.send(t, '[1]') ->> 'reason' = 'Risposte non valide.', 'risposte non oggetto';
+  assert test.send(t, null) ->> 'status' = 'errore', 'risposte assenti';
+  assert public.submit_survey(t, '{"ruolo":"a","fatica":3}', '[1]') ->> 'status' = 'errore', 'meta non oggetto';
+  assert test.send('TokenDiProvaTerzo-0003', '{"nota":"x"}') ->> 'reason' like '%chiuso%', 'risposta a un questionario chiuso';
+  assert test.send('TokenCheNonEsiste00000', '{"nota":"x"}') ->> 'reason' like '%non trovato%', 'risposta a un link inesistente';
+  assert test.send('TokenDiProvaSecondo_02', '{}') ->> 'reason' like '%almeno una%', 'risposta vuota';
+  assert test.send('TokenDiProvaSecondo_02', '{"nota":"   "}') ->> 'reason' like '%almeno una%', 'risposta di soli spazi';
+end
+$$;
+reset role;
+do $$
+declare
+  r public.survey_responses;
+begin
+  assert (select count(*) from public.survey_responses where survey_id = current_setting('test.survey')::uuid) = 3, 'salvate risposte non valide o della trappola';
+  assert (select bool_and(completed) from public.survey_responses), 'un invio completo non risulta completo';
+  select * into r from public.survey_responses where survey_id = current_setting('test.survey')::uuid and email is not null;
+  assert r.email = 'persona@esempio.it' and r.recontact and r.duration_seconds = 95 and r.device = 'computer' and r.saves = 1, 'email, ricontatto, durata o dispositivo: ' || row_to_json(r)::text;
+  assert r.answers = '{"ruolo":"a","canali":["web","riviste"],"canali:altro":"Podcast","fatica":6,"ore":12,"parola":"Stress","racconto":"Ieri sera..."}'::jsonb,
+    'risposte salvate: ' || r.answers::text;
+  assert exists (
+    select 1 from public.survey_responses
+    where survey_id = current_setting('test.survey')::uuid and answers = '{"ruolo:altro":"Farmacista","fatica":1}'::jsonb
+      and email is null and not recontact and duration_seconds is null and device is null
+  ), 'risposta con «Altro» salvata male';
+  assert exists (
+    select 1 from public.survey_responses
+    where survey_id = current_setting('test.survey')::uuid and answers = '{"ruolo":"b","fatica":2,"canali":["non-rispondo"]}'::jsonb
+  ), 'risposta con «Preferisco non rispondere» salvata male';
+end
+$$;
+
+\echo 'ok - questionari: si salva una schermata alla volta, le obbligatorie contano solo all ultimo invio, poi la compilazione è chiusa'
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.99"}', false);
+do $$
+declare
+  t text := 'TokenDiProvaAperto0001';
+  m jsonb := jsonb_build_object('session', gen_random_uuid());
+  m2 jsonb := jsonb_build_object('session', gen_random_uuid());
+  m3 jsonb := jsonb_build_object('session', gen_random_uuid());
+  r jsonb;
+begin
+  perform set_config('test.session', m ->> 'session', false);
+  perform set_config('test.session2', m2 ->> 'session', false);
+  perform set_config('test.session3', m3 ->> 'session', false);
+  assert public.submit_survey(t, '{}', m) = '{"status":"ok"}'::jsonb, 'compilazione appena iniziata rifiutata';
+  r := public.submit_survey(t, '{"ruolo":"a"}', m || '{"device":"telefono","duration_seconds":20,"recontact":true}');
+  assert r = '{"status":"ok"}'::jsonb, 'salvataggio a metà rifiutato: ' || r::text;
+  assert public.submit_survey(t, '{"ruolo":"z"}', m) ->> 'question' = 'ruolo', 'a metà compilazione i valori non si controllano';
+  assert public.submit_survey(t, jsonb_build_object('parola', repeat('x', 301)), m) ->> 'question' = 'parola', 'a metà compilazione le lunghezze non si controllano';
+  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni"}', m || '{"duration_seconds":40}') ->> 'status' = 'ok', 'secondo salvataggio rifiutato';
+  r := public.submit_survey(t, '{"ruolo":"b","parola":"Turni"}', m || '{"final":true}');
+  assert r ->> 'question' = 'fatica', 'obbligatorie non controllate all''ultimo invio: ' || r::text;
+  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni","fatica":5}', m || '{"final":true,"duration_seconds":61}') ->> 'status' = 'ok', 'ultimo invio rifiutato';
+  assert public.submit_survey(t, '{"ruolo":"a","fatica":1}', m || '{"final":true}') ->> 'reason' like '%già state inviate%', 'una compilazione conclusa cambia ancora';
+  assert public.submit_survey(t, '{"ruolo":"a"}', m) ->> 'reason' like '%già state inviate%', 'una compilazione conclusa torna a metà';
+
+  assert public.submit_survey(t, '{"ruolo":"a","canali":["web"]}', m2) ->> 'status' = 'ok', 'compilazione interrotta non salvata';
+
+  for i in 1..60 loop
+    assert public.submit_survey(t, '{"ruolo":"a"}', m3) ->> 'status' = 'ok', 'salvataggio ' || i || ' rifiutato';
+  end loop;
+  assert public.submit_survey(t, '{"ruolo":"b"}', m3) ->> 'reason' like '%Troppi salvataggi%', 'più di 60 salvataggi a metà';
+  assert public.submit_survey(t, '{"ruolo":"b","fatica":3}', m3 || '{"final":true}') ->> 'status' = 'ok', 'dopo 60 salvataggi non si può più concludere';
+end
+$$;
+reset role;
+do $$
+declare
+  r public.survey_responses;
+begin
+  select * into r from public.survey_responses where session = current_setting('test.session')::uuid;
+  assert r.completed and r.saves = 3 and r.answers = '{"ruolo":"b","parola":"Turni","fatica":5}'::jsonb, 'compilazione a schermate: ' || row_to_json(r)::text;
+  assert r.device = 'telefono' and r.duration_seconds = 61 and not r.recontact and r.updated_at >= r.created_at, 'dati della compilazione: ' || row_to_json(r)::text;
+  select * into r from public.survey_responses where session = current_setting('test.session2')::uuid;
+  assert not r.completed and r.answers = '{"ruolo":"a","canali":["web"]}'::jsonb, 'compilazione interrotta persa: ' || row_to_json(r)::text;
+  select * into r from public.survey_responses where session = current_setting('test.session3')::uuid;
+  assert r.completed and r.saves = 61, 'salvataggi contati male: ' || r.saves;
+  assert (select count(*) from public.survey_limits where kind = 'session' and survey_id = current_setting('test.survey')::uuid) = 6,
+    'i limiti devono contare le compilazioni nuove, non i salvataggi';
+end
+$$;
+
+\echo 'ok - questionari: limiti per chi risponde e per questionario, con impronte del giorno al posto degli indirizzi'
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.0.0.1"}', false);
+do $$
+declare
+  t text := 'TokenDiProvaAperto0001';
+  v jsonb := '{"ruolo":"b","fatica":2}';
+  r jsonb;
+begin
+  for i in 1..2 loop
+    assert test.send(t, v) ->> 'status' = 'ok', 'compilazione ' || i || ' rifiutata';
+  end loop;
+  r := test.send(t, v);
+  assert r ->> 'reason' like '%più volte%', 'sesta compilazione in un''ora accettata: ' || r::text;
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.9.9.9"}', false);
+  assert test.send(t, v) ->> 'reason' like '%più volte%', 'il limite cambia passando da un altro proxy';
+  perform set_config('request.headers', '{"x-forwarded-for":"198.51.100.4"}', false);
+  assert test.send(t, v) ->> 'status' = 'ok', 'un altro indirizzo è bloccato';
+  perform set_config('request.headers', '', false);
+  assert test.send(t, v) ->> 'status' = 'ok', 'senza intestazione non si risponde';
+  perform set_config('request.headers', 'non json', false);
+  assert test.send(t, v) ->> 'status' = 'ok', 'con intestazioni malformate non si risponde';
+end
+$$;
+reset role;
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+begin
+  assert not exists (select 1 from public.survey_limits where client like '%203.0.113%' or client like '%198.51.100%' or client like '%10.0.0%'), 'indirizzo salvato';
+  assert (select bool_and(client ~ '^[0-9a-f]{64}$') from public.survey_limits), 'impronta diversa da un hash';
+  assert (select count(distinct client) from public.survey_limits where survey_id = v_survey) = 4, 'impronte: tre indirizzi e chi non ha intestazione';
+  assert (select array_agg(day) from public.survey_salts) = array[(now() at time zone 'utc')::date], 'un sale solo, quello di oggi';
+  update public.survey_limits set created_at = now() - interval '2 hours' where survey_id = v_survey;
+  insert into public.survey_limits (survey_id, client, kind, created_at) values (v_survey, 'vecchia', 'view', now() - interval '25 hours');
+  insert into public.survey_salts (day, salt) values ((now() at time zone 'utc')::date - 1, 'sale-di-ieri');
+  perform set_config('test.salt', (select salt from public.survey_salts where day = (now() at time zone 'utc')::date), false);
+end
+$$;
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.0.0.1"}', false);
+do $$
+begin
+  assert test.send('TokenDiProvaAperto0001', '{"ruolo":"a","fatica":4}') ->> 'status' = 'ok', 'dopo un''ora il limite non si azzera';
+end
+$$;
+reset role;
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  v_first text;
+begin
+  assert (select salt from public.survey_salts) = current_setting('test.salt'), 'il sale di oggi è cambiato, o quello di ieri è ancora presente';
+  assert not exists (select 1 from public.survey_limits where client = 'vecchia'), 'limiti più vecchi di 24 ore ancora presenti';
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.7"}', false);
+  v_first := public.survey_client(v_survey);
+  assert public.survey_client(v_survey) = v_first, 'impronta diversa nello stesso giorno';
+  assert public.survey_client(current_setting('test.survey2')::uuid) <> v_first, 'stessa impronta su due questionari';
+  delete from public.survey_salts;
+  assert public.survey_client(v_survey) <> v_first, 'con il sale nuovo l''impronta resta uguale';
+end
+$$;
+update public.survey_responses set created_at = now() - interval '2 minutes';
+set role anon;
+do $$
+declare
+  r jsonb;
+begin
+  for i in 1..30 loop
+    perform set_config('request.headers', format('{"x-forwarded-for":"192.0.2.%s"}', i), false);
+    r := test.send('TokenDiProvaAperto0001', '{"ruolo":"a","fatica":5}');
+    assert r ->> 'status' = 'ok', format('compilazione %s del minuto rifiutata: %s', i, r);
+  end loop;
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.200"}', false);
+  r := test.send('TokenDiProvaAperto0001', '{"ruolo":"a","fatica":5}');
+  assert r ->> 'reason' like '%in questo momento%', 'più di 30 compilazioni nuove in un minuto: ' || r::text;
+  r := public.submit_survey('TokenDiProvaAperto0001', '{"ruolo":"b","canali":["web"]}', jsonb_build_object('session', current_setting('test.session2')));
+  assert r ->> 'status' = 'ok', 'il limite delle compilazioni nuove blocca chi aveva già iniziato: ' || r::text;
+end
+$$;
+
+\echo 'ok - questionari: la durata mediana si mostra solo con almeno 20 compilazioni complete, e c è un tetto di 5000 risposte'
+reset role;
+insert into public.survey_responses (survey_id, session, answers, duration_seconds, completed)
+select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', g * 10, true from generate_series(1, 19) g;
+insert into public.survey_responses (survey_id, session, answers, duration_seconds, completed) values
+  (current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"interrotta"}', 5, false),
+  (current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"senza durata"}', null, true);
+set role anon;
+do $$
+begin
+  assert public.public_survey('TokenDiProvaSecondo_02') -> 'median_seconds' = 'null'::jsonb, 'durata mediana con meno di 20 compilazioni complete';
+end
+$$;
+reset role;
+insert into public.survey_responses (survey_id, session, answers, duration_seconds, completed)
+values (current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', 200, true);
+set role anon;
+do $$
+begin
+  assert public.public_survey('TokenDiProvaSecondo_02') -> 'median_seconds' = '105'::jsonb,
+    'durata mediana sbagliata: ' || (public.public_survey('TokenDiProvaSecondo_02') -> 'median_seconds')::text;
+end
+$$;
+reset role;
+insert into public.survey_responses (survey_id, session, answers, completed, created_at)
+select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', true, now() - interval '1 day'
+from generate_series(1, 4999 - (select count(*) from public.survey_responses where survey_id = current_setting('test.survey2')::uuid));
+set role anon;
+select set_config('request.headers', '{"x-forwarded-for":"192.0.2.250"}', false);
+do $$
+begin
+  assert test.send('TokenDiProvaSecondo_02', '{"nota":"ultima"}') ->> 'status' = 'ok', 'la risposta numero 5000 è rifiutata';
+  assert test.send('TokenDiProvaSecondo_02', '{"nota":"una di troppo"}') ->> 'reason' like '%non accetta altre%', 'oltre 5000 risposte';
+end
+$$;
+
+\echo 'ok - questionari: visite e inizi solo per i questionari aperti, con un limite per chi visita'
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.50"}', false);
+do $$
+begin
+  perform public.survey_event('TokenDiProvaAperto0001', 'view');
+  perform public.survey_event('TokenDiProvaAperto0001', 'view');
+  perform public.survey_event('TokenDiProvaAperto0001', 'start');
+  perform public.survey_event('TokenDiProvaAperto0001', 'click');
+  perform public.survey_event('TokenDiProvaAperto0001', null);
+  perform public.survey_event('TokenDiProvaTerzo-0003', 'view');
+  perform public.survey_event('TokenCheNonEsiste00000', 'view');
+  perform public.survey_event(null, 'view');
+  for i in 1..40 loop
+    perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  end loop;
+end
+$$;
+reset role;
+do $$
+begin
+  assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'view') = 2, 'visite contate male';
+  assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'start') = 1, 'inizi contati male';
+  assert not exists (select 1 from public.survey_events where survey_id = current_setting('test.survey3')::uuid), 'visita a un questionario chiuso';
+  assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey2')::uuid) = 30, 'nessun limite alle visite di una persona';
+  perform set_config('test.survey_n', (select count(*) from public.survey_responses where survey_id = current_setting('test.survey')::uuid)::text, false);
+end
+$$;
+select set_config('request.headers', '', false);
+
+\echo 'ok - questionari: risposte e imbuto li vede il team con 2FA, cancellano solo admin e membri'
+set role authenticated;
+select test.login('c');
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  n int := current_setting('test.survey_n')::int;
+begin
+  assert n = 42, 'risposte di prova: ' || n;
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'l''advisor non legge le risposte';
+  assert (select count(*) from public.survey_responses where survey_id = v_survey and not completed) = 1, 'l''advisor non vede le compilazioni interrotte';
+  assert public.survey_funnel(v_survey) = jsonb_build_object('views', 2, 'starts', 1, 'partial', 1, 'completed', n - 1), 'imbuto: ' || public.survey_funnel(v_survey)::text;
+  perform test.expect_error(format('select public.delete_survey_responses(%L)', v_survey), 'Solo admin e membri');
+  perform test.expect_error(format($q$insert into public.survey_responses (survey_id, answers) values (%L, '{}')$q$, v_survey), 'permission denied');
+  perform test.expect_error($q$update public.survey_responses set answers = '{}'$q$, 'permission denied');
+  perform test.expect_error('delete from public.survey_responses', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_events', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_limits', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_salts', 'permission denied');
+  perform test.expect_error(format('select public.survey_client(%L)', v_survey), 'permission denied');
+  perform test.expect_error($q$select public.survey_public_questions('{}')$q$, 'permission denied');
+end
+$$;
+select test.login('d');
+do $$
+begin
+  assert (select count(*) from public.survey_responses) = 0, 'un estraneo legge le risposte';
+  assert public.survey_funnel(current_setting('test.survey')::uuid) is null, 'un estraneo vede l''imbuto';
+  perform test.expect_error(format('select public.delete_survey_responses(%L)', current_setting('test.survey')), 'Solo admin e membri');
+end
+$$;
+select test.login('a', 'aal1');
+do $$
+begin
+  assert (select count(*) from public.survey_responses) = 0, 'risposte visibili senza 2FA';
+  assert public.survey_funnel(current_setting('test.survey')::uuid) is null, 'imbuto visibile senza 2FA';
+end
+$$;
+select test.login('b');
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+  v_one uuid := (select id from public.survey_responses where survey_id = v_survey order by created_at, id limit 1);
+  v_other uuid := (select id from public.survey_responses where survey_id = v_survey2 limit 1);
+begin
+  assert public.delete_survey_responses(v_survey, array[v_one, v_other]) = 1, 'cancellata la risposta di un altro questionario';
+  assert not exists (select 1 from public.survey_responses where id = v_one), 'risposta non cancellata';
+  assert exists (select 1 from public.survey_responses where id = v_other), 'risposta di un altro questionario cancellata';
+  assert public.delete_survey_responses(v_survey, '{}') = 0, 'un elenco vuoto cancella qualcosa';
+  assert public.delete_survey_responses(v_survey2) = 5000, 'non cancellate tutte le risposte';
+  assert public.survey_funnel(v_survey2) = '{"views":0,"starts":0,"partial":0,"completed":0}'::jsonb, 'visite e inizi non azzerati: ' || public.survey_funnel(v_survey2)::text;
+  assert public.survey_funnel(v_survey) ->> 'views' = '2', 'azzerate le visite di un altro questionario';
+end
+$$;
+reset role;
+do $$
+begin
+  assert not exists (select 1 from public.survey_limits where survey_id = current_setting('test.survey2')::uuid), 'limiti non azzerati';
+  assert exists (select 1 from public.survey_limits where survey_id = current_setting('test.survey')::uuid), 'azzerati i limiti di un altro questionario';
+end
+$$;
+
+\echo 'ok - questionari: con il questionario o l idea nel cestino risposte e link spariscono, e tornano col ripristino'
+set role authenticated;
+select test.login('a');
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  v_idea uuid := current_setting('test.sidea')::uuid;
+  n int := (select count(*) from public.survey_responses where survey_id = current_setting('test.survey')::uuid);
+begin
+  assert n > 0, 'nessuna risposta per la prova';
+  assert public.delete_item(v_survey, (select version from public.items where id = v_survey)) ->> 'status' = 'ok', 'questionario non archiviato';
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = 0, 'risposte visibili con il questionario nel cestino';
+  assert public.survey_funnel(v_survey) is null, 'imbuto visibile con il questionario nel cestino';
+  assert public.delete_survey_responses(v_survey) = 0, 'risposte cancellate dal cestino';
+  assert public.public_survey('TokenDiProvaAperto0001') ->> 'status' = 'non_trovato', 'link attivo con il questionario nel cestino';
+  perform public.restore_item(v_survey);
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'risposte perse col ripristino';
+  assert public.delete_item(v_idea, (select version from public.items where id = v_idea)) ->> 'status' = 'ok', 'idea non archiviata';
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = 0, 'risposte visibili con l''idea nel cestino';
+  assert public.public_survey('TokenDiProvaAperto0001') ->> 'status' = 'non_trovato', 'link attivo con l''idea nel cestino';
+  perform public.restore_item(v_idea);
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'risposte perse col ripristino dell''idea';
+  assert public.public_survey('TokenDiProvaAperto0001') ->> 'status' = 'aperto', 'link spento dopo il ripristino';
+end
+$$;
+
+\echo 'ok - questionari: un link nuovo revoca quello vecchio, e cancellare davvero un questionario elimina risposte e visite'
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  res jsonb;
+begin
+  res := public.save_item(
+    v_survey, (select version from public.items where id = v_survey), 'Turni in reparto', 'aperto',
+    test.survey_data('TokenNuovoDopoLaFuga01', current_setting('test.sexp')::uuid), current_setting('test.sidea')::uuid, 'nuovo link'
+  );
+  assert res ->> 'status' = 'ok', 'link non cambiato: ' || res::text;
+  assert public.public_survey('TokenDiProvaAperto0001') ->> 'status' = 'non_trovato', 'il link vecchio funziona ancora';
+  assert public.public_survey('TokenNuovoDopoLaFuga01') ->> 'status' = 'aperto', 'il link nuovo non funziona';
+end
+$$;
+reset role;
+do $$
+declare
+  v_closed uuid := current_setting('test.survey3')::uuid;
+begin
+  insert into public.survey_responses (survey_id, session, answers) values (v_closed, gen_random_uuid(), '{"nota":"x"}');
+  insert into public.survey_events (survey_id, kind) values (v_closed, 'view');
+  delete from public.items where id = v_closed;
+  assert not exists (select 1 from public.survey_responses where survey_id = v_closed), 'risposte rimaste dopo la cancellazione definitiva';
+  assert not exists (select 1 from public.survey_events where survey_id = v_closed), 'visite rimaste dopo la cancellazione definitiva';
+end
+$$;
+set role authenticated;
 
 \echo 'ok - un membro salva partendo dall ultima versione'
 select test.login('b');

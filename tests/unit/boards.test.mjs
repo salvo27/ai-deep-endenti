@@ -16,7 +16,7 @@ before(async () => {
 const IDEA = '11111111-1111-4111-8111-111111111111';
 
 test('the new idea boards need an idea and a title, the team boards never belong to an idea', () => {
-  for (const kind of ['contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors']) {
+  for (const kind of ['contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey']) {
     const clean = schema.sanitizeSnapshot(kind, { title: 'X', idea_id: IDEA, data: {} });
     assert.equal(clean.idea_id, IDEA, kind);
     assert.equal(schema.snapshotProblem(kind, { ...clean, idea_id: null }), 'Scegli l\'idea a cui appartiene.', kind);

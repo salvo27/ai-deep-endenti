@@ -134,6 +134,7 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   fake.responses.from.audit_log = { data: [], error: null };
   fake.responses.from.ai_usage = { count: 4, error: null };
   fake.responses.from.items = { data: [], error: null };
+  fake.responses.from.survey_responses = { data: [], error: null };
   fake.responses.from.chats = (ops) => (ops.some((o) => o[0] === 'single') ? { data: { id: ID, title: 'Generale' }, error: null } : { data: [], error: null });
   fake.responses.from.chat_messages = (ops) => (ops.some((o) => o[0] === 'single') ? { data: { id: ID, body: 'ciao' }, error: null } : { data: [{ id: 'b' }, { id: 'a' }], error: null });
   fake.responses.rpc.chat_overview = { data: [{ chat_id: ID, unread: 2 }], error: null };
@@ -165,7 +166,8 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   assert.deepEqual(await api.auditLog(), []);
   assert.equal(await api.aiUsageLastDay(ID), 4);
   const backup = await api.exportAll();
-  assert.deepEqual(Object.keys(backup), ['items', 'revisions', 'comments', 'chats', 'chatMessages']);
+  assert.deepEqual(Object.keys(backup), ['items', 'revisions', 'comments', 'chats', 'chatMessages', 'surveyResponses']);
+  assert.ok(fake.calls.some((c) => c[0] === 'from' && c[1] === 'survey_responses'), 'risposte dei questionari nel backup');
   assert.deepEqual(await api.listChats(), []);
   assert.deepEqual(await api.chatOverview(), [{ chat_id: ID, unread: 2 }]);
   assert.equal((await api.createChat({ title: 'Nutrizione', ideaId: ID })).title, 'Generale');
@@ -197,4 +199,90 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   assert.deepEqual(insert[2][0][1], { item_id: ID, body: 'ciao', ai_task: 'critique' });
   fake.responses.from.ai_usage = { count: null, error: { code: '42501' } };
   await assert.rejects(api.aiUsageLastDay(ID), /permessi/);
+});
+
+test('survey responses are read page by page, deleted only by the database function, and the funnel defaults to zero', async () => {
+  let page = 0;
+  fake.responses.from.survey_responses = () => {
+    page += 1;
+    return { data: Array.from({ length: page === 1 ? 1000 : 2 }, (_, i) => ({ id: `${page}-${i}` })), error: null };
+  };
+  assert.equal((await api.listSurveyResponses(ID)).length, 1002);
+  const ops = fake.calls[0][2];
+  assert.deepEqual(ops.find((o) => o[0] === 'eq'), ['eq', 'survey_id', ID]);
+  assert.deepEqual(ops.filter((o) => o[0] === 'order').map((o) => o[1]), ['created_at', 'id'], 'ordine stabile tra le pagine');
+  assert.deepEqual(ops.find((o) => o[0] === 'range'), ['range', 0, 999]);
+
+  fake.responses.rpc.delete_survey_responses = (params) => ({ data: params.p_ids ? params.p_ids.length : 7, error: null });
+  assert.equal(await api.deleteSurveyResponses(ID), 7);
+  assert.deepEqual(fake.calls.at(-1), ['rpc', 'delete_survey_responses', { p_survey: ID, p_ids: null }]);
+  assert.equal(await api.deleteSurveyResponses(ID, [ID]), 1);
+  assert.deepEqual(fake.calls.at(-1)[2], { p_survey: ID, p_ids: [ID] });
+  const calls = fake.calls.length;
+  await assert.rejects(api.deleteSurveyResponses(ID, ID), /Identificativo/, 'un id da solo non vuol dire «tutte»');
+  await assert.rejects(api.deleteSurveyResponses(ID, ['x']), /Identificativo/);
+  await assert.rejects(api.deleteSurveyResponses(`${ID},x`), /Identificativo/);
+  await assert.rejects(api.listSurveyResponses('x'), /Identificativo/);
+  await assert.rejects(api.surveyFunnel('x'), /Identificativo/);
+  assert.equal(fake.calls.length, calls, 'identificativi non validi arrivano al database');
+  fake.responses.rpc.delete_survey_responses = { data: null, error: { code: 'P0001', message: 'Solo admin e membri possono cancellare le risposte' } };
+  await assert.rejects(api.deleteSurveyResponses(ID), /Solo admin e membri/);
+
+  fake.responses.rpc.survey_funnel = { data: { views: 10, starts: 6, partial: 2, completed: 4 }, error: null };
+  assert.deepEqual(await api.surveyFunnel(ID), { views: 10, starts: 6, partial: 2, completed: 4 });
+  assert.deepEqual(fake.calls.at(-1), ['rpc', 'survey_funnel', { p_survey: ID }]);
+  fake.responses.rpc.survey_funnel = { data: null, error: null };
+  assert.deepEqual(await api.surveyFunnel(ID), { views: 0, starts: 0, partial: 0, completed: 0 });
+});
+
+test('the public survey module has its own anon client without a session and calls only the three public functions', async () => {
+  const survey = await import('../../assets/js/public/survey-api.js');
+  const pub = globalThis.__fakeSupabase;
+  const TOKEN = 'TokenDiProvaAperto0001';
+  assert.notEqual(pub, fake, 'un client separato da quello del sito');
+  assert.equal(pub.url, fake.url);
+  assert.equal(pub.key, fake.key, 'la stessa chiave anon pubblica');
+  assert.deepEqual(pub.options.auth, { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false });
+  assert.equal(survey.PREFER_NOT, 'non-rispondo');
+  assert.match(survey.newSurveySession(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+  pub.responses.rpc.public_survey = { data: { status: 'aperto', title: 'Q', questions: [] }, error: null };
+  assert.equal((await survey.loadPublicSurvey(TOKEN)).status, 'aperto');
+  assert.deepEqual(pub.calls.at(-1), ['rpc', 'public_survey', { p_token: TOKEN }]);
+  assert.deepEqual(await survey.loadPublicSurvey('corto'), { status: 'non_trovato' });
+  assert.deepEqual(await survey.loadPublicSurvey(`${TOKEN}' or '1'='1`), { status: 'non_trovato' });
+  assert.equal(pub.calls.length, 1, 'un link malformato non arriva al database');
+
+  const SESSION = '11111111-1111-4111-8111-111111111111';
+  pub.responses.rpc.submit_survey = { data: { status: 'ok' }, error: null };
+  const meta = { session: SESSION, final: true, duration_seconds: 95.4, device: 'telefono', recontact: true, website: '', extra: 'no', answers: 'no' };
+  assert.deepEqual(await survey.submitSurvey(TOKEN, { ruolo: 'a' }, meta), { status: 'ok' });
+  assert.deepEqual(pub.calls.at(-1), [
+    'rpc',
+    'submit_survey',
+    { p_token: TOKEN, p_answers: { ruolo: 'a' }, p_meta: { session: SESSION, final: true, duration_seconds: 95, device: 'telefono', recontact: true, website: '' } },
+  ]);
+  await survey.submitSurvey(TOKEN, null, { session: SESSION, final: 'si', device: 'tablet', duration_seconds: -5 });
+  assert.deepEqual(pub.calls.at(-1)[2], { p_token: TOKEN, p_answers: {}, p_meta: { session: SESSION, duration_seconds: 0 } });
+  pub.responses.rpc.submit_survey = { data: { status: 'errore', reason: 'Il questionario è chiuso.' }, error: null };
+  assert.deepEqual(await survey.submitSurvey(TOKEN, {}, { session: SESSION }), { status: 'errore', reason: 'Il questionario è chiuso.' });
+  assert.equal((await survey.submitSurvey('corto', {})).status, 'errore');
+
+  pub.responses.rpc.submit_survey = () => Promise.reject(new TypeError('Failed to fetch'));
+  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e instanceof survey.PublicSurveyError && e.code === 'network' && /Connessione/.test(e.message));
+  pub.responses.rpc.submit_survey = { data: null, error: { status: 429, message: 'rate limit' } };
+  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e.code === 'rate_limit' && /Troppi tentativi/.test(e.message));
+  pub.responses.rpc.public_survey = { data: null, error: { code: 'XX000', message: 'segreto interno' } };
+  await assert.rejects(survey.loadPublicSurvey(TOKEN), (e) => e.code === 'server' && !/segreto/.test(e.message));
+
+  pub.responses.rpc.survey_event = () => Promise.reject(new TypeError('Failed to fetch'));
+  await survey.recordSurveyEvent(TOKEN, 'view');
+  assert.deepEqual(pub.calls.at(-1), ['rpc', 'survey_event', { p_token: TOKEN, p_kind: 'view' }]);
+  const before = pub.calls.length;
+  await survey.recordSurveyEvent(TOKEN, 'click');
+  await survey.recordSurveyEvent('corto', 'start');
+  assert.equal(pub.calls.length, before, 'eventi non validi arrivano al database');
+
+  assert.deepEqual([...new Set(pub.calls.map((c) => `${c[0]}:${c[1]}`))].sort(), ['rpc:public_survey', 'rpc:submit_survey', 'rpc:survey_event']);
+  assert.deepEqual(fake.calls, [], 'il client del sito non viene usato');
 });

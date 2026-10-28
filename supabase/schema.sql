@@ -231,12 +231,14 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey'
   )
 );
 
 create index if not exists items_kind_idx on public.items (kind);
 create index if not exists items_idea_idx on public.items (idea_id);
+-- Il link pubblico di un questionario porta a un solo questionario.
+create unique index if not exists items_survey_token_idx on public.items ((data ->> 'token')) where kind = 'survey';
 drop index if exists public.items_singleton_idx;
 create unique index items_singleton_idx on public.items (kind)
   where kind in ('criteria', 'generator', 'teamcanvas', 'equity');
@@ -277,22 +279,25 @@ begin
     new.created_at := old.created_at;
   end if;
 
-  if not (
+  -- Senza coalesce uno stato mancante dove serve darebbe null e il controllo non scatterebbe.
+  if not coalesce(
     (new.kind = 'idea' and new.status in ('nuova', 'esplorazione', 'validazione', 'scelta', 'parcheggiata', 'scartata'))
     or (new.kind = 'experiment' and new.status in ('pianificato', 'in_corso', 'concluso'))
     or (new.kind = 'interview' and new.status in ('da_fare', 'fatta', 'analizzata'))
     or (new.kind = 'decision' and new.status in ('proposta', 'presa', 'rivista'))
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
+    or (new.kind = 'survey' and new.status in ('bozza', 'aperto', 'chiuso'))
     or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap')
-        and new.status is null)
+        and new.status is null),
+    false
   ) then
     raise exception 'Stato non valido per questo tipo di elemento';
   end if;
-  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap')
+  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap', 'survey')
      and btrim(new.title) = '' then
     raise exception 'Il titolo è obbligatorio';
   end if;
-  if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors') and new.idea_id is null then
+  if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
   if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap') and new.idea_id is not null then
@@ -301,6 +306,51 @@ begin
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)
      and not exists (select 1 from public.items i where i.id = new.idea_id and i.kind = 'idea') then
     raise exception 'idea_id deve indicare un''idea esistente';
+  end if;
+
+  -- Questionari: quello che finisce nella pagina pubblica (link, impostazioni, aspetto) si controlla anche qui.
+  if new.kind = 'survey' then
+    if new.data ? 'token'
+       and (jsonb_typeof(new.data -> 'token') <> 'string' or (new.data ->> 'token') !~ '^[A-Za-z0-9_-]{22}$') then
+      raise exception 'Il link pubblico del questionario non è valido';
+    end if;
+    if (new.data ? 'layout' and coalesce(new.data ->> 'layout', '') not in ('una', 'sezioni'))
+       or (new.data ? 'progress' and coalesce(new.data ->> 'progress', '') not in ('contatore', 'barra', 'nessuno'))
+       or (new.data ? 'show_time' and jsonb_typeof(new.data -> 'show_time') <> 'boolean')
+       or (new.data ? 'questions' and case
+             when jsonb_typeof(new.data -> 'questions') = 'array' then jsonb_array_length(new.data -> 'questions') > 40
+             else true
+           end) then
+      raise exception 'Impostazioni del questionario non valide';
+    end if;
+    -- Aspetto: solo tema e colore, mai altro (caratteri, immagini o CSS aprirebbero la pagina pubblica a contenuti estranei).
+    if new.data ? 'appearance' and (case
+         when jsonb_typeof(new.data -> 'appearance') = 'object' then exists (
+           select 1 from jsonb_each(new.data -> 'appearance') a
+           where not (
+             (a.key = 'theme' and jsonb_typeof(a.value) = 'string' and (a.value #>> '{}') in ('automatico', 'chiaro', 'scuro'))
+             or (a.key = 'accent' and jsonb_typeof(a.value) = 'string' and (a.value #>> '{}') ~ '^#[0-9a-f]{6}$')
+           )
+         )
+         else true
+       end) then
+      raise exception 'Aspetto del questionario non valido';
+    end if;
+    if new.data ? 'experiment_id' then
+      if jsonb_typeof(new.data -> 'experiment_id') <> 'string'
+         or (new.data ->> 'experiment_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+        raise exception 'L''esperimento collegato non è valido';
+      end if;
+      if (new.data -> 'experiment_id') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'experiment_id' end)
+         or new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end) then
+        if not exists (
+          select 1 from public.items e
+          where e.id = (new.data ->> 'experiment_id')::uuid and e.kind = 'experiment' and e.idea_id = new.idea_id
+        ) then
+          raise exception 'L''esperimento collegato deve essere della stessa idea';
+        end if;
+      end if;
+    end if;
   end if;
 
   if tg_op = 'INSERT' then
@@ -1422,11 +1472,656 @@ end
 $$;
 
 -- =========================================================================
+-- Questionari: link pubblico per chi risponde, risposte e statistiche per il team
+-- =========================================================================
+
+-- L'unica eccezione al «negato di default»: chi non ha un account usa solo public_survey, submit_survey e survey_event.
+-- Le tabelle qui sotto non si leggono né si scrivono direttamente; il team legge le risposte e i conteggi.
+
+-- Una riga per compilazione (session, generata dalla pagina): si salva schermata per schermata e diventa completa
+-- con l'ultimo invio, dopo il quale non cambia più. Le incomplete restano: chi abbandona lascia comunque le sue risposte.
+create table if not exists public.survey_responses (
+  id uuid primary key default gen_random_uuid(),
+  survey_id uuid not null references public.items (id) on delete cascade,
+  session uuid not null,
+  answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) < 20480),
+  email text check (email is null or (char_length(email) <= 254 and email = lower(email))),
+  recontact boolean not null default false,
+  duration_seconds integer check (duration_seconds is null or duration_seconds between 0 and 86400),
+  device text check (device is null or device in ('telefono', 'computer')),
+  completed boolean not null default false,
+  saves integer not null default 1 check (saves >= 1),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint survey_responses_recontact_email check (not recontact or email is not null),
+  constraint survey_responses_session_key unique (survey_id, session)
+);
+
+create index if not exists survey_responses_survey_idx on public.survey_responses (survey_id, created_at);
+
+-- Visite della pagina e inizi della compilazione, per l'imbuto: nessun dato su chi risponde.
+create table if not exists public.survey_events (
+  id bigint generated always as identity primary key,
+  survey_id uuid not null references public.items (id) on delete cascade,
+  kind text not null check (kind in ('view', 'start')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists survey_events_survey_idx on public.survey_events (survey_id, kind, created_at);
+
+-- Limiti per chi risponde: un'impronta (hash con sale del giorno) al posto dell'indirizzo, cancellata dopo 24 ore.
+create table if not exists public.survey_limits (
+  id bigint generated always as identity primary key,
+  survey_id uuid not null references public.items (id) on delete cascade,
+  client text not null,
+  kind text not null check (kind in ('session', 'view', 'start')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists survey_limits_client_idx on public.survey_limits (survey_id, client, created_at);
+create index if not exists survey_limits_created_idx on public.survey_limits (created_at);
+
+-- Un sale casuale al giorno, letto solo dalle funzioni qui sotto: cambiando ogni giorno, le impronte non si collegano tra giorni.
+create table if not exists public.survey_salts (
+  day date primary key,
+  salt text not null
+);
+
+alter table public.survey_responses enable row level security;
+alter table public.survey_events enable row level security;
+alter table public.survey_limits enable row level security;
+alter table public.survey_salts enable row level security;
+
+-- Il team legge le risposte dei questionari non archiviati di idee non archiviate; nessuno le scrive direttamente.
+drop policy if exists survey_responses_select on public.survey_responses;
+create policy survey_responses_select on public.survey_responses
+  for select to authenticated
+  using (
+    (select public.can_read())
+    and exists (
+      select 1
+      from public.items s
+      join public.items idea on idea.id = s.idea_id
+      where s.id = survey_id and s.kind = 'survey' and s.deleted_at is null and idea.deleted_at is null
+    )
+  );
+
+-- Testo da un valore JSON: solo stringhe, senza caratteri di controllo né spazi ai bordi, al massimo p_max caratteri.
+create or replace function public.survey_text(p_value jsonb, p_max integer)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when jsonb_typeof(p_value) = 'string'
+      then left(btrim(regexp_replace(p_value #>> '{}', '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]', '', 'g'), E' \t\r\n'), p_max)
+    else ''
+  end
+$$;
+
+-- Intero da un valore JSON: solo numeri senza decimali tra p_min e p_max.
+create or replace function public.survey_int(p_value jsonb, p_min integer, p_max integer)
+returns integer
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when jsonb_typeof(p_value) = 'number' then
+      case when p_value::numeric = trunc(p_value::numeric) and p_value::numeric between p_min and p_max then p_value::numeric::integer end
+  end
+$$;
+
+-- Le domande come le vede chi risponde: solo campi noti e ben formati, senza il ruolo interno della domanda.
+-- La stessa lista serve a mostrare il questionario e a controllare le risposte.
+create or replace function public.survey_public_questions(p_data jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_q jsonb;
+  v_o jsonb;
+  v_out jsonb := '[]'::jsonb;
+  v_ids text[] := '{}';
+  v_opts jsonb;
+  v_opt_ids text[];
+  v_id text;
+  v_type text;
+  v_label text;
+  v_item jsonb;
+  v_other boolean;
+  v_points integer;
+  v_min integer;
+  v_max integer;
+  v_has_email boolean := false;
+begin
+  if jsonb_typeof(p_data -> 'questions') is distinct from 'array' then
+    return v_out;
+  end if;
+  for v_q in select e.value from jsonb_array_elements(p_data -> 'questions') e loop
+    exit when jsonb_array_length(v_out) >= 40;
+    continue when jsonb_typeof(v_q) is distinct from 'object';
+    v_id := case when jsonb_typeof(v_q -> 'id') = 'string' then v_q ->> 'id' else '' end;
+    v_type := case when jsonb_typeof(v_q -> 'type') = 'string' then v_q ->> 'type' else '' end;
+    v_label := public.survey_text(v_q -> 'label', 300);
+    continue when v_id !~ '^[a-z0-9-]{1,40}$' or v_id = any (v_ids) or v_label = ''
+      or v_type not in ('sezione', 'scelta', 'scelte', 'scala', 'numero', 'breve', 'lunga', 'email')
+      or (v_type = 'email' and v_has_email);
+    v_item := jsonb_build_object(
+      'id', v_id,
+      'type', v_type,
+      'label', v_label,
+      'help', public.survey_text(v_q -> 'help', 500),
+      'required', v_type <> 'sezione' and coalesce(v_q -> 'required' = 'true'::jsonb, false)
+    );
+    if v_type in ('scelta', 'scelte') then
+      v_opts := '[]'::jsonb;
+      v_opt_ids := '{}';
+      if jsonb_typeof(v_q -> 'options') = 'array' then
+        for v_o in select e.value from jsonb_array_elements(v_q -> 'options') e loop
+          exit when jsonb_array_length(v_opts) >= 20;
+          continue when jsonb_typeof(v_o) is distinct from 'object' or jsonb_typeof(v_o -> 'id') is distinct from 'string';
+          -- non-rispondo è riservato a «Preferisco non rispondere».
+          continue when (v_o ->> 'id') !~ '^[a-z0-9-]{1,40}$' or (v_o ->> 'id') = any (v_opt_ids) or (v_o ->> 'id') = 'non-rispondo'
+            or public.survey_text(v_o -> 'label', 120) = '';
+          v_opt_ids := v_opt_ids || (v_o ->> 'id');
+          v_opts := v_opts || jsonb_build_array(jsonb_build_object('id', v_o ->> 'id', 'label', public.survey_text(v_o -> 'label', 120)));
+        end loop;
+      end if;
+      v_other := coalesce(v_q -> 'allow_other' = 'true'::jsonb, false);
+      -- Una domanda a scelta senza opzioni e senza «Altro» non ha risposte possibili: non si mostra.
+      continue when jsonb_array_length(v_opts) = 0 and not v_other;
+      v_item := v_item || jsonb_build_object(
+        'options', v_opts,
+        'allow_other', v_other,
+        'prefer_not', coalesce(v_q -> 'prefer_not' = 'true'::jsonb, false)
+      );
+    elsif v_type = 'scala' then
+      v_points := case when v_q -> 'scale' -> 'points' = '7'::jsonb then 7 else 5 end;
+      v_item := v_item || jsonb_build_object('scale', jsonb_build_object(
+        'points', v_points,
+        'min_label', public.survey_text(v_q -> 'scale' -> 'min_label', 60),
+        'max_label', public.survey_text(v_q -> 'scale' -> 'max_label', 60)
+      ));
+      if jsonb_typeof(v_q -> 'scale' -> 'labels') = 'array' and jsonb_array_length(v_q -> 'scale' -> 'labels') = v_points then
+        v_item := jsonb_set(v_item, '{scale,labels}', (
+          select jsonb_agg(public.survey_text(e.value, 60) order by e.n)
+          from jsonb_array_elements(v_q -> 'scale' -> 'labels') with ordinality e (value, n)
+        ));
+      end if;
+    elsif v_type = 'numero' then
+      v_min := public.survey_int(v_q -> 'number' -> 'min', -1000000000, 1000000000);
+      v_max := public.survey_int(v_q -> 'number' -> 'max', -1000000000, 1000000000);
+      if v_min > v_max then
+        select v_max, v_min into v_min, v_max;
+      end if;
+      v_item := v_item || jsonb_build_object('number', jsonb_strip_nulls(jsonb_build_object('min', v_min, 'max', v_max)));
+    end if;
+    if v_type = 'email' then
+      v_has_email := true;
+    end if;
+    v_ids := v_ids || v_id;
+    v_out := v_out || jsonb_build_array(v_item);
+  end loop;
+  return v_out;
+end
+$$;
+
+-- Il questionario di un link: non archiviato, di un'idea non archiviata. Senza riga se non c'è.
+create or replace function public.survey_by_token(p_token text)
+returns setof public.items
+language sql
+stable
+set search_path = ''
+as $$
+  select s.*
+  from public.items s
+  join public.items idea on idea.id = s.idea_id and idea.deleted_at is null
+  where p_token ~ '^[A-Za-z0-9_-]{22}$'
+    and s.kind = 'survey'
+    and s.data ->> 'token' = p_token
+    and s.deleted_at is null
+$$;
+
+-- Impronta di chi chiama per i limiti: hash dell'indirizzo con il sale del giorno e il questionario. L'indirizzo non si salva mai.
+-- Prima cf-connecting-ip, che il proxy riscrive e non si può falsificare; poi il primo indirizzo di x-forwarded-for.
+-- Senza intestazioni tutte le chiamate condividono un'impronta.
+create or replace function public.survey_client(p_survey uuid)
+returns text
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_day date := (now() at time zone 'utc')::date;
+  v_headers jsonb;
+  v_address text;
+  v_salt text;
+begin
+  begin
+    v_headers := nullif(current_setting('request.headers', true), '')::jsonb;
+  exception when others then
+    v_headers := null;
+  end;
+  v_address := coalesce(
+    nullif(btrim(v_headers ->> 'cf-connecting-ip'), ''),
+    nullif(btrim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1)), '')
+  );
+  delete from public.survey_salts where day < v_day;
+  insert into public.survey_salts (day, salt)
+  values (v_day, replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
+  on conflict (day) do nothing;
+  select s.salt into v_salt from public.survey_salts s where s.day = v_day;
+  return encode(sha256(convert_to(v_salt || '|' || p_survey::text || '|' || coalesce(left(v_address, 100), '-'), 'UTF8')), 'hex');
+end
+$$;
+
+create or replace function public.survey_error(p_reason text, p_question text default null)
+returns jsonb
+language sql
+immutable
+set search_path = ''
+as $$
+  select jsonb_strip_nulls(jsonb_build_object('status', 'errore', 'reason', p_reason, 'question', p_question))
+$$;
+
+-- Per la pagina pubblica: il questionario aperto con le sole informazioni per chi risponde, mai identificativi interni.
+-- median_seconds: durata mediana delle compilazioni complete, solo da 20 in su (un dato aggregato, mai di una persona).
+create or replace function public.public_survey(p_token text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  s public.items;
+begin
+  select * into s from public.survey_by_token(p_token);
+  if s.id is null then
+    return jsonb_build_object('status', 'non_trovato');
+  elsif s.status is distinct from 'aperto' then
+    return jsonb_build_object('status', 'chiuso');
+  end if;
+  return jsonb_build_object(
+    'status', 'aperto',
+    'title', s.title,
+    'intro', public.survey_text(s.data -> 'intro', 2000),
+    'privacy', public.survey_text(s.data -> 'privacy', 3000),
+    'thanks', public.survey_text(s.data -> 'thanks', 1000),
+    'layout', case when s.data ->> 'layout' = 'sezioni' then 'sezioni' else 'una' end,
+    'progress', case when s.data ->> 'progress' in ('barra', 'nessuno') then s.data ->> 'progress' else 'contatore' end,
+    'show_time', coalesce(s.data -> 'show_time' <> 'false'::jsonb, true),
+    'median_seconds', (
+      select case when count(*) >= 20 then round(percentile_cont(0.5) within group (order by r.duration_seconds)::numeric)::integer end
+      from public.survey_responses r
+      where r.survey_id = s.id and r.completed and r.duration_seconds is not null
+    ),
+    'appearance', jsonb_build_object(
+      'theme', case when s.data -> 'appearance' ->> 'theme' in ('chiaro', 'scuro') then s.data -> 'appearance' ->> 'theme' else 'automatico' end,
+      'accent', case when s.data -> 'appearance' ->> 'accent' ~ '^#[0-9a-f]{6}$' then s.data -> 'appearance' ->> 'accent' else '#3b4bc8' end
+    ),
+    'questions', public.survey_public_questions(s.data)
+  );
+end
+$$;
+
+-- Salvataggio dalla pagina pubblica, una schermata alla volta. Tutto si controlla qui, contro le domande salvate:
+-- il browser può mentire. Ogni chiamata porta tutte le risposte date finora e sostituisce quelle salvate per la sessione.
+-- p_meta: session (uuid v4 della compilazione), final (ultimo invio), duration_seconds, device ('telefono' o 'computer'),
+-- recontact, website (campo trappola per i bot, deve restare vuoto). Le obbligatorie si controllano solo con final.
+create or replace function public.submit_survey(p_token text, p_answers jsonb, p_meta jsonb default '{}'::jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  s public.items;
+  r public.survey_responses;
+  v_meta jsonb := coalesce(p_meta, '{}'::jsonb);
+  v_session uuid;
+  v_final boolean;
+  v_device text;
+  v_questions jsonb;
+  v_by_id jsonb;
+  v_q jsonb;
+  v_key text;
+  v_value jsonb;
+  v_qid text;
+  v_type text;
+  v_text text;
+  v_n integer;
+  v_clean jsonb := '{}'::jsonb;
+  v_email text;
+  v_recontact boolean;
+  v_duration integer;
+  v_client text;
+begin
+  if jsonb_typeof(p_answers) is distinct from 'object' or jsonb_typeof(v_meta) <> 'object' then
+    return public.survey_error('Risposte non valide.');
+  end if;
+  if octet_length(p_answers::text) + octet_length(v_meta::text) >= 20480 then
+    return public.survey_error('Le risposte sono troppo lunghe.');
+  end if;
+
+  select * into s from public.survey_by_token(p_token);
+  if s.id is null then
+    return public.survey_error('Questionario non trovato.');
+  elsif s.status is distinct from 'aperto' then
+    return public.survey_error('Il questionario è chiuso.');
+  end if;
+
+  -- Un bot che compila il campo nascosto riceve «ok», ma non si salva nulla.
+  if btrim(coalesce(v_meta ->> 'website', '')) <> '' then
+    return jsonb_build_object('status', 'ok');
+  end if;
+
+  if jsonb_typeof(v_meta -> 'session') is distinct from 'string'
+     or (v_meta ->> 'session') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
+    return public.survey_error('Sessione non valida. Ricarica la pagina.');
+  end if;
+  if coalesce(jsonb_typeof(v_meta -> 'final'), 'null') not in ('boolean', 'null')
+     or coalesce(jsonb_typeof(v_meta -> 'recontact'), 'null') not in ('boolean', 'null')
+     or (coalesce(jsonb_typeof(v_meta -> 'device'), 'null') <> 'null' and coalesce(v_meta ->> 'device', '') not in ('telefono', 'computer')) then
+    return public.survey_error('Risposte non valide.');
+  end if;
+  v_session := (v_meta ->> 'session')::uuid;
+  v_final := coalesce(v_meta -> 'final' = 'true'::jsonb, false);
+  v_device := case when v_meta ->> 'device' in ('telefono', 'computer') then v_meta ->> 'device' end;
+
+  -- Una richiesta alla volta per questionario, così limiti e sessioni restano esatti.
+  perform pg_advisory_xact_lock(hashtextextended('survey:' || s.id::text, 0));
+  delete from public.survey_limits where created_at < now() - interval '24 hours';
+  select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
+  if r.id is not null then
+    if r.completed then
+      return public.survey_error('Le risposte sono già state inviate.');
+    elsif not v_final and r.saves >= 60 then
+      return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+    end if;
+  else
+    -- I limiti contano le compilazioni nuove; i salvataggi di una compilazione già iniziata no.
+    if (select count(*) from (select 1 from public.survey_responses x where x.survey_id = s.id limit 5000) y) >= 5000 then
+      return public.survey_error('Il questionario non accetta altre risposte.');
+    end if;
+    if (select count(*) from public.survey_responses x where x.survey_id = s.id and x.created_at > now() - interval '1 minute') >= 30 then
+      return public.survey_error('Troppe risposte in questo momento. Riprova tra qualche minuto.');
+    end if;
+    v_client := public.survey_client(s.id);
+    if (
+      select count(*) from public.survey_limits l
+      where l.survey_id = s.id and l.client = v_client and l.kind = 'session' and l.created_at > now() - interval '1 hour'
+    ) >= 5 then
+      return public.survey_error('Hai già compilato questo questionario più volte. Riprova più tardi.');
+    end if;
+  end if;
+
+  v_questions := public.survey_public_questions(s.data);
+  select coalesce(jsonb_object_agg(q ->> 'id', q), '{}'::jsonb) into v_by_id
+  from jsonb_array_elements(v_questions) q
+  where q ->> 'type' <> 'sezione';
+
+  for v_key, v_value in select e.key, e.value from jsonb_each(p_answers) e loop
+    -- Testo di «Altro» per le domande a scelta che lo prevedono.
+    if v_key like '%:altro' then
+      v_qid := left(v_key, -6);
+      v_q := v_by_id -> v_qid;
+      if v_q is null or not coalesce(v_q -> 'allow_other' = 'true'::jsonb, false) then
+        return public.survey_error('Risposte non valide.');
+      end if;
+      continue when jsonb_typeof(v_value) = 'null';
+      if jsonb_typeof(v_value) <> 'string' then
+        return public.survey_error('Risposte non valide.', v_qid);
+      end if;
+      v_text := public.survey_text(v_value, 100000);
+      continue when v_text = '';
+      if char_length(v_text) > 300 then
+        return public.survey_error('Una risposta è troppo lunga.', v_qid);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_text);
+      continue;
+    end if;
+
+    v_q := v_by_id -> v_key;
+    if v_q is null then
+      return public.survey_error('Risposte non valide.');
+    end if;
+    continue when jsonb_typeof(v_value) = 'null';
+    v_type := v_q ->> 'type';
+
+    -- «Preferisco non rispondere» ha l'id riservato non-rispondo, valido solo dove la domanda lo prevede.
+    if v_type = 'scelta' then
+      if jsonb_typeof(v_value) <> 'string' then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      continue when v_value #>> '{}' = '';
+      if not (
+        exists (select 1 from jsonb_array_elements(v_q -> 'options') o where o ->> 'id' = v_value #>> '{}')
+        or (v_value #>> '{}' = 'non-rispondo' and v_q -> 'prefer_not' = 'true'::jsonb)
+      ) then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_value);
+    elsif v_type = 'scelte' then
+      if jsonb_typeof(v_value) <> 'array' then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      continue when jsonb_array_length(v_value) = 0;
+      if exists (
+           select 1 from jsonb_array_elements(v_value) a
+           where jsonb_typeof(a) <> 'string'
+              or not (
+                exists (select 1 from jsonb_array_elements(v_q -> 'options') o where o ->> 'id' = a #>> '{}')
+                or (a #>> '{}' = 'non-rispondo' and v_q -> 'prefer_not' = 'true'::jsonb)
+              )
+         )
+         or (select count(distinct a) from jsonb_array_elements(v_value) a) <> jsonb_array_length(v_value) then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      if v_value ? 'non-rispondo' and jsonb_array_length(v_value) > 1 then
+        return public.survey_error('Scegli una sola risposta.', v_key);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_value);
+    elsif v_type = 'scala' then
+      v_n := public.survey_int(v_value, 1, (v_q -> 'scale' ->> 'points')::integer);
+      if v_n is null then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_n);
+    elsif v_type = 'numero' then
+      if public.survey_int(v_value, -1000000000, 1000000000) is null then
+        return public.survey_error('Scrivi un numero intero.', v_key);
+      end if;
+      v_n := public.survey_int(
+        v_value,
+        coalesce((v_q -> 'number' ->> 'min')::integer, -1000000000),
+        coalesce((v_q -> 'number' ->> 'max')::integer, 1000000000)
+      );
+      if v_n is null then
+        return public.survey_error('Un numero è fuori dall''intervallo ammesso.', v_key);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_n);
+    elsif v_type in ('breve', 'lunga') then
+      if jsonb_typeof(v_value) <> 'string' then
+        return public.survey_error('Risposte non valide.', v_key);
+      end if;
+      v_text := public.survey_text(v_value, 100000);
+      continue when v_text = '';
+      if char_length(v_text) > (case when v_type = 'breve' then 300 else 3000 end) then
+        return public.survey_error('Una risposta è troppo lunga.', v_key);
+      end if;
+      v_clean := v_clean || jsonb_build_object(v_key, v_text);
+    elsif v_type = 'email' then
+      if jsonb_typeof(v_value) <> 'string' then
+        return public.survey_error('Indirizzo email non valido.', v_key);
+      end if;
+      v_text := lower(public.survey_text(v_value, 100000));
+      continue when v_text = '';
+      if char_length(v_text) > 254 or v_text !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then
+        return public.survey_error('Indirizzo email non valido.', v_key);
+      end if;
+      -- L'email va solo nella sua colonna, non tra le risposte.
+      v_email := v_text;
+    end if;
+  end loop;
+
+  -- Un'opzione (o «Preferisco non rispondere») e «Altro» insieme si escludono; le obbligatorie solo all'ultimo invio.
+  for v_q in select q from jsonb_array_elements(v_questions) q loop
+    v_qid := v_q ->> 'id';
+    if v_clean ? (v_qid || ':altro')
+       and ((v_q ->> 'type' = 'scelta' and v_clean ? v_qid) or (v_q ->> 'type' = 'scelte' and v_clean -> v_qid = '["non-rispondo"]'::jsonb)) then
+      return public.survey_error('Scegli una sola risposta.', v_qid);
+    end if;
+    if v_final and v_q -> 'required' = 'true'::jsonb and not (
+      case v_q ->> 'type'
+        when 'email' then v_email is not null
+        when 'scelta' then v_clean ? v_qid or v_clean ? (v_qid || ':altro')
+        when 'scelte' then v_clean ? v_qid or v_clean ? (v_qid || ':altro')
+        else v_clean ? v_qid
+      end
+    ) then
+      return public.survey_error('Rispondi a tutte le domande obbligatorie.', v_qid);
+    end if;
+  end loop;
+
+  v_recontact := coalesce(v_meta -> 'recontact' = 'true'::jsonb, false);
+  if v_final then
+    if v_clean = '{}'::jsonb and v_email is null then
+      return public.survey_error('Rispondi ad almeno una domanda.');
+    elsif v_recontact and v_email is null then
+      return public.survey_error('Per farti ricontattare serve un indirizzo email.');
+    end if;
+  else
+    -- A metà compilazione l'email può arrivare dopo: il consenso conta solo insieme a un indirizzo.
+    v_recontact := v_recontact and v_email is not null;
+  end if;
+  v_duration := case
+    when jsonb_typeof(v_meta -> 'duration_seconds') = 'number' and (v_meta ->> 'duration_seconds')::numeric >= 0
+      then least(round((v_meta ->> 'duration_seconds')::numeric), 86400)::integer
+  end;
+
+  if r.id is null then
+    -- Una compilazione appena iniziata senza risposte non lascia traccia.
+    if v_clean = '{}'::jsonb and v_email is null then
+      return jsonb_build_object('status', 'ok');
+    end if;
+    insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed)
+    values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final);
+    insert into public.survey_limits (survey_id, client, kind) values (s.id, v_client, 'session');
+  else
+    update public.survey_responses
+       set answers = v_clean,
+           email = v_email,
+           recontact = v_recontact,
+           duration_seconds = coalesce(v_duration, r.duration_seconds),
+           device = coalesce(v_device, r.device),
+           completed = v_final,
+           saves = r.saves + 1,
+           updated_at = now()
+     where id = r.id;
+  end if;
+  return jsonb_build_object('status', 'ok');
+end
+$$;
+
+-- Visita della pagina (view) e inizio della compilazione (start), solo per i questionari aperti. Oltre i limiti non registra nulla.
+create or replace function public.survey_event(p_token text, p_kind text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  s public.items;
+  v_client text;
+begin
+  if p_kind is null or p_kind not in ('view', 'start') then
+    return;
+  end if;
+  select * into s from public.survey_by_token(p_token);
+  if s.id is null or s.status is distinct from 'aperto' then
+    return;
+  end if;
+  delete from public.survey_limits where created_at < now() - interval '24 hours';
+  v_client := public.survey_client(s.id);
+  if (
+    select count(*) from public.survey_limits l
+    where l.survey_id = s.id and l.client = v_client and l.kind in ('view', 'start') and l.created_at > now() - interval '1 hour'
+  ) >= 30 then
+    return;
+  end if;
+  if (select count(*) from public.survey_events e where e.survey_id = s.id and e.created_at > now() - interval '1 minute') >= 300
+     or (select count(*) from (select 1 from public.survey_events e where e.survey_id = s.id limit 100000) x) >= 100000 then
+    return;
+  end if;
+  insert into public.survey_events (survey_id, kind) values (s.id, p_kind);
+  insert into public.survey_limits (survey_id, client, kind) values (s.id, v_client, p_kind);
+end
+$$;
+
+-- Imbuto per il team: visite, inizi, compilazioni interrotte (partial) e complete. Solo numeri; null se il questionario non è visibile.
+create or replace function public.survey_funnel(p_survey uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'views', (select count(*) from public.survey_events e where e.survey_id = s.id and e.kind = 'view'),
+    'starts', (select count(*) from public.survey_events e where e.survey_id = s.id and e.kind = 'start'),
+    'partial', (select count(*) from public.survey_responses r where r.survey_id = s.id and not r.completed),
+    'completed', (select count(*) from public.survey_responses r where r.survey_id = s.id and r.completed)
+  )
+  from public.items s
+  join public.items idea on idea.id = s.idea_id and idea.deleted_at is null
+  where s.id = p_survey and s.kind = 'survey' and s.deleted_at is null and public.can_read()
+$$;
+
+-- Cancella per sempre alcune risposte (p_ids) o tutte; con tutte si azzerano anche visite, inizi e limiti del questionario.
+create or replace function public.delete_survey_responses(p_survey uuid, p_ids uuid[] default null)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_count integer;
+begin
+  if not public.can_write() then
+    raise exception 'Solo admin e membri possono cancellare le risposte';
+  end if;
+  if not exists (
+    select 1
+    from public.items s
+    join public.items idea on idea.id = s.idea_id and idea.deleted_at is null
+    where s.id = p_survey and s.kind = 'survey' and s.deleted_at is null
+  ) then
+    return 0;
+  end if;
+  delete from public.survey_responses r where r.survey_id = p_survey and (p_ids is null or r.id = any (p_ids));
+  get diagnostics v_count = row_count;
+  if p_ids is null then
+    delete from public.survey_events where survey_id = p_survey;
+    delete from public.survey_limits where survey_id = p_survey;
+  end if;
+  return v_count;
+end
+$$;
+
+-- =========================================================================
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly from authenticated;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.member_activity, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts from anon;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts from authenticated;
+revoke all on all sequences in schema public from anon;
+-- Il sale e le impronte dei limiti non li legge neanche la chiave di servizio: con il sale l'impronta di un indirizzo si ricostruisce.
+revoke all on public.survey_limits, public.survey_salts from service_role;
+grant select on public.survey_responses to authenticated;
 grant select on public.email_prefs to authenticated;
 grant select on public.audit_log to authenticated;
 grant select, update, delete on public.members to authenticated;
@@ -1452,6 +2147,20 @@ revoke execute on function public.comments_mentions() from public, anon, authent
 revoke execute on function public.notes_mentions() from public, anon, authenticated;
 revoke execute on function public.record_mentions(text, uuid, text, uuid, uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.mentioned_users(text, uuid) from public, anon, authenticated;
+
+-- Questionari: le funzioni di supporto non sono chiamabili via API; quelle del link pubblico sono le sole aperte ad anon.
+revoke execute on function public.survey_text(jsonb, integer) from public, anon, authenticated;
+revoke execute on function public.survey_int(jsonb, integer, integer) from public, anon, authenticated;
+revoke execute on function public.survey_public_questions(jsonb) from public, anon, authenticated;
+revoke execute on function public.survey_by_token(text) from public, anon, authenticated;
+revoke execute on function public.survey_client(uuid) from public, anon, authenticated, service_role;
+revoke execute on function public.survey_error(text, text) from public, anon, authenticated;
+revoke execute on function public.public_survey(text) from public;
+revoke execute on function public.submit_survey(text, jsonb, jsonb) from public;
+revoke execute on function public.survey_event(text, text) from public;
+grant execute on function public.public_survey(text) to anon, authenticated;
+grant execute on function public.submit_survey(text, jsonb, jsonb) to anon, authenticated;
+grant execute on function public.survey_event(text, text) to anon, authenticated;
 
 -- Le funzioni delle email: solo la chiave di servizio (Edge Function notify); notify_call solo pg_cron.
 revoke execute on function public.notify_recipients() from public, anon, authenticated;
@@ -1489,6 +2198,8 @@ revoke execute on function public.chat_overview() from public, anon;
 revoke execute on function public.mark_chat_read(uuid) from public, anon;
 revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
 revoke execute on function public.set_email_prefs(boolean, boolean) from public, anon;
+revoke execute on function public.survey_funnel(uuid) from public, anon;
+revoke execute on function public.delete_survey_responses(uuid, uuid[]) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
@@ -1509,6 +2220,8 @@ grant execute on function public.chat_overview() to authenticated;
 grant execute on function public.mark_chat_read(uuid) to authenticated;
 grant execute on function public.mark_mentions_read(bigint[]) to authenticated;
 grant execute on function public.set_email_prefs(boolean, boolean) to authenticated;
+grant execute on function public.survey_funnel(uuid) to authenticated;
+grant execute on function public.delete_survey_responses(uuid, uuid[]) to authenticated;
 
 -- =========================================================================
 -- Realtime: aggiornamenti dal vivo e presenza

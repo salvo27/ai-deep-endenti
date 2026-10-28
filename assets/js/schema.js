@@ -99,6 +99,72 @@ export const DEFAULT_EQUITY_FACTORS = [
   { key: 'responsabilita', label: 'Responsabilità', weight: 5 },
 ];
 
+// Questionari: la pagina pubblica mostra solo ciò che passa da qui e dal database (public_survey).
+export const QUESTION_TYPES = [
+  ['sezione', 'Titolo di sezione'],
+  ['scelta', 'Scelta singola'],
+  ['scelte', 'Scelta multipla'],
+  ['scala', 'Scala di valutazione'],
+  ['numero', 'Numero'],
+  ['breve', 'Risposta breve'],
+  ['lunga', 'Risposta lunga'],
+  ['email', 'Email di contatto'],
+];
+
+export const QUESTION_ROLES = [
+  ['persona', 'Chi risponde (dati socio-demografici)'],
+  ['problema', 'Il problema'],
+  ['contatto', 'Contatto'],
+  ['altro', 'Altro'],
+];
+
+export const SURVEY_LAYOUTS = [
+  ['una', 'Una domanda per schermata'],
+  ['sezioni', 'Una sezione per schermata'],
+];
+
+export const SURVEY_PROGRESS = [
+  ['contatore', 'Contatore (Domanda 3 di 10)'],
+  ['barra', 'Barra di avanzamento'],
+  ['nessuno', 'Nessuno'],
+];
+
+export const SURVEY_THEMES = [
+  ['automatico', 'Come il dispositivo'],
+  ['chiaro', 'Chiaro'],
+  ['scuro', 'Scuro'],
+];
+
+export const SURVEY_ACCENT = '#3b4bc8';
+
+// Id riservato della risposta «Preferisco non rispondere» (domande a scelta con prefer_not).
+export const SURVEY_PREFER_NOT = 'non-rispondo';
+
+export const SURVEY_LIMITS = Object.freeze({
+  questions: 40,
+  options: 20,
+  problemQuestions: 10,
+  intro: 2000,
+  privacy: 3000,
+  thanks: 1000,
+  label: 300,
+  help: 500,
+  option: 120,
+  scaleLabel: 60,
+  number: 1e9,
+  short: 300,
+  long: 3000,
+  other: 300,
+});
+
+export const SURVEY_TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
+const TOKEN_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+// 22 caratteri casuali (132 bit): impossibile da indovinare. Cambiarlo revoca il link vecchio.
+export function newSurveyToken() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(22)), (b) => TOKEN_CHARS[b & 63]).join('');
+}
+
 const field = (key, label, type = 'textarea', extra = {}) => ({ key, label, type, ...extra });
 
 export const KINDS = {
@@ -442,6 +508,28 @@ export const KINDS = {
     ],
     extraKeys: ['features', 'rivals', 'cells', 'axes', 'us'],
   },
+  survey: {
+    label: 'Questionario',
+    plural: 'Questionari',
+    icon: 'list',
+    titleLabel: 'Titolo',
+    needsIdea: true,
+    statuses: [
+      ['bozza', 'Bozza'],
+      ['aperto', 'Aperto'],
+      ['chiuso', 'Chiuso'],
+    ],
+    // Solo per etichette e storico: i dati li valida sanitizeSurvey.
+    fields: [
+      field('intro', 'Introduzione', 'textarea', { wide: true, help: 'A cosa serve il questionario: è la prima cosa che legge chi risponde.' }),
+      field('privacy', 'Informativa sulla privacy', 'textarea', { wide: true }),
+      field('thanks', 'Messaggio finale', 'textarea', { rows: 2 }),
+      field('layout', 'Impaginazione', 'select', { options: SURVEY_LAYOUTS }),
+      field('progress', 'Avanzamento', 'select', { options: SURVEY_PROGRESS }),
+      field('experiment_id', 'Esperimento collegato', 'experiment'),
+    ],
+    extraKeys: ['show_time', 'appearance', 'token', 'questions'],
+  },
   note: {
     label: 'Nota',
     plural: 'Appunti',
@@ -483,8 +571,8 @@ export const KINDS = {
   generator: { label: 'Generatore', plural: 'Generatore', icon: 'generator', titleLabel: 'Titolo', statuses: null, fields: [] },
 };
 
-export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note'];
-export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note'];
+export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey', 'note'];
+export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey', 'note'];
 export const TEAM_KINDS = ['teamcanvas', 'equity'];
 export const EDITABLE_KINDS = [...BOARD_KINDS, ...TEAM_KINDS];
 
@@ -784,6 +872,104 @@ function sanitizeGenerator(data) {
   return { rows, cols, cells };
 }
 
+const pick = (list, value, fallback) => (list.some(([v]) => v === value) ? value : fallback);
+
+function sanitizeOptions(list) {
+  const out = [];
+  const ids = new Set();
+  for (const row of Array.isArray(list) ? list : []) {
+    const label = cleanLine(row?.label, SURVEY_LIMITS.option);
+    if (!label || !isRowId(row?.id) || ids.has(row.id) || row.id === SURVEY_PREFER_NOT) continue;
+    ids.add(row.id);
+    out.push({ id: row.id, label });
+    if (out.length >= SURVEY_LIMITS.options) break;
+  }
+  return out;
+}
+
+function sanitizeScale(raw) {
+  const points = intInRange(raw?.points, 5, 7) === 7 ? 7 : 5;
+  const scale = { points };
+  const minLabel = cleanLine(raw?.min_label, SURVEY_LIMITS.scaleLabel);
+  const maxLabel = cleanLine(raw?.max_label, SURVEY_LIMITS.scaleLabel);
+  if (minLabel) scale.min_label = minLabel;
+  if (maxLabel) scale.max_label = maxLabel;
+  // Un'etichetta per ogni punto, oppure nessuna.
+  if (Array.isArray(raw?.labels) && raw.labels.length === points) {
+    const labels = raw.labels.map((label) => cleanLine(label, SURVEY_LIMITS.scaleLabel));
+    if (labels.some(Boolean)) scale.labels = labels;
+  }
+  return scale;
+}
+
+function sanitizeNumberRange(raw) {
+  let min = intInRange(raw?.min, -SURVEY_LIMITS.number, SURVEY_LIMITS.number);
+  let max = intInRange(raw?.max, -SURVEY_LIMITS.number, SURVEY_LIMITS.number);
+  if (min !== null && max !== null && min > max) [min, max] = [max, min];
+  const out = {};
+  if (min !== null) out.min = min;
+  if (max !== null) out.max = max;
+  return out;
+}
+
+// Al massimo una domanda email: è l'unica che finisce nella colonna email delle risposte.
+function sanitizeQuestions(list) {
+  const out = [];
+  const ids = new Set();
+  let hasEmail = false;
+  for (const row of Array.isArray(list) ? list : []) {
+    const type = pick(QUESTION_TYPES, row?.type, null);
+    const label = cleanLine(row?.label, SURVEY_LIMITS.label);
+    if (!type || !label || !isRowId(row?.id) || ids.has(row.id) || (type === 'email' && hasEmail)) continue;
+    ids.add(row.id);
+    if (type === 'email') hasEmail = true;
+    const question = { id: row.id, type, label };
+    const help = cleanText(row?.help, SURVEY_LIMITS.help);
+    if (help) question.help = help;
+    if (type !== 'sezione') {
+      question.required = row?.required === true;
+      question.role = pick(QUESTION_ROLES, row?.role, 'altro');
+    }
+    if (type === 'scelta' || type === 'scelte') {
+      question.options = sanitizeOptions(row?.options);
+      question.allow_other = row?.allow_other === true;
+      question.prefer_not = row?.prefer_not === true;
+    }
+    if (type === 'scala') question.scale = sanitizeScale(row?.scale);
+    if (type === 'numero') question.number = sanitizeNumberRange(row?.number);
+    out.push(question);
+    if (out.length >= SURVEY_LIMITS.questions) break;
+  }
+  return out;
+}
+
+// Solo tema e colore: caratteri, immagini o CSS liberi aprirebbero la pagina pubblica a contenuti estranei.
+function sanitizeAppearance(raw) {
+  const accent = typeof raw?.accent === 'string' ? raw.accent.toLowerCase() : '';
+  return {
+    theme: pick(SURVEY_THEMES, raw?.theme, 'automatico'),
+    accent: /^#[0-9a-f]{6}$/.test(accent) ? accent : SURVEY_ACCENT,
+  };
+}
+
+function sanitizeSurvey(raw) {
+  const data = {};
+  const intro = cleanText(raw.intro, SURVEY_LIMITS.intro);
+  const privacy = cleanText(raw.privacy, SURVEY_LIMITS.privacy);
+  const thanks = cleanText(raw.thanks, SURVEY_LIMITS.thanks);
+  if (intro) data.intro = intro;
+  if (privacy) data.privacy = privacy;
+  if (thanks) data.thanks = thanks;
+  data.layout = pick(SURVEY_LAYOUTS, raw.layout, 'una');
+  data.progress = pick(SURVEY_PROGRESS, raw.progress, 'contatore');
+  data.show_time = typeof raw.show_time === 'boolean' ? raw.show_time : true;
+  data.appearance = sanitizeAppearance(raw.appearance);
+  if (isUuid(raw.experiment_id)) data.experiment_id = raw.experiment_id;
+  if (typeof raw.token === 'string' && SURVEY_TOKEN_RE.test(raw.token)) data.token = raw.token;
+  data.questions = sanitizeQuestions(raw.questions);
+  return data;
+}
+
 // Valido per costruzione: ogni salvataggio passa da qui e i campi sconosciuti o malformati vengono scartati.
 export function sanitizeSnapshot(kind, snapshot) {
   const def = KINDS[kind];
@@ -795,6 +981,7 @@ export function sanitizeSnapshot(kind, snapshot) {
   else if (kind === 'score') data = sanitizeScore(raw);
   else if (kind === 'scoresnap') data = sanitizeScoreSnap(raw);
   else if (kind === 'generator') data = sanitizeGenerator(raw);
+  else if (kind === 'survey') data = sanitizeSurvey(raw);
   else {
     for (const f of def.fields) {
       const value = sanitizeField(f, raw[f.key]);
@@ -849,6 +1036,19 @@ export function autoInterviewTitle(data) {
 
 const TOP_LABELS = { title: null, status: 'Stato', idea_id: 'Idea collegata' };
 
+const SURVEY_QUESTION_PARTS = {
+  label: 'testo',
+  help: 'spiegazione',
+  type: 'tipo',
+  required: 'obbligatoria',
+  role: 'argomento',
+  options: 'opzioni',
+  allow_other: 'risposta «Altro»',
+  prefer_not: 'risposta «Preferisco non rispondere»',
+  scale: 'scala',
+  number: 'limiti',
+};
+
 // Etichetta leggibile per un percorso dello storico, come "data.problem" o "data.scores.<id>.mercato".
 export function describePath(kind, path, ctx = {}) {
   if (path === 'title') return KINDS[kind]?.titleLabel || 'Titolo';
@@ -897,6 +1097,18 @@ export function describePath(kind, path, ctx = {}) {
     if (head === 'scores') return 'Punteggi';
   }
   if (kind === 'scoresnap') return { criteria: 'Criteri', ideas: 'Idee', votes: 'Voti', names: 'Nomi' }[head.split('#')[0]] || head;
+  if (kind === 'survey') {
+    if (head === 'questions') return 'Domande › ordine';
+    const question = head.match(/^questions#(.+)$/);
+    if (question) {
+      const name = ctx.questionLabel?.(question[1]) || question[1];
+      const part = SURVEY_QUESTION_PARTS[(tail[0] || '').split('#')[0]];
+      return part ? `Domande › ${name} › ${part}` : `Domande › ${name}`;
+    }
+    if (head === 'appearance') return { theme: 'Aspetto › tema', accent: 'Aspetto › colore' }[tail[0]] || 'Aspetto';
+    if (head === 'show_time') return 'Durata stimata visibile';
+    if (head === 'token') return 'Link pubblico';
+  }
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -915,6 +1127,7 @@ export function formatValue(kind, path, value, ctx = {}) {
     const who = ctx.memberName?.(mark.by) || 'Membro';
     return mark.state === 'skip' ? `non serve (${who})` : `fatto (${who})`;
   }
+  if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {
@@ -940,6 +1153,7 @@ export function routeFor(item) {
   if (item.kind === 'generator') return '#/generatore';
   if (item.kind === 'teamcanvas') return '#/squadra';
   if (item.kind === 'equity') return '#/squadra/quote';
+  if (item.kind === 'survey') return `#/questionario/${item.id}`;
   return `#/elemento/${item.id}`;
 }
 

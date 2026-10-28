@@ -3,14 +3,19 @@ import assert from 'node:assert/strict';
 import {
   BOARD_KINDS,
   DEFAULT_CRITERIA,
+  IDEA_CHILD_KINDS,
   INTERVIEW_SOURCES,
   KINDS,
+  SURVEY_ACCENT,
+  SURVEY_PREFER_NOT,
+  SURVEY_TOKEN_RE,
   autoInterviewTitle,
   defaultStatus,
   describePath,
   fieldOf,
   formatValue,
   isConversation,
+  newSurveyToken,
   routeFor,
   sanitizeSnapshot,
   snapshotProblem,
@@ -38,6 +43,8 @@ test('the statuses match those allowed by the database', () => {
   assert.deepEqual(KINDS.experiment.statuses.map(([v]) => v), ['pianificato', 'in_corso', 'concluso']);
   assert.deepEqual(KINDS.interview.statuses.map(([v]) => v), ['da_fare', 'fatta', 'analizzata']);
   assert.deepEqual(KINDS.decision.statuses.map(([v]) => v), ['proposta', 'presa', 'rivista']);
+  assert.deepEqual(KINDS.survey.statuses.map(([v]) => v), ['bozza', 'aperto', 'chiuso']);
+  assert.equal(defaultStatus('survey'), 'bozza');
   assert.equal(defaultStatus('canvas'), null);
   assert.equal(statusLabel('idea', 'validazione'), 'In validazione');
 });
@@ -132,6 +139,189 @@ test('a scoring photo keeps only well formed criteria, ideas and votes', () => {
   assert.match(snapshotProblem('scoresnap', { title: '', idea_id: null }), /nome/);
   assert.equal(routeFor({ kind: 'scoresnap', id: IDEA }), `#/valutazione?foto=${IDEA}`);
   assert.equal(describePath('scoresnap', 'data.votes'), 'Voti');
+});
+
+const TOKEN = 'TokenDiProvaAperto0001';
+
+test('a new survey gets the default settings and appearance, and belongs to an idea', () => {
+  const clean = sanitizeSnapshot('survey', { title: '  Turni  ', idea_id: IDEA, data: {} });
+  assert.deepEqual(clean, {
+    title: 'Turni',
+    status: 'bozza',
+    idea_id: IDEA,
+    data: { layout: 'una', progress: 'contatore', show_time: true, appearance: { theme: 'automatico', accent: SURVEY_ACCENT }, questions: [] },
+  });
+  assert.equal(SURVEY_ACCENT, '#3b4bc8');
+  assert.equal(SURVEY_PREFER_NOT, 'non-rispondo', 'lo stesso id riservato che accetta il database');
+  assert.ok(BOARD_KINDS.includes('survey') && IDEA_CHILD_KINDS.includes('survey'));
+  assert.equal(KINDS.survey.label, 'Questionario');
+  assert.equal(KINDS.survey.plural, 'Questionari');
+  assert.match(snapshotProblem('survey', { ...clean, idea_id: null }), /idea/);
+  assert.match(snapshotProblem('survey', { ...clean, title: '' }), /Titolo/);
+  assert.equal(snapshotProblem('survey', clean), null);
+});
+
+test('a survey keeps only known settings, capped texts, a valid link and a valid experiment', () => {
+  const clean = sanitizeSnapshot('survey', {
+    title: 'Q',
+    status: 'aperto',
+    idea_id: IDEA,
+    data: {
+      intro: ` ${'a'.repeat(2100)} `,
+      privacy: 'p'.repeat(3100),
+      thanks: 'Grazie!\r\nA presto',
+      layout: 'sezioni',
+      progress: 'nessuno',
+      show_time: false,
+      experiment_id: MEMBER,
+      token: TOKEN,
+      evil: '<script>',
+      __proto__: { polluted: true },
+    },
+  });
+  assert.equal(clean.status, 'aperto');
+  assert.equal(clean.data.intro.length, 2000);
+  assert.equal(clean.data.privacy.length, 3000);
+  assert.equal(clean.data.thanks, 'Grazie!\nA presto');
+  assert.equal(clean.data.layout, 'sezioni');
+  assert.equal(clean.data.progress, 'nessuno');
+  assert.equal(clean.data.show_time, false);
+  assert.equal(clean.data.experiment_id, MEMBER);
+  assert.equal(clean.data.token, TOKEN);
+  assert.equal('evil' in clean.data, false);
+  assert.equal({}.polluted, undefined);
+
+  const bad = sanitizeSnapshot('survey', {
+    title: 'Q',
+    status: 'pubblicato',
+    data: { thanks: '   ', layout: 'tutte', progress: 'percentuale', show_time: 'no', experiment_id: 'x', token: 'TokenDiProvaAperto00.1' },
+  });
+  assert.equal(bad.status, 'bozza');
+  assert.deepEqual(bad.data, { layout: 'una', progress: 'contatore', show_time: true, appearance: { theme: 'automatico', accent: SURVEY_ACCENT }, questions: [] });
+  for (const token of ['corto', `${TOKEN}x`, 'TokenDiProva Aperto001', 12345]) {
+    assert.equal('token' in sanitizeSnapshot('survey', { data: { token } }).data, false, String(token));
+  }
+});
+
+test('the survey appearance is only a theme and a lowercase accent color', () => {
+  const look = (appearance) => sanitizeSnapshot('survey', { data: { appearance } }).data.appearance;
+  assert.deepEqual(look({ theme: 'scuro', accent: '#AA3300' }), { theme: 'scuro', accent: '#aa3300' });
+  assert.deepEqual(look({ theme: 'chiaro', accent: '#00ff7f', font: 'Comic Sans', css: 'body { display: none }', image: 'x.png' }), { theme: 'chiaro', accent: '#00ff7f' });
+  for (const accent of ['red', '#abc', '#aa3300; background: url(x)', ' #aa3300', '#aa33001', 'rgb(1,2,3)', 0xaa3300, null]) {
+    assert.equal(look({ accent }).accent, SURVEY_ACCENT, String(accent));
+  }
+  assert.equal(look({ theme: 'rosa' }).theme, 'automatico');
+  assert.deepEqual(look('scuro'), { theme: 'automatico', accent: SURVEY_ACCENT });
+});
+
+test('survey questions are validated by type, with unique ids and one email question at most', () => {
+  const { questions } = sanitizeSnapshot('survey', {
+    data: {
+      questions: [
+        { id: 's-1', type: 'sezione', label: ' Chi sei ', help: 'Due domande', required: true, role: 'persona', options: [{ id: 'a', label: 'A' }] },
+        {
+          id: 'ruolo',
+          type: 'scelta',
+          label: 'Che lavoro fai?',
+          required: true,
+          role: 'persona',
+          allow_other: true,
+          prefer_not: true,
+          options: [
+            { id: 'a', label: ' Medico ' },
+            { id: 'a', label: 'Doppia' },
+            { id: 'B C', label: 'Id non valido' },
+            { id: 'b', label: '' },
+            { id: SURVEY_PREFER_NOT, label: 'Id riservato' },
+            { id: 'c', label: 'x'.repeat(200) },
+          ],
+          scale: { points: 7 },
+        },
+        { id: 'canali', type: 'scelte', label: 'Dove?', required: 'si', role: 'boh', allow_other: 'si', prefer_not: 'si', options: Array.from({ length: 25 }, (_, i) => ({ id: `o${i}`, label: `Opzione ${i}` })) },
+        { id: 'fatica', type: 'scala', label: 'Quanto pesa?', role: 'problema', scale: { points: '7', min_label: 'Poco', max_label: 'm'.repeat(80), labels: ['1', '2', '3', '4', '5', '6', '7'] }, options: [{ id: 'a', label: 'A' }], allow_other: true, prefer_not: true },
+        { id: 'voto', type: 'scala', label: 'Voto', scale: { points: 10, labels: ['solo uno'] } },
+        { id: 'ore', type: 'numero', label: 'Ore?', number: { min: 80, max: '0' } },
+        { id: 'eta', type: 'numero', label: 'Età?', number: { min: 1.5, max: 2e9 } },
+        { id: 'parola', type: 'breve', label: 'x'.repeat(400), help: 'h'.repeat(600), options: [{ id: 'a', label: 'A' }], scale: { points: 5 }, number: { min: 1 } },
+        { id: 'racconto', type: 'lunga', label: 'Racconta', role: 'problema' },
+        { id: 'mail', type: 'email', label: 'Email', role: 'contatto' },
+        { id: 'mail-2', type: 'email', label: 'Seconda email' },
+        { id: 'ruolo', type: 'breve', label: 'Id ripetuto' },
+        { id: 'tipo', type: 'griglia', label: 'Tipo sconosciuto' },
+        { id: 'muta', type: 'breve', label: '   ' },
+        { id: 'Non Valida', type: 'breve', label: 'Id non valido' },
+        'non un oggetto',
+      ],
+    },
+  }).data;
+
+  assert.deepEqual(questions.map((q) => q.id), ['s-1', 'ruolo', 'canali', 'fatica', 'voto', 'ore', 'eta', 'parola', 'racconto', 'mail']);
+  const byId = Object.fromEntries(questions.map((q) => [q.id, q]));
+  assert.deepEqual(byId['s-1'], { id: 's-1', type: 'sezione', label: 'Chi sei', help: 'Due domande' }, 'una sezione non ha risposta, ruolo né opzioni');
+  assert.deepEqual(byId.ruolo, {
+    id: 'ruolo',
+    type: 'scelta',
+    label: 'Che lavoro fai?',
+    required: true,
+    role: 'persona',
+    options: [{ id: 'a', label: 'Medico' }, { id: 'c', label: 'x'.repeat(120) }],
+    allow_other: true,
+    prefer_not: true,
+  }, 'l\'id riservato a «Preferisco non rispondere» non è un\'opzione');
+  assert.equal(byId.canali.options.length, 20);
+  assert.equal(byId.canali.required, false, 'obbligatoria solo con true');
+  assert.equal(byId.canali.allow_other, false);
+  assert.equal(byId.canali.prefer_not, false);
+  assert.equal(byId.canali.role, 'altro');
+  assert.deepEqual(byId.fatica, {
+    id: 'fatica',
+    type: 'scala',
+    label: 'Quanto pesa?',
+    required: false,
+    role: 'problema',
+    scale: { points: 7, min_label: 'Poco', max_label: 'm'.repeat(60), labels: ['1', '2', '3', '4', '5', '6', '7'] },
+  });
+  assert.deepEqual(byId.voto.scale, { points: 5 }, 'punti 5 o 7, etichette solo una per punto');
+  assert.deepEqual(byId.ore.number, { min: 0, max: 80 }, 'minimo e massimo invertiti');
+  assert.deepEqual(byId.eta.number, {}, 'solo interi entro un miliardo');
+  assert.equal(byId.parola.label.length, 300);
+  assert.equal(byId.parola.help.length, 500);
+  assert.deepEqual(Object.keys(byId.parola).sort(), ['help', 'id', 'label', 'required', 'role', 'type']);
+  assert.equal(byId.mail.role, 'contatto');
+
+  const many = sanitizeSnapshot('survey', { data: { questions: Array.from({ length: 45 }, (_, i) => ({ id: `q${i}`, type: 'breve', label: `Domanda ${i}` })) } });
+  assert.equal(many.data.questions.length, 40);
+});
+
+test('survey links are random, 22 characters long and safe in a URL', () => {
+  const tokens = new Set(Array.from({ length: 50 }, () => newSurveyToken()));
+  assert.equal(tokens.size, 50);
+  for (const token of tokens) assert.match(token, SURVEY_TOKEN_RE);
+  assert.match(newSurveyToken(), /^[A-Za-z0-9_-]{22}$/);
+});
+
+test('survey history paths and routes are readable', () => {
+  const ctx = { questionLabel: (id) => (id === 'ruolo' ? 'Che lavoro fai?' : null), itemTitle: () => 'Sondaggio online' };
+  assert.equal(routeFor({ kind: 'survey', id: IDEA }), `#/questionario/${IDEA}`);
+  assert.equal(describePath('survey', 'title'), 'Titolo');
+  assert.equal(describePath('survey', 'status'), 'Stato');
+  assert.equal(describePath('survey', 'data.intro'), 'Introduzione');
+  assert.equal(describePath('survey', 'data.layout'), 'Impaginazione');
+  assert.equal(describePath('survey', 'data.experiment_id'), 'Esperimento collegato');
+  assert.equal(describePath('survey', 'data.token'), 'Link pubblico');
+  assert.equal(describePath('survey', 'data.show_time'), 'Durata stimata visibile');
+  assert.equal(describePath('survey', 'data.appearance.accent'), 'Aspetto › colore');
+  assert.equal(describePath('survey', 'data.appearance.theme'), 'Aspetto › tema');
+  assert.equal(describePath('survey', 'data.questions.#order'), 'Domande › ordine');
+  assert.equal(describePath('survey', 'data.questions#ruolo.label', ctx), 'Domande › Che lavoro fai? › testo');
+  assert.equal(describePath('survey', 'data.questions#ruolo.options#a.label', ctx), 'Domande › Che lavoro fai? › opzioni');
+  assert.equal(describePath('survey', 'data.questions#altra.required', ctx), 'Domande › altra › obbligatoria');
+  assert.equal(describePath('survey', 'data.questions#altra', ctx), 'Domande › altra');
+  assert.equal(describePath('survey', 'data.questions#ruolo.prefer_not', ctx), 'Domande › Che lavoro fai? › risposta «Preferisco non rispondere»');
+  assert.equal(formatValue('survey', 'data.layout', 'sezioni'), 'Una sezione per schermata');
+  assert.equal(formatValue('survey', 'data.appearance.theme', 'scuro'), 'Scuro');
+  assert.equal(formatValue('survey', 'data.experiment_id', MEMBER, ctx), 'Sondaggio online');
+  assert.equal(formatValue('survey', 'status', 'aperto'), 'Aperto');
 });
 
 test('snapshotProblem requires titles and parent ideas where the database does', () => {

@@ -335,15 +335,38 @@ export const api = {
     return data;
   },
 
+  // I questionari sono tra gli items; le risposte sono solo quelle visibili (questionario e idea non archiviati).
   async exportAll() {
-    const [items, revisions, comments, chats, chatMessages] = await Promise.all([
+    const [items, revisions, comments, chats, chatMessages, surveyResponses] = await Promise.all([
       allPages(() => supabase.from('items').select('*').order('created_at')),
       allPages(() => supabase.from('revisions').select('*').order('id')),
       allPages(() => supabase.from('comments').select('*').order('created_at')),
       allPages(() => supabase.from('chats').select('*').order('created_at')),
       allPages(() => supabase.from('chat_messages').select('*').order('created_at')),
+      allPages(() => supabase.from('survey_responses').select('*').order('created_at').order('id')),
     ]);
-    return { items, revisions, comments, chats, chatMessages };
+    return { items, revisions, comments, chats, chatMessages, surveyResponses };
+  },
+
+  // Questionari: le risposte arrivano dalla pagina pubblica; qui il team le legge, le cancella e vede l'imbuto.
+  // Ci sono anche le compilazioni interrotte (completed: false).
+  async listSurveyResponses(surveyId) {
+    const id = requireUuid(surveyId);
+    return allPages(() =>
+      supabase.from('survey_responses').select('*').eq('survey_id', id).order('created_at', { ascending: true }).order('id', { ascending: true }),
+    );
+  },
+
+  // Senza ids cancella tutte le risposte e azzera anche visite e inizi. Restituisce quante risposte ha cancellato.
+  async deleteSurveyResponses(surveyId, ids = null) {
+    if (ids !== null && !Array.isArray(ids)) throw new AppError('Identificativo non valido.', { code: 'invalid_id' });
+    const params = { p_survey: requireUuid(surveyId), p_ids: ids === null ? null : ids.map(requireUuid) };
+    return (await unwrap(supabase.rpc('delete_survey_responses', params), 'Cancellazione non riuscita.')) ?? 0;
+  },
+
+  async surveyFunnel(surveyId) {
+    const row = await unwrap(supabase.rpc('survey_funnel', { p_survey: requireUuid(surveyId) }), 'Statistiche non disponibili.');
+    return { views: row?.views ?? 0, starts: row?.starts ?? 0, partial: row?.partial ?? 0, completed: row?.completed ?? 0 };
   },
 
   // Chat della squadra: una Generale e chat per argomento, messaggi e letture.

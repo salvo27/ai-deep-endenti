@@ -142,11 +142,38 @@ test('external scripts are pinned to exact versions', () => {
 test('every public table in the schema has row level security', () => {
   const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions', 'revisions']);
+  assert.deepEqual(tables.sort(), [
+    'ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions', 'revisions',
+    'survey_events', 'survey_limits', 'survey_responses', 'survey_salts',
+  ]);
   for (const table of tables) {
     assert.match(schema, new RegExp(`alter table public\\.${table} enable row level security`), table);
+    assert.match(schema, new RegExp(`^revoke all on [^;]*public\\.${table}\\b[^;]* from anon;`, 'm'), `${table}: permessi di anon non revocati`);
   }
   assert.match(schema, /coalesce\(auth\.jwt\(\) ->> 'aal', ''\) = 'aal2'/);
+});
+
+test('the only grants to anon are the three functions of the public survey link', () => {
+  const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
+  const toAnon = [...schema.matchAll(/^grant ([^;]+?) to ([^;]+);$/gm)].filter((m) => /\banon\b/.test(m[2])).map((m) => m[1]);
+  assert.deepEqual(toAnon, [
+    'execute on function public.public_survey(text)',
+    'execute on function public.submit_survey(text, jsonb, jsonb)',
+    'execute on function public.survey_event(text, text)',
+  ]);
+  for (const name of ['public_survey', 'submit_survey', 'survey_event']) {
+    const body = schema.match(new RegExp(`create or replace function public\\.${name}\\([^]*?\\$\\$;`))[0];
+    assert.match(body, /security definer\nset search_path = ''/, `${name}: security definer con search_path vuoto`);
+  }
+});
+
+test('the public survey module loads only the configuration and the same pinned Supabase client as the site', () => {
+  const source = readFileSync(join(ROOT, 'assets/js/public/survey-api.js'), 'utf8');
+  const site = readFileSync(join(ROOT, 'assets/js/lib/supabase.js'), 'utf8');
+  const imports = [...source.matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
+  const cdn = site.match(/from '(https:[^']+)'/)[1];
+  assert.deepEqual(imports, [cdn, '../config.js'], 'niente login, stato o dati del sito nella pagina pubblica');
+  assert.doesNotMatch(source, /\.from\(|storage|functions\.invoke|signIn/, 'solo chiamate alle funzioni pubbliche');
 });
 
 test('GitHub Actions are pinned to full commit SHAs and the workflow starts read-only', () => {
