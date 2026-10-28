@@ -1,0 +1,72 @@
+import { test, expect } from '@playwright/test';
+
+const IDEA = '11111111-1111-4111-8111-111111111111';
+const IDEA_TABS = ['roadmap', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'appunti', 'voti', 'commenti', 'storico'];
+
+const PAGES = [
+  '#/',
+  '#/idee',
+  `#/idea/${IDEA}`,
+  ...IDEA_TABS.map((tab) => `#/idea/${IDEA}/${tab}`),
+  '#/valutazione',
+  '#/valutazione?vista=miei',
+  '#/valutazione?vista=fotografie',
+  '#/esperimenti',
+  '#/interviste',
+  '#/interviste?tipo=ricerca',
+  '#/contatti',
+  '#/contatti?filtro=senza',
+  '#/decisioni',
+  '#/generatore',
+  '#/squadra',
+  '#/guida',
+  '#/concetti',
+  '#/storico',
+  '#/cestino',
+  '#/team',
+  '#/profilo',
+];
+
+async function open(page, hash) {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await page.goto(`/dev/preview.html${hash}`);
+  await expect(page.locator('#content > *').first()).toBeVisible();
+  await page.waitForTimeout(150);
+  return errors;
+}
+
+for (const hash of PAGES) {
+  test(`${hash}: nessun errore e niente esce dallo schermo`, async ({ page }) => {
+    const errors = await open(page, hash);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, 'la pagina scorre in orizzontale').toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('la barra "Salva i miei voti" resta sopra la tabella anche in fondo alla pagina', async ({ page }) => {
+  await open(page, '#/valutazione?vista=miei');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const bar = page.locator('.save-bar');
+  await expect(bar).toBeVisible();
+  const box = await bar.boundingBox();
+  const covered = await page.evaluate(({ x, y, width, height }) => {
+    const points = [[x + 8, y + height / 2], [x + width / 2, y + height / 2], [x + width - 8, y + height / 2]];
+    return points.filter(([px, py]) => !document.elementFromPoint(px, py)?.closest('.save-bar')).length;
+  }, box);
+  expect(covered, 'qualcosa copre la barra di salvataggio').toBe(0);
+});
+
+test('il menu si apre e si chiude toccando fuori', async ({ page }) => {
+  await open(page, '#/');
+  const menu = page.getByRole('button', { name: 'Menu' });
+  await menu.click();
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  const viewport = page.viewportSize();
+  await page.mouse.click(viewport.width - 10, viewport.height - 10);
+  await expect(menu).toHaveAttribute('aria-expanded', 'false');
+});

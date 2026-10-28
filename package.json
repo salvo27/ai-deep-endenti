@@ -12,9 +12,11 @@
     "test:db": "bash tests/db/run.sh",
     "test:all": "npm test && npm run test:db",
     "serve": "python3 -m http.server 8080",
-    "preload": "node scripts/update-preload.mjs"
+    "preload": "node scripts/update-preload.mjs",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "jsdom": "27.4.0"
   }
 }

@@ -48,5 +48,9 @@ Thumbs.db
 # Configurazione locale di Claude Code
 .claude/
 
+# Risultati dei test con il browser
+test-results/
+playwright-report/
+
 # Anteprima locale con dati finti
 dev/

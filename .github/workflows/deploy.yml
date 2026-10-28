@@ -35,6 +35,8 @@ jobs:
         run: npm test
       - name: Test del database
         run: npm run test:db
+      - name: Test con il browser (Chrome del runner, anteprima con dati finti)
+        run: npx playwright test
 
   pages:
     name: Pubblica su GitHub Pages
