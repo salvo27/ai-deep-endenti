@@ -1,0 +1,436 @@
+/* Pagina pubblica dei questionari (q.html): una colonna, righe intere da toccare, niente che esca dallo schermo. */
+
+:root {
+  --bg: #f5f6fa;
+  --surface: #ffffff;
+  --border: #d5dae4;
+  --border-strong: #8a92a3;
+  --text: #1b1f2a;
+  --muted: #5d6474;
+  --danger: #b42318;
+  --accent: #3b4bc8;
+  --on-accent: #ffffff;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: light;
+}
+
+/* Tema scuro: segue il dispositivo con «automatico», è forzato con «scuro». */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='chiaro']) {
+    --bg: #12141b;
+    --surface: #1a1d27;
+    --border: #343a4c;
+    --border-strong: #7d8599;
+    --text: #e7e9f0;
+    --muted: #a3aabb;
+    --danger: #ff8a80;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='scuro'] {
+  --bg: #12141b;
+  --surface: #1a1d27;
+  --border: #343a4c;
+  --border-strong: #7d8599;
+  --text: #e7e9f0;
+  --muted: #a3aabb;
+  --danger: #ff8a80;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.5 var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+
+.survey {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  overflow-wrap: anywhere;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 24px;
+}
+
+h1,
+h2,
+p {
+  margin: 0 0 12px;
+}
+
+h1,
+h2 {
+  line-height: 1.3;
+}
+
+[tabindex='-1']:focus {
+  outline: none;
+}
+
+.loading,
+.survey-boot {
+  color: var(--muted);
+}
+
+.title {
+  font-size: 1.6rem;
+}
+
+.text,
+.privacy-text,
+.q-help,
+.section-help {
+  white-space: pre-line;
+}
+
+.facts {
+  margin: 0 0 20px;
+  padding-left: 1.2em;
+}
+
+.facts li {
+  margin-bottom: 4px;
+}
+
+.privacy {
+  margin: 0 0 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.94rem;
+  color: var(--muted);
+}
+
+.privacy-title {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.privacy-text {
+  margin-bottom: 4px;
+}
+
+.link-btn {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Avanzamento: barra sottile e, con «contatore», «Domanda X di Y». */
+.progress {
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.progress-text {
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.section {
+  margin-bottom: 20px;
+}
+
+.section-title {
+  font-size: 1.35rem;
+}
+
+.section-small .section-title {
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.section-small .section-help {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* Domande: il fieldset di base non si restringe e farebbe scorrere la pagina in orizzontale. */
+.q {
+  min-width: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  border: 0;
+}
+
+.q-legend {
+  padding: 0;
+  max-width: 100%;
+}
+
+.q-title {
+  margin-bottom: 6px;
+  font-size: 1.25rem;
+}
+
+h2.q-title {
+  font-size: 1.1rem;
+}
+
+.q-title label {
+  cursor: pointer;
+}
+
+.q-required {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.q-help {
+  margin-bottom: 8px;
+  font-size: 0.94rem;
+  color: var(--muted);
+}
+
+.q-error {
+  margin: 10px 0 0;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Ogni opzione è una riga intera da toccare, alta almeno 48 px. */
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.opt:has(.opt-input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.opt:has(.opt-input:focus-visible) {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.opt-input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.opt-num {
+  flex: none;
+  min-width: 1.5em;
+  font-weight: 700;
+}
+
+.opt-label {
+  min-width: 0;
+}
+
+.opt-prefer {
+  margin-top: 10px;
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.opt-consent {
+  margin-top: 10px;
+}
+
+.has-error .opt,
+.field[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.q-field {
+  margin-top: 12px;
+}
+
+.field {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  /* sotto i 16 px i telefoni ingrandiscono la pagina quando si scrive */
+  font: inherit;
+  font-size: max(16px, 1rem);
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.field-long {
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+.field-number {
+  max-width: 12rem;
+}
+
+.opt-other {
+  margin: 0 0 0 46px;
+  width: calc(100% - 46px);
+}
+
+.alert {
+  margin: 0 0 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* vuota resta nella pagina, altrimenti i lettori di schermo non annunciano il primo messaggio */
+.alert:empty {
+  margin: 0;
+}
+
+.nav {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.nav:empty {
+  display: none;
+}
+
+.btn {
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  margin-left: auto;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn-secondary {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+
+.btn[aria-disabled='true'] {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Campo trappola per i bot: fuori dallo schermo, mai visibile. */
+.hp {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+@media (max-width: 480px) {
+  .survey {
+    padding: 12px 12px 32px;
+  }
+
+  .card {
+    padding: 20px 16px;
+    border-radius: 12px;
+  }
+
+  .title {
+    font-size: 1.4rem;
+  }
+
+  .btn-primary {
+    flex: 1;
+  }
+
+  .opt-other {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+}
+
+.after {
+  margin-top: 1.25rem;
+}
+
+.after:empty {
+  display: none;
+}

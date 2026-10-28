@@ -1,0 +1,589 @@
+import { PREFER_NOT, PublicSurveyError, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
+import { estimateMinutes } from './survey-time.js';
+import {
+  LIMITS,
+  MESSAGES,
+  OTHER,
+  buildMeta,
+  buildScreens,
+  collectAnswers,
+  condense,
+  durationText,
+  emailQuestion,
+  firstInvalidScreen,
+  normalizeSurvey,
+  numberHint,
+  otherKey,
+  progressFor,
+  readStored,
+  screenOf,
+  selectedChoices,
+  storageKey,
+  toggleChoice,
+  tokenFromHash,
+  validateQuestion,
+  validateScreen,
+} from './survey-flow.js';
+
+// Pagina pubblica dei questionari (q.html#<codice>): chi risponde non ha account e non carica nulla del sito.
+// Tutti i testi del questionario entrano come testo, mai come HTML; dell'aspetto si usano solo tema e colore già controllati.
+
+const ALREADY_SENT = /già state inviate/i;
+const SEND_ERROR = 'Invio non riuscito. Riprova tra poco.';
+const THANKS = 'Le tue risposte sono arrivate. Ora puoi chiudere questa pagina.';
+const asText = (value) => (typeof value === 'string' ? value : '');
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === 'class') el.className = [value].flat().filter(Boolean).join(' ');
+    else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2), value);
+    else if (key === 'value' || key === 'checked') el[key] = value;
+    else el.setAttribute(key, value === true ? '' : String(value));
+  }
+  el.append(...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false));
+  return el;
+}
+
+const state = {
+  token: null,
+  survey: null,
+  screens: [],
+  mode: 'loading',
+  index: 0,
+  session: null,
+  draft: {},
+  recontact: false,
+  startedAt: null,
+  website: '',
+  sending: false,
+};
+
+let ui = null;
+let blocks = new Map();
+let saving = null;
+let saveAgain = false;
+
+const storage = {
+  read() {
+    try {
+      return sessionStorage.getItem(storageKey(state.token));
+    } catch {
+      return null;
+    }
+  },
+  write() {
+    const { session, index, draft, recontact, startedAt } = state;
+    try {
+      sessionStorage.setItem(storageKey(state.token), JSON.stringify({ session, index, draft, recontact, startedAt }));
+    } catch {
+      // senza spazio nella scheda si perde solo la ripresa dopo un ricaricamento
+    }
+  },
+  clear() {
+    try {
+      sessionStorage.removeItem(storageKey(state.token));
+    } catch {
+      // ignorato
+    }
+  },
+};
+
+function buildShell(root) {
+  const fill = h('span', { class: 'progress-fill' });
+  const bar = h('div', { class: 'progress-bar', role: 'progressbar', 'aria-label': 'Avanzamento', 'aria-valuemin': '0' }, fill);
+  const counter = h('p', { class: 'progress-text' });
+  const progress = h('div', { class: 'progress', hidden: true }, bar, counter);
+  const screen = h('div', { class: 'screen' }, h('p', { class: 'loading', role: 'status' }, 'Caricamento…'));
+  const alert = h('p', { class: 'alert', 'aria-live': 'polite' });
+  const nav = h('div', { class: 'nav' });
+  // Sotto i pulsanti: l'informativa dell'introduzione, così «Inizia» resta visibile anche sul telefono.
+  const after = h('div', { class: 'after' });
+  // Campo trappola per i bot: invisibile e fuori dal giro del tasto Tab, chi risponde non lo vede mai.
+  const trap = h('input', { type: 'text', id: 'website', name: 'website', tabindex: '-1', autocomplete: 'off' });
+  const honeypot = h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website' }, 'Sito web'), trap);
+  const form = h('form', { class: 'card', novalidate: true }, progress, screen, alert, nav, after, honeypot);
+  form.addEventListener('submit', onSubmit);
+  form.addEventListener('input', onInput);
+  form.addEventListener('change', onChange);
+  root.textContent = '';
+  root.append(form);
+  ui = { form, progress, bar, fill, counter, screen, alert, nav, after, trap, submit: null };
+}
+
+function mount(nodes) {
+  ui.screen.textContent = '';
+  ui.screen.append(...nodes);
+  ui.after.textContent = '';
+  ui.alert.textContent = '';
+}
+
+function setAlert(text) {
+  ui.alert.textContent = text || '';
+}
+
+function applyAppearance({ theme, accent, onAccent }) {
+  const root = document.documentElement;
+  if (theme === 'automatico') delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  root.style.setProperty('--accent', accent);
+  root.style.setProperty('--on-accent', onAccent);
+}
+
+// Stati senza domande: caricamento fallito, questionario chiuso o link sbagliato.
+function showMessage(title, text, retry = null) {
+  state.mode = 'message';
+  document.title = title;
+  ui.progress.hidden = true;
+  mount([h('h1', { class: 'title', tabindex: '-1' }, title), h('p', { class: 'text' }, text)]);
+  ui.nav.textContent = '';
+  if (retry) ui.nav.append(h('button', { type: 'button', class: 'btn btn-primary', onclick: retry }, 'Riprova'));
+}
+
+const showNotFound = () =>
+  showMessage('Questionario non trovato', 'Il link potrebbe essere incompleto o non più valido. Controlla di averlo copiato per intero, oppure chiedilo di nuovo a chi te l\'ha mandato.');
+
+const showClosed = () => showMessage('Questionario chiuso', 'Questo questionario non accetta più risposte. Grazie comunque per il tuo interesse.');
+
+function privacyBlock(text) {
+  const short = condense(text);
+  const body = h('p', { class: 'privacy-text', id: 'privacy-testo' }, short.text);
+  const nodes = [h('h2', { class: 'privacy-title', id: 'privacy-titolo' }, 'Informativa sulla privacy'), body];
+  if (short.truncated) {
+    const toggle = h('button', { type: 'button', class: 'link-btn', 'aria-expanded': 'false', 'aria-controls': body.id }, 'Leggi tutto');
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      body.textContent = open ? text : short.text;
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.textContent = open ? 'Mostra meno' : 'Leggi tutto';
+    });
+    nodes.push(toggle);
+  }
+  return h('section', { class: 'privacy', 'aria-labelledby': 'privacy-titolo' }, nodes);
+}
+
+function showIntro() {
+  const survey = state.survey;
+  state.mode = 'intro';
+  ui.progress.hidden = true;
+  const facts = [];
+  if (survey.show_time) facts.push(durationText(estimateMinutes(survey, survey.median_seconds)));
+  const email = emailQuestion(survey);
+  if (email) facts.push(email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.');
+  facts.push('Le risposte si salvano a ogni passaggio, anche se ti fermi prima della fine.');
+  if (survey.privacy) facts.push('Trovi l\'informativa sulla privacy qui sotto.');
+  mount([
+    h('h1', { class: 'title' }, survey.title),
+    survey.intro ? h('p', { class: 'text' }, survey.intro) : null,
+    h('ul', { class: 'facts' }, facts.map((fact) => h('li', {}, fact))),
+  ]);
+  ui.nav.textContent = '';
+  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Inizia'));
+  if (survey.privacy) ui.after.append(privacyBlock(survey.privacy));
+}
+
+function begin() {
+  state.session = newSurveySession();
+  state.draft = {};
+  state.recontact = false;
+  state.startedAt = Date.now();
+  state.index = 0;
+  recordSurveyEvent(state.token, 'start');
+  storage.write();
+  showQuestions();
+}
+
+function isChecked(q, value) {
+  const current = state.draft[q.id];
+  if (q.type === 'scala') return current === Number(value);
+  if (q.type === 'scelta') return current === value;
+  return selectedChoices(q, current).includes(value);
+}
+
+function choiceControls(q, block) {
+  const type = q.type === 'scelte' ? 'checkbox' : 'radio';
+  const row = (value, label, extra = null) => {
+    const input = h('input', { type, name: `q-${q.id}`, value, class: 'opt-input', 'data-q': q.id, checked: isChecked(q, value) });
+    block.inputs.push(input);
+    return h('label', { class: ['opt', extra] }, input, label);
+  };
+  const rows = [];
+  if (q.type === 'scala') {
+    const { points, labels, min_label: minLabel, max_label: maxLabel } = q.scale;
+    for (let i = 1; i <= points; i += 1) {
+      const end = i === 1 ? minLabel : i === points ? maxLabel : '';
+      const label = labels
+        ? h('span', { class: 'opt-label' }, labels[i - 1] || String(i))
+        : [h('span', { class: 'opt-num' }, String(i)), end ? [' ', h('span', { class: 'opt-label' }, end)] : null];
+      rows.push(row(String(i), label));
+    }
+  } else {
+    for (const option of q.options) rows.push(row(option.id, h('span', { class: 'opt-label' }, option.label)));
+    if (q.allow_other) {
+      rows.push(row(OTHER, h('span', { class: 'opt-label' }, 'Altro')));
+      block.otherField = h('input', {
+        type: 'text',
+        class: 'field opt-other',
+        'data-q': q.id,
+        'data-other': '',
+        maxlength: LIMITS.other,
+        autocomplete: 'off',
+        'aria-label': 'Altro: scrivi la tua risposta',
+        value: asText(state.draft[otherKey(q.id)]),
+      });
+      rows.push(block.otherField);
+    }
+    if (q.prefer_not) rows.push(row(PREFER_NOT, h('span', { class: 'opt-label' }, 'Preferisco non rispondere'), 'opt-prefer'));
+  }
+  return h('div', { class: 'opts' }, rows);
+}
+
+function fieldControl(q, block, describedBy, last) {
+  const common = { id: `q-${q.id}-campo`, class: 'field', 'data-q': q.id, 'aria-describedby': describedBy, autocomplete: 'off' };
+  const enter = last ? 'send' : 'next';
+  let input;
+  if (q.type === 'lunga') {
+    input = h('textarea', { ...common, class: 'field field-long', rows: 4, maxlength: LIMITS.long, value: asText(state.draft[q.id]) });
+  } else if (q.type === 'numero') {
+    // Il tastierino numerico dei telefoni non ha il segno meno: serve solo se il minimo è negativo.
+    const inputmode = (q.number.min ?? 0) < 0 ? 'text' : 'numeric';
+    input = h('input', { ...common, class: 'field field-number', type: 'text', inputmode, enterkeyhint: enter, value: asText(state.draft[q.id]) });
+  } else if (q.type === 'email') {
+    input = h('input', {
+      ...common,
+      type: 'email',
+      autocomplete: 'email',
+      spellcheck: 'false',
+      autocapitalize: 'off',
+      enterkeyhint: enter,
+      maxlength: LIMITS.email,
+      value: asText(state.draft[q.id]),
+    });
+  } else {
+    input = h('input', { ...common, type: 'text', maxlength: LIMITS.short, enterkeyhint: enter, value: asText(state.draft[q.id]) });
+  }
+  block.inputs.push(input);
+  if (q.type !== 'email') return input;
+  const consent = h('input', { type: 'checkbox', name: 'recontact', class: 'opt-input', 'data-q': q.id, checked: state.recontact });
+  return [input, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'))];
+}
+
+function questionBlock(q, level, last) {
+  const base = `q-${q.id}`;
+  const block = { q, node: null, title: null, inputs: [], otherField: null, error: h('p', { class: 'q-error', id: `${base}-errore`, hidden: true }) };
+  const help = q.help ? h('p', { class: 'q-help', id: `${base}-aiuto` }, q.help) : null;
+  const hint = q.type === 'numero' ? h('p', { class: 'q-help', id: `${base}-limiti` }, numberHint(q.number)) : null;
+  const describedBy = [help?.id, hint?.id, block.error.id].filter(Boolean).join(' ');
+  const label = [q.label, q.required ? h('span', { class: 'q-required' }, ' (obbligatoria)') : null];
+  block.title = h(level, { class: 'q-title', id: `${base}-titolo`, tabindex: '-1' });
+  if (q.type === 'scelta' || q.type === 'scelte' || q.type === 'scala') {
+    block.title.append(...label.filter(Boolean));
+    const controls = choiceControls(q, block);
+    block.node = h('fieldset', { class: 'q', 'aria-describedby': describedBy }, h('legend', { class: 'q-legend' }, block.title), help, controls, block.error);
+    syncOther(block);
+  } else {
+    const control = fieldControl(q, block, describedBy, last);
+    block.title.append(h('label', { for: block.inputs[0].id }, label));
+    block.node = h('div', { class: 'q' }, block.title, help, hint, h('div', { class: 'q-field' }, control), block.error);
+  }
+  blocks.set(q.id, block);
+  return block.node;
+}
+
+function updateProgress() {
+  const mode = state.survey.progress;
+  ui.progress.hidden = mode === 'nessuno';
+  if (mode === 'nessuno') return;
+  const p = progressFor(state.screens, state.index);
+  ui.fill.style.width = `${Math.round(p.ratio * 1000) / 10}%`;
+  ui.bar.setAttribute('aria-valuemax', String(p.total));
+  ui.bar.setAttribute('aria-valuenow', String(p.last));
+  ui.bar.setAttribute('aria-valuetext', p.text);
+  ui.counter.textContent = p.text;
+  ui.counter.hidden = mode !== 'contatore';
+}
+
+function grow(area) {
+  area.style.height = 'auto';
+  area.style.height = `${area.scrollHeight + area.offsetHeight - area.clientHeight}px`;
+}
+
+function showQuestions({ focus = true } = {}) {
+  state.mode = 'question';
+  blocks = new Map();
+  const screen = state.screens[state.index];
+  const one = state.survey.layout === 'una';
+  const last = state.index === state.screens.length - 1;
+  const nodes = [];
+  if (screen.section) {
+    const { label, help } = screen.section;
+    nodes.push(h('div', { class: one ? 'section section-small' : 'section' }, h(one ? 'p' : 'h1', { class: 'section-title' }, label), help ? h('p', { class: 'section-help' }, help) : null));
+  }
+  const level = one || !screen.section ? 'h1' : 'h2';
+  for (const q of screen.questions) nodes.push(questionBlock(q, level, last));
+  mount(nodes);
+  updateProgress();
+  ui.nav.textContent = '';
+  if (state.index > 0) ui.nav.append(h('button', { type: 'button', class: 'btn btn-secondary', onclick: goBack }, 'Indietro'));
+  ui.submit = h('button', { type: 'submit', class: 'btn btn-primary' }, last ? 'Invia' : 'Avanti');
+  ui.nav.append(ui.submit);
+  for (const area of ui.screen.querySelectorAll('textarea')) grow(area);
+  if (focus) {
+    window.scrollTo(0, 0);
+    blocks.get(screen.questions[0].id).title.focus({ preventScroll: true });
+  }
+}
+
+function goBack() {
+  if (state.sending || state.index === 0) return;
+  state.index -= 1;
+  storage.write();
+  showQuestions();
+}
+
+function setError(id, message) {
+  const block = blocks.get(id);
+  if (!block) return;
+  block.error.textContent = message || '';
+  block.error.hidden = !message;
+  block.node.classList.toggle('has-error', Boolean(message));
+  for (const input of block.inputs) {
+    if (message) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
+  }
+}
+
+function showErrors(errors) {
+  for (const id of blocks.keys()) setError(id, null);
+  for (const { id, message } of errors) setError(id, message);
+  setAlert(errors.length === 1 ? errors[0].message : 'Controlla le risposte segnate, per favore.');
+  const first = blocks.get(errors[0]?.id);
+  if (!first) return;
+  const other = first.otherField && !first.otherField.hidden && first.error.textContent !== MESSAGES.required;
+  (other ? first.otherField : first.inputs[0])?.focus();
+}
+
+function syncOther(block) {
+  if (!block.otherField) return;
+  const value = state.draft[block.q.id];
+  const chosen = block.q.type === 'scelta' ? value === OTHER : selectedChoices(block.q, value).includes(OTHER);
+  block.otherField.hidden = !chosen;
+}
+
+function afterChange(id) {
+  storage.write();
+  const block = blocks.get(id);
+  if (!block || block.error.hidden || validateQuestion(block.q, state.draft, { recontact: state.recontact })) return;
+  setError(id, null);
+  if (![...blocks.values()].some((b) => !b.error.hidden)) setAlert('');
+}
+
+function onInput(event) {
+  const el = event.target;
+  if (el === ui.trap) {
+    state.website = el.value;
+    return;
+  }
+  if (el.type === 'radio' || el.type === 'checkbox' || !el.dataset.q) return;
+  const id = el.dataset.q;
+  if ('other' in el.dataset) state.draft[otherKey(id)] = el.value;
+  else state.draft[id] = el.value;
+  if (el.tagName === 'TEXTAREA') grow(el);
+  afterChange(id);
+}
+
+function onChange(event) {
+  const el = event.target;
+  const block = blocks.get(el.dataset.q);
+  if (!block || (el.type !== 'radio' && el.type !== 'checkbox')) return;
+  const { q } = block;
+  if (el.name === 'recontact') {
+    state.recontact = el.checked;
+  } else if (q.type === 'scala') {
+    state.draft[q.id] = Number(el.value);
+  } else if (q.type === 'scelta') {
+    state.draft[q.id] = el.value;
+  } else if (q.type === 'scelte') {
+    state.draft[q.id] = toggleChoice(selectedChoices(q, state.draft[q.id]), el.value, el.checked);
+    const list = selectedChoices(q, state.draft[q.id]);
+    for (const input of block.inputs) input.checked = list.includes(input.value);
+  }
+  syncOther(block);
+  afterChange(q.id);
+}
+
+const meta = (final, answers) =>
+  buildMeta(state.survey, answers, {
+    session: state.session,
+    final,
+    startedAt: state.startedAt,
+    width: window.innerWidth,
+    recontact: state.recontact,
+    website: state.website,
+  });
+
+// Salvataggi intermedi uno alla volta, sempre con tutte le risposte: se uno fallisce, il successivo recupera.
+function saveProgress() {
+  if (saving) {
+    saveAgain = true;
+    return;
+  }
+  saving = (async () => {
+    do {
+      saveAgain = false;
+      const answers = collectAnswers(state.survey.questions, state.draft);
+      try {
+        await submitSurvey(state.token, answers, meta(false, answers));
+      } catch {
+        // si riprova alla prossima schermata
+      }
+    } while (saveAgain);
+  })().finally(() => {
+    saving = null;
+  });
+}
+
+function setBusy(busy, label) {
+  ui.form.setAttribute('aria-busy', String(busy));
+  if (!ui.submit) return;
+  ui.submit.setAttribute('aria-disabled', String(busy));
+  ui.submit.textContent = label;
+}
+
+function showThanks() {
+  storage.clear();
+  state.mode = 'done';
+  document.title = 'Grazie';
+  ui.progress.hidden = true;
+  const title = h('h1', { class: 'title', tabindex: '-1' }, 'Grazie!');
+  mount([title, h('p', { class: 'text' }, state.survey.thanks || THANKS)]);
+  ui.nav.textContent = '';
+  window.scrollTo(0, 0);
+  title.focus({ preventScroll: true });
+}
+
+async function finish() {
+  const options = { recontact: state.recontact };
+  const invalid = firstInvalidScreen(state.screens, state.draft, options);
+  if (invalid) {
+    if (invalid.index !== state.index) {
+      state.index = invalid.index;
+      storage.write();
+      showQuestions();
+    }
+    showErrors(invalid.errors);
+    return;
+  }
+  const answers = collectAnswers(state.survey.questions, state.draft);
+  if (!Object.keys(answers).length) {
+    setAlert(MESSAGES.empty);
+    return;
+  }
+  state.sending = true;
+  setBusy(true, 'Invio in corso…');
+  setAlert('');
+  let result;
+  try {
+    await saving;
+    result = await submitSurvey(state.token, answers, meta(true, answers));
+  } catch (error) {
+    state.sending = false;
+    setBusy(false, 'Riprova');
+    setAlert(error instanceof PublicSurveyError ? error.message : SEND_ERROR);
+    return;
+  }
+  state.sending = false;
+  setBusy(false, 'Invia');
+  // «Già inviate» arriva quando il primo invio era passato ma la risposta si è persa per strada.
+  if (result?.status === 'ok' || ALREADY_SENT.test(asText(result?.reason))) {
+    showThanks();
+    return;
+  }
+  const reason = asText(result?.reason) || SEND_ERROR;
+  const target = result?.question ? screenOf(state.screens, result.question) : -1;
+  if (target < 0) {
+    setAlert(reason);
+    return;
+  }
+  if (target !== state.index) {
+    state.index = target;
+    storage.write();
+    showQuestions();
+  }
+  showErrors([{ id: result.question, message: reason }]);
+}
+
+function advance() {
+  const errors = validateScreen(state.screens[state.index], state.draft, { recontact: state.recontact });
+  if (errors.length) {
+    showErrors(errors);
+    return;
+  }
+  if (state.index === state.screens.length - 1) {
+    finish();
+    return;
+  }
+  state.index += 1;
+  storage.write();
+  saveProgress();
+  showQuestions();
+}
+
+function onSubmit(event) {
+  event.preventDefault();
+  if (state.sending) return;
+  if (state.mode === 'intro') begin();
+  else if (state.mode === 'question') advance();
+}
+
+async function load() {
+  state.token = tokenFromHash(location.hash);
+  if (!state.token) {
+    showNotFound();
+    return;
+  }
+  let data;
+  try {
+    data = await loadPublicSurvey(state.token);
+  } catch (error) {
+    const text = error instanceof PublicSurveyError ? error.message : 'Questionario non disponibile. Riprova più tardi.';
+    showMessage('Non riesco ad aprire il questionario', text, () => {
+      mount([h('p', { class: 'loading', role: 'status' }, 'Caricamento…')]);
+      ui.nav.textContent = '';
+      load();
+    });
+    return;
+  }
+  if (data?.status === 'chiuso') {
+    showClosed();
+    return;
+  }
+  if (data?.status !== 'aperto') {
+    showNotFound();
+    return;
+  }
+  state.survey = normalizeSurvey(data);
+  state.screens = buildScreens(state.survey);
+  applyAppearance(state.survey.appearance);
+  if (!state.screens.length) {
+    showClosed();
+    return;
+  }
+  document.title = state.survey.title;
+  // Dopo un ricaricamento si riprende dalla stessa schermata, con la stessa compilazione: non è una nuova visita.
+  const saved = readStored(storage.read(), state.screens.length);
+  if (saved) {
+    Object.assign(state, saved, { startedAt: saved.startedAt ?? Date.now() });
+    showQuestions({ focus: false });
+    return;
+  }
+  recordSurveyEvent(state.token, 'view');
+  showIntro();
+}
+
+const root = document.getElementById('survey');
+if (root) {
+  buildShell(root);
+  load();
+}

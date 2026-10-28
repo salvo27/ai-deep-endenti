@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 // Test con un browser vero sull'anteprima con dati finti (tests/e2e/preview.html): niente login, niente Supabase.
 // Usa il Chrome installato sul computer o sul runner di GitHub, senza scaricare browser.
-const PORT = 8091;
+const PORT = Number(process.env.E2E_PORT) || 8091;
 
 export default defineConfig({
   testDir: 'tests/e2e',

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- La stessa policy di q.html, più l'impronta della mappa qui sotto che sostituisce il client Supabase con quello finto -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'sha256-FKkeVOSAB0JUYdfB/8JbagVQznP+4X5Z0MNAlyrhqc0='; style-src 'self'; img-src 'self'; connect-src https://ixhnqeabctkpflwkdarj.supabase.co; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <title>Anteprima questionario</title>
+    <link rel="stylesheet" href="../../assets/css/survey.css" />
+    <script type="importmap">
+      { "imports": { "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm": "../fakes/supabase-js.mjs" } }
+    </script>
+    <script type="module" src="./q-preview.mjs"></script>
+  </head>
+  <body>
+    <main id="survey" class="survey">
+      <p class="survey-boot" role="status">Caricamento…</p>
+    </main>
+  </body>
+</html>

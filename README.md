@@ -18,6 +18,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Contatti | Le persone da sentire di tutte le idee in un'unica lista: stato, chi se ne occupa e prossimo contatto si cambiano direttamente in tabella; filtri per le mie, quelle senza responsabile e quelle da sentire questa settimana; prima chi è in ritardo. «Registra il colloquio» crea l'intervista e la collega alla persona |
 | Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso. Il tipo distingue i colloqui con una persona dalle ricerche online: solo i colloqui contano nei numeri della dashboard e nella roadmap |
 | Questionari | Per ogni idea, questionari da compilare senza account con un link pubblico revocabile: domande a scelta (con «Altro» e «Preferisco non rispondere»), scala, numero, testo ed email, divise in sezioni, con tema e colore della pagina; le risposte si salvano a ogni schermata e il team vede risposte, compilazioni interrotte e imbuto (visite, inizi, risposte) |
+| Pagina del questionario | Quella che apre chi risponde, `q.html#<codice>`, senza account: introduzione con il tempo stimato e la privacy riassunta (il resto si apre sul posto), una domanda per schermata o una sezione per schermata, barra e «Domanda X di Y», righe intere da toccare anche sul telefono, solo le obbligatorie bloccano «Avanti»; le risposte si salvano a ogni «Avanti», un ricaricamento riprende dallo stesso punto e alla fine c'è il grazie |
 | Chat | Chat di gruppo dal vivo: una «Generale» per tutta la squadra e chat per argomento, collegabili a un'idea (dalla pagina dell'idea: «Chat dell'idea»). Testo formattato, immagini e link cliccabili, risposta a un messaggio specifico con citazione, modifica ed eliminazione dei propri messaggi, non letti ricordati per persona e contatore nel menu. Le chat si archiviano, non si cancellano |
 | Menzioni | Con @ in chat, commenti e note si tagga un membro o @tutti, scegliendo da un elenco. Le menzioni sono notifiche importanti, separate dalla campanella: pulsante «@» con il suo contatore, elenco con chi, dove ed estratto, link al punto esatto |
 | Appunti | In ogni idea, note con data in cui la prima riga è il titolo: riunioni, link, domande aperte. Pulsanti per dimensione del testo, grassetto, corsivo, elenchi e tabelle, oppure Markdown scritto a mano. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate oppure come PDF dal dialogo di stampa del browser (Salva come PDF), e un file .md si può importare |
@@ -41,6 +42,7 @@ Ruoli: **admin** gestisce il team, **membro** crea e modifica, **advisor** legge
 
 ```
 index.html                  pagina unica con Content Security Policy
+q.html                      pagina pubblica dei questionari, senza login (assets/js/public/, assets/css/survey.css)
 assets/css/app.css          stile (tema chiaro e scuro)
 assets/js/
   config.js                 URL del progetto e chiave anon (pubbliche per costruzione)
@@ -130,7 +132,7 @@ Variabili facoltative: `AI_DAILY_LIMIT` (richieste per persona nelle ultime 24 o
 Il workflow `.github/workflows/deploy.yml` parte a ogni push su `main`:
 
 1. esegue i test del sito, della funzione e del database;
-2. solo se passano, pubblica su GitHub Pages `index.html` e `assets/` (niente test, documenti o schema);
+2. solo se passano, pubblica su GitHub Pages `index.html`, `q.html` e `assets/` (niente test, documenti o schema);
 3. se sono cambiati i file in `supabase/functions/claude/` o in `supabase/functions/notify/`, ripubblica la funzione cambiata.
 
 Sulle pull request esegue solo i test. Se un test fallisce, il sito resta alla versione precedente.
