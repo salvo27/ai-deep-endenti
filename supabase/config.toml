@@ -38,3 +38,7 @@ enabled = false
 
 [functions.claude]
 verify_jwt = true
+
+# La chiamano solo i job di pg_cron: al posto del token controlla il segreto condiviso NOTIFY_SECRET.
+[functions.notify]
+verify_jwt = false

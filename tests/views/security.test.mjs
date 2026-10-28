@@ -131,7 +131,7 @@ test('the public configuration contains only the anon key', () => {
 });
 
 test('external scripts are pinned to exact versions', () => {
-  const files = [...sourceFiles(join(ROOT, 'assets/js')), join(ROOT, 'supabase/functions/claude/index.ts')];
+  const files = [...sourceFiles(join(ROOT, 'assets/js')), join(ROOT, 'supabase/functions/claude/index.ts'), join(ROOT, 'supabase/functions/notify/index.ts')];
   for (const file of files) {
     for (const [, spec] of readFileSync(file, 'utf8').matchAll(/from '((?:https|npm):[^']+)'/g)) {
       assert.match(spec, /@\d+\.\d+\.\d+/, `${file}: ${spec}`);
@@ -142,7 +142,7 @@ test('external scripts are pinned to exact versions', () => {
 test('every public table in the schema has row level security', () => {
   const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
-  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'items', 'member_activity', 'members', 'mentions', 'revisions']);
+  assert.deepEqual(tables.sort(), ['ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions', 'revisions']);
   for (const table of tables) {
     assert.match(schema, new RegExp(`alter table public\\.${table} enable row level security`), table);
   }

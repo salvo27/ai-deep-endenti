@@ -2,12 +2,13 @@
 
 Questo documento descrive come sono scritti i test, cosa verificano e cosa resta fuori.
 
-Numeri al 18 ottobre 2026:
+Numeri al 28 ottobre 2026:
 
 | | Test | Copertura |
 |---|---|---|
-| Database (PostgreSQL 16, script SQL) | 31 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale che non torna indietro quando la sessione si chiude, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), fotografie della valutazione, regole dei nuovi tipi di scheda |
-| Sito e funzione di Claude (`node:test`, jsdom) | 277 | 96% delle righe e 85% dei rami del codice dell'app |
+| Database (PostgreSQL 16, script SQL) | 39 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale che non torna indietro quando la sessione si chiude, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), fotografie della valutazione, regole dei nuovi tipi di scheda |
+| Sito e funzioni di Claude e delle email (`node:test`, jsdom) | 338 | 98% delle righe e 89% dei rami del codice dell'app |
+| Browser vero (Playwright con Chrome, anteprima con dati finti) | 76 | 38 pagine su computer e telefono senza errori né elementi fuori schermo, barra di salvataggio dei voti mai coperta, menu che si chiude toccando fuori |
 
 ## 1. Come sono stati scritti
 
@@ -19,7 +20,7 @@ I test sono **white-box**: scritti leggendo il codice, nella stessa sessione in 
 
 - Il nome di ogni test è una frase che descrive il comportamento, per esempio `saveWithMerge rebases on the newer version when the edits touch different fields` o `un advisor vota e commenta, ma solo a nome proprio`.
 - Ogni test verifica un comportamento, con preparazione, azione e verifica.
-- I servizi esterni sono finti: un client Supabase che registra le chiamate (`tests/fakes/supabase-js.mjs`) e dipendenze passate alla funzione di Claude. Nessun test chiama Supabase o Anthropic davvero.
+- I servizi esterni sono finti: un client Supabase che registra le chiamate (`tests/fakes/supabase-js.mjs`) e dipendenze passate alle funzioni di Claude e delle email. Nessun test chiama Supabase, Anthropic o Brevo davvero.
 - I test dell'interfaccia girano in un DOM simulato (jsdom) e usano dati di prova comuni (`tests/setup/fixtures.mjs`), volutamente generici: la repo è pubblica, quindi nei test non compaiono idee, persone o dati reali del team.
 
 ### Livelli
@@ -32,6 +33,7 @@ I test sono **white-box**: scritti leggendo il codice, nella stessa sessione in 
 | Interfaccia | jsdom, interazioni simulate | ogni pagina, form, conflitti, ripristino di versioni, login e 2FA, generatore (con le persone per competenza e settore), profilo, team, idee di esempio valide e in sola lettura, nuove schede (persone, buyer persona a scheda con foto ridotta nel browser, VPC, mercato, concorrenti, deep tech, Team Canvas, quote), vista Javelin, roadmap di ogni idea (spunte solo manuali e rimovibili, suggerimenti dai dati, passi facoltativi, esempi in sola lettura), guida e concetti, appunti con immagini (barra di formattazione, titolo dalla prima riga, caricamento, pulizia, import ed export .md, salvataggio in PDF con attesa delle immagini), menu laterale, menzioni con @ (suggerimenti anche al tocco e dal lato con più spazio, evidenza, pulsante e notifiche importanti), chat (elenco e non letti, invio immediato in ordine con riprova, risposte con citazione, link sicuri, messaggi dal vivo, modifica ed eliminazione, chat dell'idea, archiviazione), notifiche, risincronizzazione dei dati e pulsante Indietro |
 | Sicurezza | Test sul DOM e controlli statici sul codice | testo malevolo in ogni campo e in ogni pagina, divieto di `innerHTML` ed `eval`, CSP, versioni fissate delle librerie, solo la chiave anon nel codice, RLS su ogni tabella |
 | Funzione di Claude | Handler con dipendenze finte | CORS, autenticazione, limiti di dimensione, compiti ammessi, limite giornaliero, rifiuti e risposte troncate, log senza contenuti |
+| Funzione delle email | Handler con dipendenze finte e Brevo finto; nel database Vault e `pg_net` finti | segreto condiviso, impostazioni di Brevo mancanti, menzioni raggruppate per persona e segnate una volta sola, lette e preferenze spente, sezioni del riepilogo ed email vuota non inviata, testo degli utenti sempre come testo nell'HTML, log solo con numeri, menzioni esistenti all'installazione mai inviate |
 
 ## 2. Come si eseguono
 

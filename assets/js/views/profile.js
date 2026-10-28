@@ -156,6 +156,52 @@ function notificationsCard() {
   );
 }
 
+const EMAIL_OPTIONS = [
+  ['mentions', 'Menzioni', 'Se qualcuno ti tagga e non lo leggi entro una decina di minuti.'],
+  ['weekly', 'Riepilogo settimanale', 'Il lunedì mattina: cosa ti tocca in settimana, novità del team, cosa resta da leggere.'],
+];
+
+function emailCard() {
+  const status = h('p', { class: 'muted small' }, 'Caricamento…');
+  const boxes = {};
+  const setAll = (prefs) => {
+    for (const [key] of EMAIL_OPTIONS) {
+      boxes[key].checked = prefs[key];
+      boxes[key].disabled = false;
+    }
+  };
+  const options = EMAIL_OPTIONS.map(([key, label, help]) => {
+    boxes[key] = h('input', {
+      type: 'checkbox',
+      name: key,
+      disabled: true,
+      onChange: async (event) => {
+        const wanted = event.target.checked;
+        Object.values(boxes).forEach((b) => (b.disabled = true));
+        try {
+          setAll(await api.setEmailPrefs({ [key]: wanted }));
+          toast(wanted ? `${label}: email attivata.` : `${label}: email spenta.`, { type: 'success' });
+        } catch (error) {
+          event.target.checked = !wanted;
+          Object.values(boxes).forEach((b) => (b.disabled = false));
+          toast(error.message, { type: 'error' });
+        }
+      },
+    });
+    return h('div', null, h('label', { class: 'check' }, boxes[key], label), h('p', { class: 'muted small' }, help));
+  });
+
+  api
+    .emailPrefs(state.user.id)
+    .then((prefs) => {
+      setAll(prefs);
+      status.textContent = state.me.email ? `Arrivano a ${state.me.email}.` : 'Arrivano alla tua email.';
+    })
+    .catch(() => (status.textContent = 'Non riesco a leggere le preferenze. Riprova più tardi.'));
+
+  return h('section', { class: 'card card-stack' }, h('h2', null, 'Email'), ...options, status);
+}
+
 function sessionCard() {
   const usage = h('span', null, '…');
   api.aiUsageLastDay(state.user.id).then((n) => (usage.textContent = String(n))).catch(() => (usage.textContent = '-'));
@@ -180,6 +226,6 @@ export function profileView(outlet) {
     mount(outlet, errorBox({ message: 'Profilo non disponibile.' }));
     return null;
   }
-  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), passwordCard(), factorsCard(), notificationsCard(), sessionCard()));
+  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), passwordCard(), factorsCard(), notificationsCard(), emailCard(), sessionCard()));
   return null;
 }

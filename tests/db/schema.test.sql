@@ -622,5 +622,232 @@ begin
 end
 $$;
 
+\echo 'ok - preferenze email: accese di default, ognuno cambia solo le proprie e solo con 2FA'
+select test.login('b');
+do $$
+declare
+  r public.email_prefs;
+begin
+  assert (select bool_and(c.relrowsecurity) from pg_class c where c.oid in ('public.email_prefs'::regclass, 'public.email_weekly'::regclass)), 'RLS mancante sulle tabelle delle email';
+  assert (select count(*) from public.email_prefs) = 0, 'preferenze presenti prima di sceglierle';
+  r := public.set_email_prefs(false, null);
+  assert r.user_id = test.uid('b') and not r.mentions and r.weekly, 'preferenza non salvata: ' || row_to_json(r)::text;
+  r := public.set_email_prefs(null, false);
+  assert not r.mentions and not r.weekly, 'la seconda scelta ha cambiato la prima';
+  r := public.set_email_prefs(true);
+  assert r.mentions and not r.weekly, 'riaccensione sbagliata';
+  perform test.expect_error($q$insert into public.email_prefs (user_id) values (auth.uid())$q$, 'permission denied');
+  perform test.expect_error($q$update public.email_prefs set weekly = true$q$, 'permission denied');
+  perform test.expect_error($q$select count(*) from public.email_weekly$q$, 'permission denied');
+  perform test.expect_error($q$select count(*) from public.notify_recipients()$q$, 'permission denied');
+  perform test.expect_error($q$select public.notify_claim_mentions(array[1::bigint])$q$, 'permission denied');
+end
+$$;
+select test.login('a');
+do $$
+begin
+  assert (select count(*) from public.email_prefs) = 0, 'preferenze altrui visibili';
+  perform public.set_email_prefs(false);
+  assert (select count(*) from public.email_prefs) = 1, 'la propria riga non si vede';
+end
+$$;
+select test.login('a', 'aal1');
+do $$
+begin
+  perform test.expect_error('select public.set_email_prefs(true, true)', 'verifica in due passaggi');
+end
+$$;
+select test.login('d');
+do $$
+begin
+  perform test.expect_error('select public.set_email_prefs(true, true)', 'verifica in due passaggi');
+end
+$$;
+reset role;
+set role anon;
+do $$
+begin
+  perform test.expect_error('select public.set_email_prefs(true, true)', 'permission denied');
+end
+$$;
+reset role;
+do $$
+begin
+  assert (select mentions and not weekly from public.email_prefs where user_id = test.uid('b')), 'preferenze di b cambiate da altri';
+  assert (select not mentions and weekly from public.email_prefs where user_id = test.uid('a')), 'preferenze di a sbagliate';
+  assert not exists (select 1 from public.email_prefs where user_id = test.uid('d')), 'un estraneo ha salvato preferenze';
+end
+$$;
+
+\echo 'ok - email: le funzioni di invio le chiama solo la chiave di servizio, destinatari solo membri con 2FA'
+do $$
+declare
+  f text;
+begin
+  foreach f in array array[
+    'public.notify_recipients()', 'public.notify_pending_mentions(timestamptz)', 'public.notify_claim_mentions(bigint[])',
+    'public.notify_release_mentions(bigint[])', 'public.notify_claim_weekly(uuid, date)', 'public.notify_release_weekly(uuid, date)',
+    'public.notify_weekly_data(timestamptz)'
+  ] loop
+    assert not has_function_privilege('anon', f, 'execute'), f || ' eseguibile da anon';
+    assert not has_function_privilege('authenticated', f, 'execute'), f || ' eseguibile da authenticated';
+    assert has_function_privilege('service_role', f, 'execute'), f || ' non eseguibile dalla funzione';
+  end loop;
+  foreach f in array array['anon', 'authenticated', 'service_role'] loop
+    assert not has_function_privilege(f, 'public.notify_call(text)', 'execute'), 'notify_call eseguibile da ' || f;
+  end loop;
+end
+$$;
+insert into auth.mfa_factors (user_id, status) values (test.uid('b'), 'verified'), (test.uid('c'), 'unverified');
+grant usage on schema test to service_role;
+grant execute on all functions in schema test to service_role;
+set role service_role;
+do $$
+begin
+  assert (select array_agg(user_id order by user_id) from public.notify_recipients()) = array[test.uid('a'), test.uid('b')], 'destinatari sbagliati';
+  assert (select email = 'admin@test.it' and not mentions and weekly from public.notify_recipients() where user_id = test.uid('a')), 'email o preferenze di a sbagliate';
+  assert (select mentions and not weekly from public.notify_recipients() where user_id = test.uid('b')), 'preferenze di b ignorate';
+end
+$$;
+
+\echo 'ok - menzioni per email: dettagli per il link, segnate una volta sola, le lette non partono, le rifiutate tornano da inviare'
+do $$
+declare
+  v_ids bigint[];
+  v_claimed bigint[];
+  m record;
+begin
+  select array_agg(id order by id) into v_ids from public.notify_pending_mentions(now() - interval '1 day');
+  assert array_length(v_ids, 1) >= 3, 'le menzioni nate dopo l''installazione devono essere da inviare';
+  select * into m from public.notify_pending_mentions(now() - interval '1 day') where source = 'comment' and user_id = test.uid('b');
+  assert m.author_name = 'Admin' and m.item_kind = 'idea' and m.item_title = 'Idea alfa estesa' and m.excerpt = 'Avviso @tutti', 'dettagli della menzione: ' || row_to_json(m)::text;
+  assert (select count(*) from public.notify_pending_mentions(now() + interval '1 minute')) = 0, 'filtro per data ignorato';
+  update public.mentions set read_at = now() where id = v_ids[1];
+  select array_agg(id order by id) into v_claimed from public.notify_claim_mentions(v_ids);
+  assert v_claimed = v_ids[2:], 'segnata anche una menzione letta';
+  assert (select count(*) from public.notify_claim_mentions(v_ids)) = 0, 'menzioni segnate due volte';
+  assert (select count(*) from public.notify_pending_mentions(now() - interval '1 day')) = 0, 'menzioni segnate ancora da inviare';
+  perform public.notify_release_mentions(v_claimed);
+  assert (select array_agg(id order by id) from public.notify_pending_mentions(now() - interval '1 day')) = v_claimed, 'le rifiutate non tornano da inviare';
+end
+$$;
+
+\echo 'ok - riepilogo settimanale: uno per persona e per settimana, si può riprovare solo dopo un rifiuto'
+do $$
+begin
+  assert public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'primo riepilogo non segnato';
+  assert not public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'riepilogo segnato due volte';
+  assert public.notify_claim_weekly(test.uid('b'), '2026-11-02'), 'il riepilogo di un altro blocca';
+  perform public.notify_release_weekly(test.uid('a'), '2026-11-02');
+  assert public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'dopo un rifiuto non si riprova';
+  assert public.notify_claim_weekly(test.uid('a'), '2026-11-09'), 'la settimana dopo non parte';
+  assert (select count(*) from public.email_weekly where user_id = test.uid('a')) = 2, 'storico degli invii sbagliato';
+end
+$$;
+
+\echo 'ok - riepilogo settimanale: interviste fatte, esperimenti conclusi e decisioni prese solo la prima volta, non letti per persona'
+reset role;
+set role authenticated;
+select test.login('a');
+select set_config('test.done_before', (public.create_item('interview', 'Intervista vecchia', 'fatta', '{}')).id::text, false);
+select public.create_item('interview', 'Intervista nuova', 'fatta', '{"commitment":"pilota","source":"campo"}');
+select public.create_item('interview', 'Intervista da fare', 'da_fare', '{}');
+select public.create_item('contact', 'Persona da sentire', 'da_contattare', jsonb_build_object('owner', test.uid('a'), 'next_date', '2026-11-03', 'role', 'Ruolo di prova'), current_setting('test.idea')::uuid);
+reset role;
+update public.revisions set created_at = now() - interval '10 days' where item_id = current_setting('test.done_before')::uuid;
+set role authenticated;
+select test.login('a');
+select public.save_item(current_setting('test.done_before')::uuid, 1, 'Intervista vecchia', 'analizzata', '{}');
+reset role;
+set role service_role;
+do $$
+declare
+  d jsonb := public.notify_weekly_data(now() - interval '7 days');
+  v_reached text[] := (select array_agg(x ->> 'title') from jsonb_array_elements(d -> 'reached') x);
+begin
+  assert d ?& array['ideas', 'contacts', 'experiments', 'new_ideas', 'busy_ideas', 'reached', 'unread'], 'sezioni mancanti: ' || d::text;
+  assert 'Intervista nuova' = any (v_reached), 'intervista fatta questa settimana mancante';
+  assert not ('Intervista vecchia' = any (v_reached)), 'intervista già fatta prima contata di nuovo';
+  assert not ('Intervista da fare' = any (v_reached)), 'intervista da fare contata';
+  assert (select x ->> 'commitment' = 'pilota' and x ->> 'source' = 'campo' from jsonb_array_elements(d -> 'reached') x where x ->> 'title' = 'Intervista nuova'), 'impegno o fonte mancanti';
+  assert (select x ->> 'owner' = test.uid('a')::text and x ->> 'next_date' = '2026-11-03' and not x ? 'title' from jsonb_array_elements(d -> 'contacts') x where x ->> 'role' = 'Ruolo di prova'), 'contatto da sentire mancante, o con il nome';
+  assert (select (x ->> 'changes')::int > 0 from jsonb_array_elements(d -> 'busy_ideas') x where x ->> 'id' = current_setting('test.idea')), 'modifiche all''idea non contate';
+  assert (select (x ->> 'mentions')::int from jsonb_array_elements(d -> 'unread') x where x ->> 'user_id' = test.uid('c')::text)
+    = (select count(*) from public.mentions where user_id = test.uid('c') and read_at is null), 'menzioni non lette di c sbagliate';
+  assert (select (x ->> 'mentions')::int from jsonb_array_elements(d -> 'unread') x where x ->> 'user_id' = test.uid('c')::text) > 0, 'c non ha menzioni non lette';
+  assert (select (x ->> 'chat')::int >= 0 from jsonb_array_elements(d -> 'unread') x where x ->> 'user_id' = test.uid('a')::text), 'non letti in chat mancanti';
+end
+$$;
+reset role;
+
+\echo 'ok - rieseguire lo schema non tocca le menzioni ancora da inviare'
+select set_config('request.jwt.claims', '', false);
+select set_config('test.pending', (select count(*) from public.mentions where emailed_at is null)::text, false);
+set client_min_messages = warning;
+\ir ../../supabase/schema.sql
+reset client_min_messages;
+do $$
+begin
+  assert current_setting('test.pending')::int > 0, 'nessuna menzione da inviare prima della prova';
+  assert (select count(*) from public.mentions where emailed_at is null) = current_setting('test.pending')::int, 'lo schema rieseguito ha segnato menzioni nuove';
+end
+$$;
+
+\echo 'ok - alla prima installazione le menzioni esistenti si segnano come gestite, quelle dopo restano da inviare'
+alter table public.mentions drop column emailed_at;
+set client_min_messages = warning;
+\ir ../../supabase/schema.sql
+reset client_min_messages;
+do $$
+begin
+  assert (select count(*) from public.mentions) > 0, 'nessuna menzione per la prova';
+  assert not exists (select 1 from public.mentions where emailed_at is null), 'menzioni esistenti all''installazione ancora da inviare';
+end
+$$;
+set role authenticated;
+select test.login('c');
+insert into public.chat_messages (chat_id, body) select id, 'Dopo l''installazione @[Admin]' from public.chats where is_general;
+reset role;
+select set_config('request.jwt.claims', '', false);
+set client_min_messages = warning;
+\ir ../../supabase/schema.sql
+reset client_min_messages;
+do $$
+begin
+  assert (select count(*) from public.mentions where emailed_at is null) = 1, 'la menzione nuova non è da inviare, o lo schema rieseguito l''ha segnata';
+  assert (select user_id from public.mentions where emailed_at is null) = test.uid('a'), 'menzione nuova sbagliata';
+end
+$$;
+
+\echo 'ok - i job programmati non fanno nulla senza Vault, pg_net o segreti, e con i segreti chiamano la funzione'
+do $$
+begin
+  assert public.notify_call('mentions') is null, 'senza Vault e pg_net parte una chiamata';
+end
+$$;
+create schema vault;
+create table vault.decrypted_secrets (name text primary key, decrypted_secret text);
+create schema net;
+create table test.http_calls (url text, body jsonb, headers jsonb, timeout_milliseconds integer);
+create function net.http_post(url text, body jsonb default '{}', params jsonb default '{}', headers jsonb default '{}', timeout_milliseconds integer default 5000)
+returns bigint
+language sql
+as $$
+  insert into test.http_calls values (url, body, headers, timeout_milliseconds) returning 7::bigint
+$$;
+do $$
+begin
+  assert public.notify_call('mentions') is null, 'senza segreti parte una chiamata';
+  insert into vault.decrypted_secrets values ('notify_url', 'https://progetto.example/functions/v1/notify');
+  assert public.notify_call('mentions') is null, 'senza il segreto condiviso parte una chiamata';
+  insert into vault.decrypted_secrets values ('notify_secret', 'segreto-finto-per-i-test');
+  assert public.notify_call('weekly') = 7, 'la chiamata non parte';
+  assert (select count(*) from test.http_calls) = 1, 'chiamate sbagliate';
+  assert (select url = 'https://progetto.example/functions/v1/notify' and body = '{"job":"weekly"}'::jsonb from test.http_calls), 'indirizzo o corpo sbagliati';
+  assert (select headers ->> 'x-notify-secret' = 'segreto-finto-per-i-test' from test.http_calls), 'segreto non inviato';
+  perform test.expect_error($q$select public.notify_call('tutto')$q$, 'sconosciuto');
+end
+$$;
+
 reset role;
 \echo 'tutti i test del database sono passati'

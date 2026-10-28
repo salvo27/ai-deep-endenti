@@ -404,6 +404,17 @@ export const api = {
     await unwrap(supabase.rpc('mark_mentions_read', { p_ids: ids }));
   },
 
+  // Email (menzioni non lette e riepilogo del lunedì): senza una riga salvata sono accese tutte e due.
+  async emailPrefs(userId) {
+    const row = await unwrap(supabase.from('email_prefs').select('mentions,weekly').eq('user_id', requireUuid(userId)).maybeSingle());
+    return { mentions: row?.mentions !== false, weekly: row?.weekly !== false };
+  },
+
+  async setEmailPrefs({ mentions = null, weekly = null }) {
+    const row = await unwrap(supabase.rpc('set_email_prefs', { p_mentions: mentions, p_weekly: weekly }), 'Preferenza non salvata.');
+    return { mentions: row?.mentions !== false, weekly: row?.weekly !== false };
+  },
+
   // Immagini delle note: spazio privato su Supabase Storage, regole nel database.
   async uploadNoteImage(path, blob) {
     const { error } = await supabase.storage.from(NOTE_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });

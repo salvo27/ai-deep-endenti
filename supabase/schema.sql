@@ -1136,11 +1136,298 @@ create policy audit_log_select on public.audit_log
   using ((select public.is_admin()));
 
 -- =========================================================================
+-- Email: menzioni non lette e riepilogo del lunedì (Edge Function notify)
+-- =========================================================================
+
+-- Preferenze di ciascuno: senza riga sono accese tutte e due. Si cambiano solo con set_email_prefs.
+create table if not exists public.email_prefs (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  mentions boolean not null default true,
+  weekly boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.email_prefs enable row level security;
+
+drop policy if exists email_prefs_select on public.email_prefs;
+create policy email_prefs_select on public.email_prefs
+  for select to authenticated
+  using ((select public.can_read()) and user_id = (select auth.uid()));
+
+-- Un riepilogo per persona e per settimana: la riga si scrive prima dell'invio, così un nuovo tentativo non lo rimanda.
+create table if not exists public.email_weekly (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  week_start date not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, week_start)
+);
+
+alter table public.email_weekly enable row level security;
+
+-- emailed_at: menzione già gestita (inviata, saltata per preferenza o già presente all'installazione).
+-- La colonna nasce qui una volta sola, insieme al segno sulle menzioni esistenti: rieseguire lo schema non tocca le nuove.
+do $$
+begin
+  if not exists (
+    select 1 from pg_attribute
+    where attrelid = 'public.mentions'::regclass and attname = 'emailed_at' and not attisdropped
+  ) then
+    alter table public.mentions add column emailed_at timestamptz;
+    update public.mentions set emailed_at = now();
+  end if;
+end
+$$;
+
+create index if not exists mentions_email_pending_idx on public.mentions (created_at) where emailed_at is null;
+
+create or replace function public.set_email_prefs(p_mentions boolean default null, p_weekly boolean default null)
+returns public.email_prefs
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r public.email_prefs;
+begin
+  if not public.can_read() then
+    raise exception 'Serve un account del team con la verifica in due passaggi';
+  end if;
+  insert into public.email_prefs (user_id, mentions, weekly)
+  values (auth.uid(), coalesce(p_mentions, true), coalesce(p_weekly, true))
+  on conflict (user_id) do update
+    set mentions = coalesce(p_mentions, public.email_prefs.mentions),
+        weekly = coalesce(p_weekly, public.email_prefs.weekly),
+        updated_at = now()
+  returning * into r;
+  return r;
+end
+$$;
+
+-- Le funzioni notify_* le chiama solo la Edge Function con la chiave di servizio.
+-- Destinatari: membri con email e 2FA attiva, come chi può leggere il sito.
+create or replace function public.notify_recipients()
+returns table (user_id uuid, display_name text, email text, mentions boolean, weekly boolean)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.user_id, m.display_name, u.email::text, coalesce(p.mentions, true), coalesce(p.weekly, true)
+  from public.members m
+  join auth.users u on u.id = m.user_id
+  left join public.email_prefs p on p.user_id = m.user_id
+  where coalesce(u.email, '') <> ''
+    and exists (select 1 from auth.mfa_factors f where f.user_id = m.user_id and f.status = 'verified')
+  order by m.created_at
+$$;
+
+create or replace function public.notify_pending_mentions(p_since timestamptz)
+returns table (
+  id bigint,
+  user_id uuid,
+  author_id uuid,
+  author_name text,
+  source text,
+  source_id uuid,
+  chat_id uuid,
+  chat_title text,
+  item_id uuid,
+  item_title text,
+  item_kind text,
+  excerpt text,
+  created_at timestamptz,
+  read_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select mn.id, mn.user_id, mn.author_id, a.display_name, mn.source, mn.source_id, mn.chat_id, c.title,
+         mn.item_id, i.title, i.kind, mn.excerpt, mn.created_at, mn.read_at
+  from public.mentions mn
+  left join public.members a on a.user_id = mn.author_id
+  left join public.chats c on c.id = mn.chat_id
+  left join public.items i on i.id = mn.item_id
+  where mn.emailed_at is null and mn.read_at is null and mn.created_at > p_since
+  order by mn.user_id, mn.created_at
+$$;
+
+-- Segna le menzioni prima dell'invio: restituisce solo quelle ancora da gestire e non lette, così nessuna parte due volte.
+create or replace function public.notify_claim_mentions(p_ids bigint[])
+returns table (id bigint)
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.mentions m
+  set emailed_at = now()
+  where m.id = any (p_ids) and m.emailed_at is null and m.read_at is null
+  returning m.id
+$$;
+
+-- Solo quando il servizio email ha rifiutato l'invio: le menzioni tornano da gestire.
+create or replace function public.notify_release_mentions(p_ids bigint[])
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.mentions set emailed_at = null where id = any (p_ids)
+$$;
+
+create or replace function public.notify_claim_weekly(p_user uuid, p_week date)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  with ins as (
+    insert into public.email_weekly (user_id, week_start)
+    values (p_user, p_week)
+    on conflict do nothing
+    returning 1
+  )
+  select exists (select 1 from ins)
+$$;
+
+create or replace function public.notify_release_weekly(p_user uuid, p_week date)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  delete from public.email_weekly where user_id = p_user and week_start = p_week
+$$;
+
+-- Dati del riepilogo: le scelte (cosa mostrare a chi) le fa la funzione notify.
+-- Dei contatti esterni si manda solo il ruolo, mai il nome (il titolo della scheda).
+-- reached: interviste fatte, esperimenti conclusi e decisioni prese per la prima volta dopo p_since.
+create or replace function public.notify_weekly_data(p_since timestamptz)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'ideas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', i.id, 'title', i.title, 'owner', i.data ->> 'owner', 'next_step', i.data ->> 'next_step') order by i.created_at)
+      from public.items i
+      where i.kind = 'idea' and i.deleted_at is null and i.status not in ('scartata', 'parcheggiata')
+        and coalesce(i.data ->> 'owner', '') <> ''
+    ), '[]'::jsonb),
+    'contacts', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'role', i.data ->> 'role', 'idea_title', idea.title, 'owner', i.data ->> 'owner', 'next_date', i.data ->> 'next_date'
+      ) order by i.data ->> 'next_date')
+      from public.items i
+      join public.items idea on idea.id = i.idea_id and idea.deleted_at is null
+      where i.kind = 'contact' and i.deleted_at is null and i.status <> 'chiusa'
+        and coalesce(i.data ->> 'owner', '') <> '' and coalesce(i.data ->> 'next_date', '') <> ''
+    ), '[]'::jsonb),
+    'experiments', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'title', i.title, 'idea_title', idea.title, 'owner', i.data ->> 'owner', 'status', i.status,
+        'start_date', i.data ->> 'start_date', 'end_date', i.data ->> 'end_date'
+      ) order by i.created_at)
+      from public.items i
+      join public.items idea on idea.id = i.idea_id and idea.deleted_at is null
+      where i.kind = 'experiment' and i.deleted_at is null and i.status <> 'concluso'
+        and coalesce(i.data ->> 'owner', '') <> ''
+    ), '[]'::jsonb),
+    'new_ideas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', i.id, 'title', i.title) order by i.created_at)
+      from public.items i
+      where i.kind = 'idea' and i.deleted_at is null and i.created_at >= p_since
+    ), '[]'::jsonb),
+    'busy_ideas', coalesce((
+      select jsonb_agg(jsonb_build_object('id', x.id, 'title', x.title, 'changes', x.n) order by x.n desc, x.title)
+      from (
+        select idea.id, idea.title, count(*)::integer as n
+        from public.revisions r
+        join public.items idea on idea.id = case when r.kind = 'idea' then r.item_id else r.idea_id end
+        where r.created_at >= p_since and idea.kind = 'idea' and idea.deleted_at is null
+        group by idea.id, idea.title
+        order by n desc, idea.title
+        limit 5
+      ) x
+    ), '[]'::jsonb),
+    'reached', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'kind', i.kind, 'title', i.title, 'source', i.data ->> 'source', 'commitment', i.data ->> 'commitment'
+      ) order by i.updated_at)
+      from public.items i
+      join (values
+        ('interview', array['fatta', 'analizzata']),
+        ('experiment', array['concluso']),
+        ('decision', array['presa', 'rivista'])
+      ) as s (kind, statuses) on s.kind = i.kind
+      where i.deleted_at is null
+        and i.status = any (s.statuses)
+        and exists (select 1 from public.revisions r where r.item_id = i.id and r.created_at >= p_since and r.status = any (s.statuses))
+        and not exists (select 1 from public.revisions r where r.item_id = i.id and r.created_at < p_since and r.status = any (s.statuses))
+    ), '[]'::jsonb),
+    'unread', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', mb.user_id,
+        'mentions', (select count(*) from public.mentions mn where mn.user_id = mb.user_id and mn.read_at is null),
+        'chat', (
+          select count(*)
+          from public.chat_messages m
+          where m.deleted_at is null
+            and m.author_id is distinct from mb.user_id
+            and m.created_at > coalesce(
+              (select r.last_read_at from public.chat_reads r where r.chat_id = m.chat_id and r.user_id = mb.user_id),
+              mb.created_at
+            )
+        )
+      ))
+      from public.members mb
+    ), '[]'::jsonb)
+  )
+$$;
+
+-- Chiamata dai job di pg_cron: legge indirizzo e segreto dal Vault e invia la richiesta con pg_net.
+-- Senza Vault, pg_net o uno dei due segreti non fa nulla.
+create or replace function public.notify_call(p_job text)
+returns bigint
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_url text;
+  v_secret text;
+  v_id bigint;
+begin
+  if p_job is null or p_job not in ('mentions', 'weekly') then
+    raise exception 'Invio sconosciuto: %', p_job;
+  end if;
+  if to_regclass('vault.decrypted_secrets') is null or to_regnamespace('net') is null then
+    return null;
+  end if;
+  execute $q$
+    select max(decrypted_secret) filter (where name = 'notify_url'), max(decrypted_secret) filter (where name = 'notify_secret')
+    from vault.decrypted_secrets
+    where name in ('notify_url', 'notify_secret')
+  $q$ into v_url, v_secret;
+  if coalesce(v_url, '') = '' or coalesce(v_secret, '') = '' then
+    return null;
+  end if;
+  execute 'select net.http_post(url => $1, body => $2, headers => $3, timeout_milliseconds => 60000)'
+    into v_id
+    using v_url, jsonb_build_object('job', p_job), jsonb_build_object('Content-Type', 'application/json', 'x-notify-secret', v_secret);
+  return v_id;
+end
+$$;
+
+-- =========================================================================
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions from authenticated;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly from anon;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly from authenticated;
+grant select on public.email_prefs to authenticated;
 grant select on public.audit_log to authenticated;
 grant select, update, delete on public.members to authenticated;
 grant select, insert, update on public.items to authenticated;
@@ -1166,6 +1453,23 @@ revoke execute on function public.notes_mentions() from public, anon, authentica
 revoke execute on function public.record_mentions(text, uuid, text, uuid, uuid, uuid) from public, anon, authenticated;
 revoke execute on function public.mentioned_users(text, uuid) from public, anon, authenticated;
 
+-- Le funzioni delle email: solo la chiave di servizio (Edge Function notify); notify_call solo pg_cron.
+revoke execute on function public.notify_recipients() from public, anon, authenticated;
+revoke execute on function public.notify_pending_mentions(timestamptz) from public, anon, authenticated;
+revoke execute on function public.notify_claim_mentions(bigint[]) from public, anon, authenticated;
+revoke execute on function public.notify_release_mentions(bigint[]) from public, anon, authenticated;
+revoke execute on function public.notify_claim_weekly(uuid, date) from public, anon, authenticated;
+revoke execute on function public.notify_release_weekly(uuid, date) from public, anon, authenticated;
+revoke execute on function public.notify_weekly_data(timestamptz) from public, anon, authenticated;
+revoke execute on function public.notify_call(text) from public, anon, authenticated, service_role;
+grant execute on function public.notify_recipients() to service_role;
+grant execute on function public.notify_pending_mentions(timestamptz) to service_role;
+grant execute on function public.notify_claim_mentions(bigint[]) to service_role;
+grant execute on function public.notify_release_mentions(bigint[]) to service_role;
+grant execute on function public.notify_claim_weekly(uuid, date) to service_role;
+grant execute on function public.notify_release_weekly(uuid, date) to service_role;
+grant execute on function public.notify_weekly_data(timestamptz) to service_role;
+
 revoke execute on function public.my_role() from public, anon;
 revoke execute on function public.has_mfa() from public, anon;
 revoke execute on function public.can_read() from public, anon;
@@ -1184,6 +1488,7 @@ revoke execute on function public.note_image_orphans(text[]) from public, anon;
 revoke execute on function public.chat_overview() from public, anon;
 revoke execute on function public.mark_chat_read(uuid) from public, anon;
 revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
+revoke execute on function public.set_email_prefs(boolean, boolean) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
@@ -1203,6 +1508,7 @@ grant execute on function public.note_image_orphans(text[]) to authenticated;
 grant execute on function public.chat_overview() to authenticated;
 grant execute on function public.mark_chat_read(uuid) to authenticated;
 grant execute on function public.mark_mentions_read(bigint[]) to authenticated;
+grant execute on function public.set_email_prefs(boolean, boolean) to authenticated;
 
 -- =========================================================================
 -- Realtime: aggiornamenti dal vivo e presenza
@@ -1257,6 +1563,36 @@ begin
         for insert to authenticated
         with check ((select public.can_read()) and realtime.topic() = 'board')
     $p$;
+  end if;
+end
+$$;
+
+-- =========================================================================
+-- Email programmate: pg_cron chiama la funzione notify con pg_net
+-- =========================================================================
+
+-- Menzioni ogni 10 minuti. Riepilogo il lunedì alle 6:00 UTC (pg_cron ragiona in UTC): sono le 7:00 in Italia
+-- con l'ora solare e le 8:00 con l'ora legale, quindi sempre lunedì mattina. Il segreto e l'indirizzo stanno nel Vault:
+-- finché mancano, i job non fanno nulla. Dove pg_cron o pg_net non ci sono (il database dei test) non si programma niente.
+do $$
+begin
+  begin
+    if exists (select 1 from pg_namespace where nspname = 'extensions') then
+      create extension if not exists pg_net with schema extensions;
+    else
+      create extension if not exists pg_net;
+    end if;
+  exception when others then
+    raise notice 'pg_net non disponibile: le email non partono';
+  end;
+  begin
+    create extension if not exists pg_cron with schema pg_catalog;
+  exception when others then
+    raise notice 'pg_cron non disponibile: le email non sono programmate';
+  end;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('notify-mentions', '*/10 * * * *', $job$select public.notify_call('mentions')$job$);
+    perform cron.schedule('notify-weekly', '0 6 * * 1', $job$select public.notify_call('weekly')$job$);
   end if;
 end
 $$;
