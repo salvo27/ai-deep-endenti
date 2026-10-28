@@ -4,7 +4,7 @@ import { truncate } from '../lib/format.js';
 import { CONFIG } from '../config.js';
 import { BOARD_KINDS, routeFor } from '../schema.js';
 import { totalUnread } from '../chat.js';
-import { on, state } from '../store.js';
+import { on, readLocal, state, writeLocal } from '../store.js';
 import { navigate, onRouteChange } from '../router.js';
 import { avatar, kindBadge } from './components.js';
 import { mentionsButton, notificationBell } from './notifications.js';
@@ -142,16 +142,44 @@ function globalSearch() {
 export function buildShell(root, { onSignOut }) {
   const outlet = h('main', { class: 'content', id: 'content', tabindex: '-1' });
   const chatBadge = h('span', { class: 'nav-badge', hidden: true });
-  const groups = NAV_GROUPS.map(([title, entries], index) =>
-    h(
+  // Gruppi aperti di default; chi ne chiude uno lo ritrova chiuso su questo dispositivo, tranne quello della pagina aperta.
+  const closed = new Set(readLocal('menuChiuso', []));
+  const setGroupOpen = (group, open, remember = true) => {
+    group.querySelector('.nav-group-title').setAttribute('aria-expanded', String(open));
+    group.querySelector('.nav-group-links').hidden = !open;
+    if (!remember) return;
+    if (open) closed.delete(group.dataset.title);
+    else closed.add(group.dataset.title);
+    writeLocal('menuChiuso', [...closed]);
+  };
+  const groups = NAV_GROUPS.map(([title, entries], index) => {
+    const open = !closed.has(title);
+    const group = h(
       'div',
-      { class: 'nav-group', role: 'group', 'aria-labelledby': `nav-group-${index}` },
-      h('p', { class: 'nav-group-title', id: `nav-group-${index}` }, title),
-      entries.map(([path, label, iconName]) =>
-        h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label), path === '/chat' ? chatBadge : null),
+      { class: 'nav-group', role: 'group', 'aria-labelledby': `nav-group-${index}`, dataset: { title } },
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'nav-group-title',
+          id: `nav-group-${index}`,
+          'aria-expanded': String(open),
+          'aria-controls': `nav-group-links-${index}`,
+          onClick: () => setGroupOpen(group, group.querySelector('.nav-group-links').hidden),
+        },
+        h('span', null, title),
+        icon('chevron', 14),
       ),
-    ),
-  );
+      h(
+        'div',
+        { class: 'nav-group-links', id: `nav-group-links-${index}`, hidden: !open },
+        entries.map(([path, label, iconName]) =>
+          h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label), path === '/chat' ? chatBadge : null),
+        ),
+      ),
+    );
+    return group;
+  });
   const links = groups.flatMap((group) => [...group.querySelectorAll('.nav-link')]);
   const signOut = async () => {
     if (await confirmDialog('Per rientrare servono password e codice di verifica.', { title: 'Vuoi uscire?', okLabel: 'Esci' })) onSignOut();
@@ -226,6 +254,8 @@ export function buildShell(root, { onSignOut }) {
       const active = target === '/' ? path === '/' : path === target || path.startsWith(`${target}/`) ||
         (target === '/idee' && path.startsWith('/idea/'));
       link.classList.toggle('is-active', active);
+      const group = link.closest('.nav-group');
+      if (active && group?.querySelector('.nav-group-links').hidden) setGroupOpen(group, true, false);
     }
     setMenu(false);
   };

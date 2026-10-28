@@ -254,3 +254,21 @@ test('on a phone the search opens as a full-width row from its button, and close
   assert.equal(isOpen(), false, 'scegliendo un risultato la riga si chiude');
   await flush();
 });
+
+test('menu groups start open, close with a tap, are remembered, and the current page reopens its group', async () => {
+  const sistema = [...root.querySelectorAll('.nav-group')].find((g) => g.dataset.title === 'Sistema');
+  const title = sistema.querySelector('.nav-group-title');
+  const links = sistema.querySelector('.nav-group-links');
+  assert.equal(title.getAttribute('aria-expanded'), 'true', 'aperti di default');
+  assert.equal(links.hidden, false);
+  title.click();
+  assert.equal(title.getAttribute('aria-expanded'), 'false');
+  assert.equal(links.hidden, true);
+  assert.deepEqual(store.readLocal('menuChiuso'), ['Sistema'], 'si ricorda il gruppo chiuso');
+  await visit('#/storico');
+  assert.equal(links.hidden, false, 'la pagina aperta riapre il suo gruppo');
+  assert.deepEqual(store.readLocal('menuChiuso'), ['Sistema'], 'senza cambiare la preferenza');
+  title.click();
+  title.click();
+  assert.deepEqual(store.readLocal('menuChiuso'), [], 'riaperto a mano torna aperto anche dopo');
+});
