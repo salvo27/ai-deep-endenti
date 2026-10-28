@@ -223,7 +223,7 @@ export function contactsView(outlet, params, query) {
       h('span', { class: 'field-label' }, label),
       h(
         'select',
-        { class: 'input', onChange: (e) => navigate(hrefFor({ [key]: e.target.value || null })) },
+        { class: 'input', onChange: (e) => navigate(hrefFor({ [key]: e.target.value || null }), { replace: true }) },
         h('option', { value: '' }, empty),
         entries.map(([v, l]) => h('option', { value: v, selected: v === value }, l)),
       ),
@@ -266,7 +266,7 @@ export function contactsView(outlet, params, query) {
           CONTACT_FILTERS.map(([value, label]) =>
             h(
               'a',
-              { class: ['btn', 'btn-small', value === filters.filter ? 'btn-primary' : 'btn-ghost'], href: `#${hrefFor({ filter: value })}`, 'aria-current': value === filters.filter ? 'true' : undefined },
+              { class: ['btn', 'btn-small', value === filters.filter ? 'btn-primary' : 'btn-ghost'], href: `#${hrefFor({ filter: value })}`, 'aria-current': value === filters.filter ? 'true' : undefined, dataset: { replace: '' } },
               label,
             ),
           ),

@@ -1,4 +1,4 @@
-import { h, mount, toast } from '../lib/dom.js';
+import { claimPopup, h, mount, onOtherPopup, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { on } from '../store.js';
 import { browserAlert, isUnread, markAllRead, markRead, notifications, unreadCount } from '../notifications.js';
@@ -73,6 +73,7 @@ export function notificationBell() {
     if (event.key === 'Escape') close();
   };
   function open() {
+    claimPopup('notifiche');
     renderPanel();
     panel.hidden = false;
     button.setAttribute('aria-expanded', 'true');
@@ -88,6 +89,7 @@ export function notificationBell() {
     showRead = false;
   }
   button.addEventListener('click', () => (panel.hidden ? open() : close()));
+  onOtherPopup('notifiche', close);
 
   on('notifications', ({ note, live }) => {
     renderBadge();
@@ -158,6 +160,7 @@ export function mentionsButton() {
     if (event.key === 'Escape') close();
   };
   function open() {
+    claimPopup('menzioni');
     renderPanel();
     panel.hidden = false;
     button.setAttribute('aria-expanded', 'true');
@@ -172,6 +175,7 @@ export function mentionsButton() {
     document.removeEventListener('keydown', onKey);
   }
   button.addEventListener('click', () => (panel.hidden ? open() : close()));
+  onOtherPopup('menzioni', close);
   on('mentions', () => {
     renderBadge();
     if (!panel.hidden) renderPanel();

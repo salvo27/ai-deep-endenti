@@ -74,8 +74,8 @@ export function ideasView(outlet, params, query) {
     const toolbar = h(
       'div',
       { class: 'toolbar' },
-      h('a', { class: ['btn', 'btn-small', mode === 'board' ? 'btn-primary' : 'btn-ghost'], href: '#/idee' }, icon('columns', 16), 'Colonne'),
-      h('a', { class: ['btn', 'btn-small', mode === 'table' ? 'btn-primary' : 'btn-ghost'], href: '#/idee?vista=tabella' }, icon('list', 16), 'Tabella'),
+      h('a', { class: ['btn', 'btn-small', mode === 'board' ? 'btn-primary' : 'btn-ghost'], href: '#/idee', dataset: { replace: '' } }, icon('columns', 16), 'Colonne'),
+      h('a', { class: ['btn', 'btn-small', mode === 'table' ? 'btn-primary' : 'btn-ghost'], href: '#/idee?vista=tabella', dataset: { replace: '' } }, icon('list', 16), 'Tabella'),
       mode === 'board'
         ? h(
             'button',

@@ -73,6 +73,20 @@ export function svg(tag, attrs = {}, ...children) {
 
 let toastHost = null;
 
+// Un solo pannello aperto alla volta (menu, notifiche, menzioni, ricerca): chi si apre lo annuncia e gli altri si chiudono.
+export function claimPopup(id) {
+  const view = document.defaultView || window;
+  document.dispatchEvent(new view.CustomEvent('popup-open', { detail: id }));
+}
+
+export function onOtherPopup(id, close) {
+  const handler = (event) => {
+    if (event.detail !== id) close();
+  };
+  document.addEventListener('popup-open', handler);
+  return () => document.removeEventListener('popup-open', handler);
+}
+
 export function toast(message, { type = 'info', timeout = 4500 } = {}) {
   if (!toastHost || !toastHost.isConnected) {
     toastHost = h('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' });

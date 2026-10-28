@@ -293,8 +293,8 @@ function experimentsTab(idea, writable, javelin) {
         ? h(
             'span',
             { class: 'toolbar' },
-            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-ghost' : 'btn-primary'], href: base }, icon('columns', 14), 'Schede'),
-            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-primary' : 'btn-ghost'], href: `${base}?vista=javelin` }, icon('list', 14), 'Javelin'),
+            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-ghost' : 'btn-primary'], href: base, dataset: { replace: '' } }, icon('columns', 14), 'Schede'),
+            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-primary' : 'btn-ghost'], href: `${base}?vista=javelin`, dataset: { replace: '' } }, icon('list', 14), 'Javelin'),
             conceptButton('javelin'),
           )
         : null,

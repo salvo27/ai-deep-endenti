@@ -31,7 +31,7 @@ import {
   ranking,
   scaleEnds,
 } from '../scoring.js';
-import { setLeaveGuard } from '../router.js';
+import { navigate, setLeaveGuard } from '../router.js';
 import { archiveWithConfirm } from './actions.js';
 import { saveWithMerge } from './merge.js';
 import { avatar, button, emptyState, errorBox, itemLink, pageHeader } from './components.js';
@@ -332,7 +332,7 @@ function takePhoto() {
     save: async (title) => {
       await createItem('scoresnap', { title, data: currentPhoto() }, `Fotografia: ${title}`);
       toast('Fotografia salvata.', { type: 'success' });
-      location.hash = PHOTOS_PATH;
+      navigate(PHOTOS_PATH, { replace: true });
     },
   });
 }
@@ -538,8 +538,8 @@ function photosPanel(query, keep) {
     h(
       'div',
       { class: 'row compare-bar' },
-      pick('Prima', from, (value) => (location.hash = hrefWith(query, { da: value, a: to }))),
-      pick('Dopo', to, (value) => (location.hash = hrefWith(query, { da: from, a: value }))),
+      pick('Prima', from, (value) => navigate(hrefWith(query, { da: value, a: to }).slice(1), { replace: true })),
+      pick('Dopo', to, (value) => navigate(hrefWith(query, { da: from, a: value }).slice(1), { replace: true })),
     ),
     from === to ? h('p', { class: 'muted' }, 'Hai scelto la stessa fotografia due volte.') : comparisonView(comparePhotos(dataOf(from), dataOf(to), keep)),
     h('div', { class: 'section-head' }, h('h2', null, 'Fotografie salvate'), saveButton),
@@ -779,7 +779,7 @@ export function scoringView(outlet, params, query) {
     else content = mineContent(visibleIdeas, criteria, evidence);
     updateMissing();
 
-    const tab = (label, href, active) => h('a', { class: ['btn', 'btn-small', active ? 'btn-primary' : 'btn-ghost'], href }, label);
+    const tab = (label, href, active) => h('a', { class: ['btn', 'btn-small', active ? 'btn-primary' : 'btn-ghost'], href, dataset: { replace: '' } }, label);
     const subtitle =
       mode === 'photo' && photo?.kind === 'scoresnap'
         ? `Fotografia «${photo.title}» del ${fmtDateTime(photo.created_at)}, salvata da ${memberName(photo.created_by)}. Criteri, pesi e voti sono quelli di quel momento: tocca una cella per vedere i voti di ciascuno.`
@@ -803,7 +803,7 @@ export function scoringView(outlet, params, query) {
       h(
         'label',
         { class: 'check' },
-        h('input', { type: 'checkbox', checked: includeAll, onChange: (e) => (location.hash = hrefWith(query, { tutte: e.target.checked ? '1' : null })) }),
+        h('input', { type: 'checkbox', checked: includeAll, onChange: (e) => navigate(hrefWith(query, { tutte: e.target.checked ? '1' : null }).slice(1), { replace: true }) }),
         'Mostra anche le idee scartate',
       ),
       content,

@@ -1,6 +1,6 @@
 const routes = [];
 let outlet = null;
-let current = { path: null, cleanup: null };
+let current = { path: null, key: null, cleanup: null };
 let leaveGuard = null;
 let notFound = null;
 const changeListeners = new Set();
@@ -102,17 +102,19 @@ export async function render(hash = location.hash) {
     ({ path, query } = parseHash(target));
     found = match(path);
   }
-  if (current.path !== null && path !== current.path && leaveGuard) {
+  // L'avviso per le modifiche non salvate vale anche quando cambia solo la vista (per esempio ?vista=...).
+  const key = query.toString() ? `${path}?${query}` : path;
+  if (current.key !== null && key !== current.key && leaveGuard) {
     const ok = await leaveGuard();
     if (!ok) {
-      history.replaceState(null, '', `#${current.path}`);
+      history.replaceState(history.state, '', `#${current.key}`);
       return;
     }
     leaveGuard = null;
   }
   markHistory();
   current.cleanup?.();
-  current = { path, cleanup: null };
+  current = { path, key, cleanup: null };
   outlet.replaceChildren();
   outlet.scrollTop = 0;
   const view = found ? found.route.view : notFound;
@@ -127,20 +129,42 @@ export async function render(hash = location.hash) {
   for (const fn of changeListeners) fn(path);
 }
 
+// Schede e filtri cambiano la vista della stessa pagina: sostituiscono la voce della cronologia invece di aggiungerne una,
+// così «Indietro» porta alla pagina precedente e non alla scheda o al filtro di prima. I link interessati hanno data-replace.
+function onReplaceClick(event) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest?.('a[data-replace]');
+  const href = link?.getAttribute('href');
+  if (!href?.startsWith('#/')) return;
+  event.preventDefault();
+  navigate(href.slice(1), { replace: true });
+}
+
+let listening = false;
+
 export function startRouter(target, { fallback } = {}) {
   outlet = target;
   notFound = fallback || null;
-  window.addEventListener('hashchange', () => render());
+  if (!listening) {
+    listening = true;
+    window.addEventListener('hashchange', () => render());
+    document.addEventListener('click', onReplaceClick);
+  }
   return render();
 }
 
-export function navigate(path) {
-  if (`#${path}` === location.hash) render();
-  else location.hash = path;
+export function navigate(path, { replace = false } = {}) {
+  if (replace) {
+    history.replaceState(history.state, '', `#${path}`);
+    return render();
+  }
+  if (`#${path}` === location.hash) return render();
+  location.hash = path;
+  return undefined;
 }
 
 export function stopRouter() {
   current.cleanup?.();
-  current = { path: null, cleanup: null };
+  current = { path: null, key: null, cleanup: null };
   leaveGuard = null;
 }

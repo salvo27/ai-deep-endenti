@@ -1,4 +1,4 @@
-import { confirmDialog, h, mount } from '../lib/dom.js';
+import { claimPopup, confirmDialog, h, mount, onOtherPopup } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';
 import { CONFIG } from '../config.js';
@@ -78,6 +78,7 @@ function globalSearch() {
     results.hidden = true;
   };
   const setOpen = (open) => {
+    if (open) claimPopup('ricerca');
     box.classList.toggle('is-open', open);
     toggle.setAttribute('aria-expanded', String(open));
     if (open) {
@@ -87,6 +88,7 @@ function globalSearch() {
     input.value = '';
     close();
   };
+  onOtherPopup('ricerca', () => box.classList.contains('is-open') && setOpen(false));
   const dismiss = () => {
     setOpen(false);
     input.blur();
@@ -208,6 +210,7 @@ export function buildShell(root, { onSignOut }) {
   const offline = h('div', { class: 'banner banner-warn', hidden: navigator.onLine !== false }, 'Sei offline: le modifiche non verranno salvate finché non torna la connessione.');
   // Menu a scomparsa su tutti gli schermi: si chiude con le tre linee, toccando fuori, con Esc o scegliendo una pagina.
   const setMenu = (open) => {
+    if (open) claimPopup('menu');
     root.classList.toggle('nav-open', open);
     backdrop.hidden = !open;
     menuButton.setAttribute('aria-expanded', String(open));
@@ -226,7 +229,14 @@ export function buildShell(root, { onSignOut }) {
     }
   });
   setMenu(false);
-  const userBox = h('div', { class: 'user-box' }, avatar(state.user.id, 30), h('span', { class: 'user-name' }, state.me?.display_name || ''));
+  onOtherPopup('menu', () => root.classList.contains('nav-open') && setMenu(false));
+  // Su telefono il menu è lungo: avatar e nome portano anche al Profilo.
+  const userBox = h(
+    'a',
+    { class: 'user-box', href: '#/profilo', title: 'Profilo', 'aria-label': `Profilo di ${state.me?.display_name || 'chi è entrato'}` },
+    avatar(state.user.id, 30),
+    h('span', { class: 'user-name' }, state.me?.display_name || ''),
+  );
 
   mount(
     root,

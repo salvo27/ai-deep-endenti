@@ -272,3 +272,37 @@ test('menu groups start open, close with a tap, are remembered, and the current 
   title.click();
   assert.deepEqual(store.readLocal('menuChiuso'), [], 'riaperto a mano torna aperto anche dopo');
 });
+
+test('only one panel at a time: mentions, notifications, menu and phone search close each other', () => {
+  const bell = root.querySelector('.bell:not(.mentions-btn)');
+  const at = root.querySelector('.mentions-btn');
+  const menu = root.querySelector('.menu-btn');
+  const panelOf = (button) => button.parentElement.querySelector('.bell-panel');
+  const menuOpen = () => root.classList.contains('nav-open');
+
+  at.click();
+  assert.equal(panelOf(at).hidden, false);
+  bell.click();
+  assert.equal(panelOf(bell).hidden, false);
+  assert.equal(panelOf(at).hidden, true, 'aprendo le notifiche si chiudono le menzioni');
+  at.click();
+  assert.equal(panelOf(bell).hidden, true, 'e viceversa');
+
+  menu.click();
+  assert.equal(menuOpen(), true);
+  assert.equal(panelOf(at).hidden, true, 'aprendo il menu si chiudono i pannelli');
+  bell.click();
+  assert.equal(menuOpen(), false, 'aprendo un pannello si chiude il menu');
+  root.querySelector('.search-toggle').click();
+  assert.equal(panelOf(bell).hidden, true, 'anche la ricerca del telefono chiude i pannelli');
+  menu.click();
+  assert.equal(root.querySelector('.search').classList.contains('is-open'), false, 'e il menu chiude la ricerca');
+  menu.click();
+});
+
+test('avatar and name in the top bar open the profile', () => {
+  const user = root.querySelector('.topbar .user-box');
+  assert.equal(user.tagName, 'A');
+  assert.equal(user.getAttribute('href'), '#/profilo');
+  assert.match(user.getAttribute('aria-label'), /^Profilo di /);
+});

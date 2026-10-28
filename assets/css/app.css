@@ -189,6 +189,7 @@ del {
   gap: 1rem;
   width: 250px;
   height: 100vh;
+  height: 100dvh;
   padding: 1rem 0.75rem;
   overflow-y: auto;
   background: var(--surface);
@@ -299,12 +300,16 @@ del {
   font-weight: 600;
 }
 
+/* Profilo ed Esci restano sempre visibili in fondo al menu, anche quando l'elenco è lungo e scorre */
 .sidebar-foot {
+  position: sticky;
+  bottom: -1rem;
   display: flex;
   gap: 0.25rem;
-  margin-top: auto;
-  padding-top: 0.5rem;
+  margin: auto -0.75rem -1rem;
+  padding: 0.5rem 0.75rem 1rem;
   border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .sidebar-foot .nav-link {
@@ -448,6 +453,14 @@ del {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.15rem 0.35rem 0.15rem 0.15rem;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.user-box:hover {
+  background: var(--surface-2);
 }
 
 .banner {

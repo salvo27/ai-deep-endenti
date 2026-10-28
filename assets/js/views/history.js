@@ -104,7 +104,7 @@ export function logView(outlet, params, query) {
       h('span', { class: 'field-label' }, label),
       h(
         'select',
-        { class: 'input', onChange: (e) => navigate(filterHref({ ...filters, [key]: e.target.value || null })) },
+        { class: 'input', onChange: (e) => navigate(filterHref({ ...filters, [key]: e.target.value || null }), { replace: true }) },
         h('option', { value: '' }, 'Tutti'),
         entries.map(([v, l]) => h('option', { value: v, selected: v === value }, l)),
       ),

@@ -48,7 +48,7 @@ function filtersBar(kind, filters) {
     if (next.source) params.set('tipo', next.source);
     if (next.text) params.set('q', next.text);
     const qs = params.toString();
-    navigate(`${ROUTES[kind]}${qs ? `?${qs}` : ''}`);
+    navigate(`${ROUTES[kind]}${qs ? `?${qs}` : ''}`, { replace: true });
   };
   const select = (label, value, entries, key) =>
     h(

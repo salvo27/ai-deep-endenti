@@ -99,7 +99,7 @@ export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', classNam
     entries.map(([key, label, count]) =>
       h(
         'a',
-        { class: ['tab', key === active && 'is-active'], href: hrefFor(key), 'aria-current': key === active ? 'page' : undefined },
+        { class: ['tab', key === active && 'is-active'], href: hrefFor(key), 'aria-current': key === active ? 'page' : undefined, dataset: { replace: '' } },
         label,
         count ? h('span', { class: 'tab-count' }, String(count)) : null,
       ),

@@ -67,7 +67,7 @@ test('render runs the view, cleans up the previous one and respects the leave gu
   router.setLeaveGuard(async () => false);
   await router.render('#/');
   assert.equal(outlet.textContent, 'b 1', 'il guard blocca la navigazione');
-  assert.equal(location.hash, '#/b');
+  assert.equal(location.hash, '#/b?x=1', 'torna esattamente all\'indirizzo di prima, filtri compresi');
 
   router.setLeaveGuard(async () => true);
   await router.render('#/inesistente');
@@ -77,5 +77,48 @@ test('render runs the view, cleans up the previous one and respects the leave gu
   assert.match(outlet.textContent, /rotta rotta/);
   assert.equal(router.currentPath(), '/boom');
   assert.ok(changes.includes('/b'));
+  router.stopRouter();
+});
+
+test('tabs and filters replace the history entry instead of adding one', async () => {
+  router.clearRoutes();
+  const outlet = document.createElement('main');
+  router.addRoute('/a/:tab?', (el, params, query) => {
+    el.textContent = `a ${params.tab || ''} ${query.get('f') || ''}`.trim();
+    const link = Object.assign(document.createElement('a'), { href: '#/a/due', textContent: 'scheda' });
+    link.dataset.replace = '';
+    el.append(link);
+  });
+  document.body.append(outlet);
+  await router.startRouter(outlet);
+  await router.render('#/a');
+  const before = history.length;
+  outlet.querySelector('a').dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(outlet.textContent, /^a due/);
+  assert.equal(location.hash, '#/a/due');
+  await router.navigate('/a/due?f=1', { replace: true });
+  assert.match(outlet.textContent, /^a due 1/);
+  assert.equal(history.length, before, 'schede e filtri non aggiungono voci alla cronologia');
+  outlet.remove();
+  router.stopRouter();
+});
+
+test('the leave guard also asks when only the view in the address changes', async () => {
+  router.clearRoutes();
+  const outlet = document.createElement('main');
+  router.addRoute('/v', (el, params, query) => (el.textContent = `vista ${query.get('vista') || 'team'}`));
+  await router.startRouter(outlet);
+  await router.render('#/v?vista=miei');
+  let asked = 0;
+  router.setLeaveGuard(async () => {
+    asked += 1;
+    return false;
+  });
+  await router.navigate('/v?vista=fotografie', { replace: true });
+  assert.equal(asked, 1, 'cambiare vista con voti non salvati chiede conferma');
+  assert.equal(outlet.textContent, 'vista miei');
+  assert.equal(location.hash, '#/v?vista=miei');
+  router.setLeaveGuard(null);
   router.stopRouter();
 });
