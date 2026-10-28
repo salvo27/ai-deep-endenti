@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-// Test con un browser vero sull'anteprima con dati finti (dev/preview.html): niente login, niente Supabase.
+// Test con un browser vero sull'anteprima con dati finti (tests/e2e/preview.html): niente login, niente Supabase.
 // Usa il Chrome installato sul computer o sul runner di GitHub, senza scaricare browser.
 const PORT = 8091;
 
@@ -17,7 +17,7 @@ export default defineConfig({
   },
   webServer: {
     command: `node tests/e2e/server.mjs ${PORT}`,
-    url: `http://127.0.0.1:${PORT}/dev/preview.html`,
+    url: `http://127.0.0.1:${PORT}/tests/e2e/preview.html`,
     reuseExistingServer: !process.env.CI,
   },
   projects: [

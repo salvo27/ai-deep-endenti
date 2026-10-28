@@ -35,7 +35,7 @@ async function open(page, hash) {
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
   });
-  await page.goto(`/dev/preview.html${hash}`);
+  await page.goto(`/tests/e2e/preview.html${hash}`);
   await expect(page.locator('#content > *').first()).toBeVisible();
   await page.waitForTimeout(150);
   return errors;
