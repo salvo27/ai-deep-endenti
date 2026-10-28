@@ -4,6 +4,7 @@ import * as store from '../../assets/js/store.js';
 import { buildShell } from '../../assets/js/views/shell.js';
 import { notFoundView, registerRoutes } from '../../assets/js/app.js';
 import { startRouter } from '../../assets/js/router.js';
+import { surveyTemplate } from '../../assets/js/survey-template.js';
 import { IDS, ME, OTHER, boardItems, item, members, revision } from '../setup/fixtures.mjs';
 
 const extraIdeas = [
@@ -21,9 +22,36 @@ const extraIdeas = [
   }),
 );
 
+// Questionari e risposte di fantasia.
+const SURVEY = 'eeeeeeee-0000-4000-8000-000000000001';
+const surveyData = surveyTemplate();
+const surveys = [
+  item({ id: SURVEY, kind: 'survey', title: 'Come gestite i cambi di turno in reparto', status: 'aperto', idea_id: IDS.idea, data: { ...surveyData, token: 'TokenDiProvaAperto0001', appearance: { theme: 'automatico', accent: '#0f766e' } } }),
+  item({ id: 'eeeeeeee-0000-4000-8000-000000000002', kind: 'survey', title: 'Bozza con un titolo piuttosto lungo per vedere come va a capo nella scheda', status: 'bozza', idea_id: IDS.idea, data: { ...surveyData, questions: surveyData.questions.slice(0, 3) } }),
+];
+const surveyAnswers = (i) => ({
+  ...(i % 5 === 0 ? { 'situazione:altro': 'Coordinatrice di un reparto di medicina interna con turni anche notturni' } : { situazione: i % 3 ? 'a' : 'b' }),
+  eta: ['meno-25', '25-34', '35-44', 'non-rispondo'][i % 4],
+  'ultima-volta': ['settimana', 'mese', 'sei-mesi'][i % 3],
+  episodio: i % 4 ? 'La settimana scorsa ho dovuto cambiare turno all\'ultimo momento e ho passato un\'ora al telefono per trovare chi mi sostituisse.' : 'Ok',
+  'quante-volte': i * 2,
+  'quanto-pesa': (i % 5) + 1,
+});
+const surveyResponses = Array.from({ length: 12 }, (_, i) => ({
+  id: `ffffffff-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
+  survey_id: SURVEY,
+  answers: i > 9 ? { situazione: 'a' } : surveyAnswers(i),
+  email: i % 3 === 0 && i <= 9 ? `persona${i}@esempio.it` : null,
+  recontact: i % 6 === 0 && i <= 9,
+  duration_seconds: i > 9 ? null : 150 + i * 20,
+  device: i % 2 ? 'computer' : 'telefono',
+  completed: i <= 9,
+  created_at: new Date(Date.now() - (12 - i) * 3600e3).toISOString(),
+}));
+
 store.state.user = { id: ME };
 store.setMembers(members());
-[...boardItems(), ...extraIdeas].forEach((i) => store.applyItem(i));
+[...boardItems(), ...extraIdeas, ...surveys].forEach((i) => store.applyItem(i));
 store.state.commentCounts = new Map([[IDS.idea, 2]]);
 
 const history = [
@@ -58,6 +86,9 @@ api.activityFeed = async () => ({
 });
 localStorage.setItem(`bdp:notificheLette:${ME}`, JSON.stringify(new Date(Date.now() - 2 * 3600e3).toISOString()));
 api.commentCounts = async () => store.state.commentCounts;
+api.surveyFunnel = async () => ({ views: 48, starts: 14, partial: 2, completed: 10 });
+api.listSurveyResponses = async () => surveyResponses;
+api.deleteSurveyResponses = async () => 0;
 
 const { outlet } = buildShell(document.getElementById('app'), { onSignOut() {} });
 registerRoutes();

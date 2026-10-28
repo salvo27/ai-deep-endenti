@@ -25,6 +25,7 @@ import { canvasView } from './canvas.js';
 import { deeptechView, marketView, personaCard, vpcView } from './boards.js';
 import { ideaRoadmap, roadmapBox, roadmapPanel } from './roadmap.js';
 import { notesTab } from './notes.js';
+import { ideaSurveysTab } from './surveys.js';
 import { ideaChat, openIdeaChat, unreadOf } from '../chat.js';
 import { competitorsView } from './competitors.js';
 import { conceptButton } from './concept-help.js';
@@ -62,6 +63,7 @@ const SECTIONS = {
   deeptech: 'Deep tech',
   esperimenti: 'Esperimenti',
   interviste: 'Persone e interviste',
+  questionari: 'Questionari',
   appunti: 'Appunti',
   commenti: 'Commenti',
   voti: 'Voti',
@@ -73,7 +75,7 @@ const GROUPS = [
   ['panoramica', 'Panoramica', ['panoramica']],
   ['roadmap', 'Roadmap', ['roadmap']],
   ['analisi', 'Analisi', ['canvas', 'clienti', 'mercato', 'deeptech']],
-  ['validazione', 'Validazione', ['esperimenti', 'interviste']],
+  ['validazione', 'Validazione', ['esperimenti', 'interviste', 'questionari']],
   ['appunti', 'Appunti', ['appunti']],
   ['discussione', 'Discussione', ['commenti', 'voti', 'storico']],
 ];
@@ -493,6 +495,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
       deeptech: count('deeptech'),
       esperimenti: itemsOf('experiment', { ideaId: idea.id }).length,
       interviste: count('interview', 'contact'),
+      questionari: count('survey'),
       appunti: count('note'),
       commenti: [idea.id, ...childIds(idea.id)].reduce((sum, id) => sum + (state.commentCounts.get(id) || 0), 0),
     };
@@ -508,6 +511,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     else if (tab === 'deeptech') body = boardsTab(idea, writable, ['deeptech']);
     else if (tab === 'esperimenti') body = experimentsTab(idea, writable, query.get('vista') === 'javelin');
     else if (tab === 'interviste') body = interviewsTab(idea, writable);
+    else if (tab === 'questionari') body = ideaSurveysTab(idea, writable);
     else if (tab === 'appunti') body = notesTab(idea, writable);
     else if (tab === 'voti') body = votesTab(idea);
     else if (tab === 'commenti') body = commentsEl = commentsPanel(idea, { related: childIds(idea.id) });

@@ -483,6 +483,13 @@ export function editorView(outlet, params, query) {
   const kind = editing ? editing.kind : params.kind;
   const def = KINDS[kind];
   const existing = !editing && def?.singleton ? singleton(kind) : null;
+  // I questionari si scrivono nella loro pagina, a partire dal modello.
+  if (kind === 'survey') {
+    const parent = isUuid(query.get('idea')) ? query.get('idea') : null;
+    const target = editing ? `/questionario/${editing.id}` : parent ? `/idea/${parent}/questionari` : '/questionari';
+    setTimeout(() => navigate(target, { replace: true }), 0);
+    return null;
+  }
   if (existing) {
     navigate(`/modifica/${existing.id}`);
     return null;

@@ -1,4 +1,5 @@
 import { h, mount } from '../lib/dom.js';
+import { navigate } from '../router.js';
 import { BOARD_KINDS, KINDS } from '../schema.js';
 import { canWrite, getItem, isExample, on, state, trackPresence } from '../store.js';
 import { canvasView } from './canvas.js';
@@ -23,6 +24,11 @@ const CRITIQUE_KINDS = ['canvas', 'experiment', 'persona', 'vpc', 'market', 'com
 export function itemView(outlet, params) {
   const example = isExample(getItem(params.id));
   const tab = TABS.some(([key]) => key === params.tab) && !example ? params.tab : 'dettagli';
+  // Un questionario ha la sua pagina; qui restano solo i commenti.
+  if (getItem(params.id)?.kind === 'survey' && tab !== 'commenti') {
+    setTimeout(() => navigate(`/questionario/${params.id}`, { replace: true }), 0);
+    return null;
+  }
   let commentsEl = null;
   const hereHost = h('span', { class: 'here-host' });
   const renderHere = () => mount(hereHost, onlineHere(`/elemento/${params.id}`) || '');

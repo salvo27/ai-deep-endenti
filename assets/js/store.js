@@ -274,6 +274,7 @@ export const labelContext = {
   itemTitle: (id) => getItem(id)?.title || null,
   memberName: (id) => memberName(id),
   criterionLabel: (key) => criteriaList().find((c) => c.key === key)?.label || null,
+  questionLabel: (id) => itemsOf('survey', { includeDeleted: true }).flatMap((s) => s.data.questions || []).find((q) => q.id === id)?.label || null,
   axisLabel: (id) => {
     const g = singleton('generator')?.data;
     return [...(g?.rows || []), ...(g?.cols || [])].find((a) => a.id === id)?.label || null;

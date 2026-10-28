@@ -70,7 +70,7 @@ test('the menu is split into Lavoro, Strumenti, Team and Sistema, with Membri in
     [...group.querySelectorAll('.nav-link')].map((link) => text(link.querySelector('span'))),
   ]);
   assert.deepEqual(groups, [
-    ['Lavoro', ['Dashboard', 'Idee', 'Valutazione', 'Esperimenti', 'Interviste', 'Contatti', 'Decisioni', 'Chat']],
+    ['Lavoro', ['Dashboard', 'Idee', 'Valutazione', 'Esperimenti', 'Interviste', 'Questionari', 'Contatti', 'Decisioni', 'Chat']],
     ['Strumenti', ['Generatore', 'Guida']],
     ['Team', ['Squadra', 'Membri']],
     ['Sistema', ['Storico', 'Cestino']],

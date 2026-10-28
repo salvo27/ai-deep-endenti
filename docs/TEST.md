@@ -2,13 +2,13 @@
 
 Questo documento descrive come sono scritti i test, cosa verificano e cosa resta fuori.
 
-Numeri al 28 ottobre 2026:
+Numeri al 29 ottobre 2026:
 
 | | Test | Copertura |
 |---|---|---|
-| Database (PostgreSQL 16, script SQL) | 39 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale che non torna indietro quando la sessione si chiude, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), fotografie della valutazione, regole dei nuovi tipi di scheda |
-| Sito e funzioni di Claude e delle email (`node:test`, jsdom) | 343 | 98% delle righe e 89% dei rami del codice dell'app |
-| Browser vero (Playwright con Chrome, anteprima con dati finti) | 82 | 38 pagine su computer e telefono senza errori né elementi fuori schermo, barra di salvataggio dei voti mai coperta, menu che si chiude toccando fuori, un solo pannello aperto alla volta, Profilo ed Esci visibili nel menu del telefono, schede che non riempiono la cronologia |
+| Database (PostgreSQL 16, script SQL) | 50 controlli | permessi, 2FA, storico, conflitti, ruoli, registro di sicurezza, ultimo accesso reale che non torna indietro quando la sessione si chiude, note e immagini private, chat (Generale unica, autore fissato, risposte nella stessa chat, eliminazione, non letti), menzioni (create dal database, private, rimosse con il messaggio), fotografie della valutazione, regole dei nuovi tipi di scheda |
+| Sito e funzioni di Claude e delle email (`node:test`, jsdom) | 406 | 98% delle righe e 89% dei rami del codice dell'app |
+| Browser vero (Playwright con Chrome, anteprime con dati finti) | 139 | 38 pagine su computer e telefono senza errori né elementi fuori schermo, barra di salvataggio dei voti mai coperta, menu che si chiude toccando fuori, un solo pannello aperto alla volta, Profilo ed Esci visibili nel menu del telefono, schede che non riempiono la cronologia |
 
 ## 1. Come sono stati scritti
 

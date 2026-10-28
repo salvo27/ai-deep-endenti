@@ -22,6 +22,7 @@ const TOP_LABELS = {
   criteria: { criteria: 'criteri' },
   generator: { rows: 'righe', cols: 'colonne', cells: 'celle' },
   canvas: { validated: 'blocchi validati' },
+  survey: { questions: 'domande', appearance: 'aspetto', token: 'link pubblico', show_time: 'durata visibile' },
 };
 
 export function changedLabels(rev) {

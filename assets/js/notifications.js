@@ -14,6 +14,7 @@ const BOARD_LABELS = {
   competitors: 'un\'analisi dei concorrenti',
   deeptech: 'una scheda deep tech',
   note: 'una nota',
+  survey: 'un questionario',
 };
 
 let items = [];
@@ -52,6 +53,10 @@ export function describeRevision(rev) {
       break;
     case 'contact':
       if (rev.op === 'create') text = `${who} ha aggiunto ${title} tra le persone con cui interfacciarsi`;
+      break;
+    case 'survey':
+      if (rev.op === 'create') text = `${who} ha creato un questionario: ${title}`;
+      else if (changedStatus && rev.status === 'aperto') text = `${who} ha aperto il questionario ${title}`;
       break;
     case 'teamcanvas':
       if (rev.op === 'create' || rev.op === 'update') text = `${who} ha aggiornato il Team Canvas`;

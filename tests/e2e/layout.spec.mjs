@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
-const IDEA_TABS = ['roadmap', 'analisi', 'validazione', 'discussione', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'appunti', 'voti', 'commenti', 'storico'];
+const SURVEY = 'eeeeeeee-0000-4000-8000-000000000001';
+const IDEA_TABS = ['roadmap', 'analisi', 'validazione', 'discussione', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'questionari', 'appunti', 'voti', 'commenti', 'storico'];
 
 const PAGES = [
   '#/',
@@ -16,6 +17,11 @@ const PAGES = [
   '#/interviste?tipo=ricerca',
   '#/contatti',
   '#/contatti?filtro=senza',
+  '#/questionari',
+  `#/questionario/${SURVEY}`,
+  `#/questionario/${SURVEY}/aspetto`,
+  `#/questionario/${SURVEY}/condividi`,
+  `#/questionario/${SURVEY}/risposte`,
   '#/decisioni',
   '#/generatore',
   '#/squadra',
@@ -71,4 +77,18 @@ test('il menu si apre e si chiude toccando fuori', async ({ page }) => {
   const viewport = page.viewportSize();
   await page.mouse.click(viewport.width - 10, viewport.height - 10);
   await expect(menu).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('questionario: domande aperte e risposte singole restano dentro lo schermo', async ({ page }) => {
+  const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  const errors = await open(page, `#/questionario/${SURVEY}`);
+  for (const button of await page.locator('.sq-card [data-action="toggle"]').all()) await button.click();
+  await expect(page.locator('.sq-body').first()).toBeVisible();
+  expect(await overflow(), 'le domande aperte scorrono in orizzontale').toBeLessThanOrEqual(1);
+  await page.goto(`/tests/e2e/preview.html#/questionario/${SURVEY}/risposte`);
+  await expect(page.locator('.sv-response').first()).toBeVisible();
+  for (const details of await page.locator('.sv-response summary').all()) await details.click();
+  for (const details of await page.locator('.sv-other summary').all()) await details.click();
+  expect(await overflow(), 'le risposte scorrono in orizzontale').toBeLessThanOrEqual(1);
+  expect(errors).toEqual([]);
 });

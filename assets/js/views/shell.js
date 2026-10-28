@@ -18,6 +18,7 @@ export const NAV_GROUPS = [
       ['/valutazione', 'Valutazione', 'scoring'],
       ['/esperimenti', 'Esperimenti', 'experiment'],
       ['/interviste', 'Interviste', 'interview'],
+      ['/questionari', 'Questionari', 'list'],
       ['/contatti', 'Contatti', 'at'],
       ['/decisioni', 'Decisioni', 'decision'],
       ['/chat', 'Chat', 'comment'],
@@ -262,7 +263,7 @@ export function buildShell(root, { onSignOut }) {
     for (const link of [...links, sidebar.querySelector('.sidebar-foot a')]) {
       const target = link.dataset.path;
       const active = target === '/' ? path === '/' : path === target || path.startsWith(`${target}/`) ||
-        (target === '/idee' && path.startsWith('/idea/'));
+        (target === '/idee' && path.startsWith('/idea/')) || (target === '/questionari' && path.startsWith('/questionario/'));
       link.classList.toggle('is-active', active);
       const group = link.closest('.nav-group');
       if (active && group?.querySelector('.nav-group-links').hidden) setGroupOpen(group, true, false);
