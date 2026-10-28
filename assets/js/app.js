@@ -14,6 +14,7 @@ import { ideasView } from './views/ideas.js';
 import { ideaView } from './views/idea.js';
 import { itemView } from './views/item.js';
 import { listView } from './views/lists.js';
+import { contactsView } from './views/contacts.js';
 import { editorView } from './views/editor.js';
 import { scoringView } from './views/scoring.js';
 import { generatorView } from './views/generator.js';
@@ -35,6 +36,7 @@ export function registerRoutes() {
   addRoute('/esperimenti', listView('experiment'));
   addRoute('/interviste', listView('interview'));
   addRoute('/decisioni', listView('decision'));
+  addRoute('/contatti', contactsView);
   addRoute('/chat/:id?', chatView);
   addRoute('/nuovo/:kind', editorView);
   addRoute('/modifica/:id', editorView);

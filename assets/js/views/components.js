@@ -2,7 +2,7 @@ import { h } from '../lib/dom.js';
 import { isPhotoDataUrl } from '../lib/validate.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/format.js';
-import { KINDS, fieldOf, formatValue, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
+import { KINDS, fieldOf, formatValue, isConversation, optionLabel, routeFor, statusLabel, STRONG_COMMITMENTS } from '../schema.js';
 import { getItem, isExample, labelContext, memberById, memberName, state } from '../store.js';
 import { conceptButton } from './concept-help.js';
 import { renderNote } from '../notes.js';
@@ -122,7 +122,14 @@ export function commitmentBadge(value) {
   return h('span', { class: ['badge', STRONG_COMMITMENTS.has(value) ? 'badge-strong' : 'badge-soft'] }, optionLabel(def, value));
 }
 
+// Le ricerche online restano visibili ma si distinguono dai colloqui, che sono le sole prove.
+export function sourceBadge(interview) {
+  if (!interview || isConversation(interview)) return null;
+  return h('span', { class: 'badge badge-warn', title: 'Non conta come intervista: non è stata sentita nessuna persona' }, 'Ricerca online');
+}
+
 export function fieldValue(kind, def, value, item = null) {
+  if ((value === undefined || value === null || value === '') && def.default !== undefined) value = def.default;
   if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) {
     return h('span', { class: 'muted' }, '-');
   }

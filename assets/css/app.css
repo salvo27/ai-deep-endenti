@@ -1557,6 +1557,26 @@ select.input:disabled {
   min-width: 160px;
 }
 
+/* Contatti */
+
+.toolbar-wrap {
+  flex-wrap: wrap;
+}
+
+.contacts-summary {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+}
+
+.contacts-table .contact-date .deadline {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.contacts-table tr.is-overdue > td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
 .commit-box {
   display: flex;
   align-items: center;
@@ -2078,6 +2098,211 @@ dialog::backdrop {
   font-variant-numeric: tabular-nums;
 }
 
+/* Criteri e celle si aprono con un tocco o un clic: tutta la cella è il pulsante */
+.crit-btn,
+.cell-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.crit-btn span {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.crit-btn:hover span {
+  color: var(--text);
+}
+
+.matrix td.score-cell {
+  padding: 0;
+}
+
+.cell-btn {
+  min-height: 2.6rem;
+  padding: 0.55rem 0.7rem;
+  text-align: center;
+}
+
+.cell-btn:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.cell-btn:focus-visible {
+  outline-offset: -3px;
+}
+
+.cell-detail ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+/* Prove raccolte sotto il nome dell'idea */
+.evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+  font-weight: 400;
+}
+
+.ev-chip {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.ev-chip.is-zero {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.ev-chip.is-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.evidence-hint {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.88rem;
+}
+
+/* Voti mancanti */
+.missing-btn {
+  margin-left: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px dashed var(--warn);
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vote-select.is-empty {
+  border-color: var(--warn);
+  background-color: var(--warn-soft);
+}
+
+.missing-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  color: var(--warn);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.missing-summary:empty {
+  display: none;
+}
+
+.missing-summary .missing-ok {
+  color: var(--ok);
+  font-weight: 400;
+}
+
+/* Descrizioni dei criteri che non spiegano la scala */
+.criteria-table tr.is-unclear td:nth-child(2) .input {
+  border-color: var(--warn);
+}
+
+.crit-warn {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--warn);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* I miei voti sul telefono: una scheda per idea, con le descrizioni sempre visibili */
+.vote-cards {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.vote-card {
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.vote-card-head {
+  margin-bottom: 0.5rem;
+}
+
+.vote-card-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.vote-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.vote-row-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.vote-row-label small {
+  color: var(--muted);
+}
+
+.vote-row-desc {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 16px evita che iOS ingrandisca la pagina quando si tocca il campo */
+.vote-card .vote-select {
+  width: 76px;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.vote-card textarea.input {
+  font-size: 16px;
+}
+
+.vote-card > .field {
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .save-bar .missing-summary {
+    flex-basis: 100%;
+  }
+}
+
 .m1 { background: color-mix(in srgb, var(--danger) 18%, transparent); }
 .m2 { background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .m3 { background: color-mix(in srgb, var(--warn) 8%, transparent); }
@@ -2099,6 +2324,8 @@ dialog::backdrop {
 
 .voters {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 2px;
   margin-top: 0.25rem;
 }

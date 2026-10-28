@@ -1,19 +1,24 @@
 import { h, mount } from '../lib/dom.js';
 import { daysUntil, fmtDate, plural, truncate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';
-import { COMMITMENT, KINDS } from '../schema.js';
+import { COMMITMENT, KINDS, isConversation } from '../schema.js';
 import { canWrite, getItem, ideas, itemsOf, on, state } from '../store.js';
 import { navigate } from '../router.js';
 import { changeStatus } from './actions.js';
-import { avatar, button, commitmentBadge, emptyState, itemLink, pageHeader, statusPill } from './components.js';
+import { avatar, button, commitmentBadge, emptyState, itemLink, pageHeader, sourceBadge, statusPill } from './components.js';
 
 const ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
+const SOURCE_FILTERS = [
+  ['colloquio', 'Colloqui con persone'],
+  ['ricerca', 'Ricerche online'],
+];
 
 export function readListFilters(query) {
   return {
     ideaId: isUuid(query.get('idea')) ? query.get('idea') : null,
     memberId: isUuid(query.get('persona')) ? query.get('persona') : null,
     commitment: COMMITMENT.some(([v]) => v === query.get('impegno')) ? query.get('impegno') : null,
+    source: SOURCE_FILTERS.some(([v]) => v === query.get('tipo')) ? query.get('tipo') : null,
     text: (query.get('q') || '').slice(0, 100),
   };
 }
@@ -27,6 +32,7 @@ export function filterItems(kind, filters) {
       if (!people.includes(filters.memberId)) return false;
     }
     if (filters.commitment && item.data.commitment !== filters.commitment) return false;
+    if (kind === 'interview' && filters.source && isConversation(item) !== (filters.source === 'colloquio')) return false;
     if (text && !`${item.title} ${JSON.stringify(item.data)}`.toLowerCase().includes(text)) return false;
     return true;
   });
@@ -39,6 +45,7 @@ function filtersBar(kind, filters) {
     if (next.ideaId) params.set('idea', next.ideaId);
     if (next.memberId) params.set('persona', next.memberId);
     if (next.commitment) params.set('impegno', next.commitment);
+    if (next.source) params.set('tipo', next.source);
     if (next.text) params.set('q', next.text);
     const qs = params.toString();
     navigate(`${ROUTES[kind]}${qs ? `?${qs}` : ''}`);
@@ -57,6 +64,7 @@ function filtersBar(kind, filters) {
     { class: 'filters' },
     select('Idea', filters.ideaId, ideas().map((i) => [i.id, i.title]), 'ideaId'),
     select('Persona', filters.memberId, state.members.map((m) => [m.user_id, m.display_name]), 'memberId'),
+    kind === 'interview' ? select('Tipo', filters.source, SOURCE_FILTERS, 'source') : null,
     kind === 'interview' ? select('Impegno', filters.commitment, COMMITMENT, 'commitment') : null,
     h('label', { class: 'field field-inline' }, h('span', { class: 'field-label' }, 'Testo'), search),
   );
@@ -119,7 +127,7 @@ function interviewsBody(list) {
           'tr',
           null,
           h('td', null, i.data.date ? fmtDate(i.data.date) : '-'),
-          h('td', null, itemLink(i)),
+          h('td', null, itemLink(i), sourceBadge(i)),
           h('td', null, i.idea_id ? itemLink(getItem(i.idea_id)) : '-'),
           h('td', null, i.data.interviewer ? avatar(i.data.interviewer, 20) : '-'),
           h('td', null, statusPill('interview', i.status)),

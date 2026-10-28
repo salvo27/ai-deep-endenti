@@ -6,7 +6,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 
 | Sezione | A cosa serve |
 |---|---|
-| Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare, novità dall'ultima visita |
+| Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare (con le persone da sentire entro una settimana), novità dall'ultima visita |
 | Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con il riquadro «Prossimo passo» e le decisioni collegate), Lean Canvas, Clienti, Mercato, Deep tech, Esperimenti, Persone e interviste, Voti, Commenti, Storico |
 | Esempi | Un'idea compilata per ogni fase, ispirata alla storia di startup note (Uber, Airbnb, Dropbox, Spotify, Netflix, Odeo); in sola lettura, nascondibili, fuori da statistiche e backup |
 | Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
@@ -15,11 +15,12 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Deep tech | Scala TRL, rischi tecnici e di mercato, design partner, proprietà intellettuale, rapporto con l'ateneo, norme e bandi |
 | Esperimenti | Javelin board: assunzione più rischiosa, metodo, criterio di successo deciso prima, risultato, decisione; vista a colonne come il template |
 | Persone | Con chi interfacciarsi per ogni idea (clienti da intervistare, esperti, chi serve per realizzarla, ateneo, investitori), con stato, responsabile e prossimo contatto; un clic crea l'intervista |
-| Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso |
+| Contatti | Le persone da sentire di tutte le idee in un'unica lista: stato, chi se ne occupa e prossimo contatto si cambiano direttamente in tabella; filtri per le mie, quelle senza responsabile e quelle da sentire questa settimana; prima chi è in ritardo. «Registra il colloquio» crea l'intervista e la collega alla persona |
+| Interviste | Appunti strutturati, citazioni, intensità del problema, impegno preso. Il tipo distingue i colloqui con una persona dalle ricerche online: solo i colloqui contano nei numeri della dashboard e nella roadmap |
 | Chat | Chat di gruppo dal vivo: una «Generale» per tutta la squadra e chat per argomento, collegabili a un'idea (dalla pagina dell'idea: «Chat dell'idea»). Testo formattato, immagini e link cliccabili, risposta a un messaggio specifico con citazione, modifica ed eliminazione dei propri messaggi, non letti ricordati per persona e contatore nel menu. Le chat si archiviano, non si cancellano |
 | Menzioni | Con @ in chat, commenti e note si tagga un membro o @tutti, scegliendo da un elenco. Le menzioni sono notifiche importanti, separate dalla campanella: pulsante «@» con il suo contatore, elenco con chi, dove ed estratto, link al punto esatto |
 | Appunti | In ogni idea, note con data in cui la prima riga è il titolo: riunioni, link, domande aperte. Pulsanti per dimensione del testo, grassetto, corsivo, elenchi e tabelle, oppure Markdown scritto a mano. Le immagini si caricano dall'editor in uno spazio privato su Supabase; ogni nota si scarica come file .md con le immagini incorporate oppure come PDF dal dialogo di stampa del browser (Salva come PDF), e un file .md si può importare |
-| Valutazione | Criteri pesati modificabili; ognuno vota per conto suo, la matrice mostra media e disaccordi; le fotografie salvano criteri e voti di un momento e si confrontano tra loro o con adesso |
+| Valutazione | Criteri pesati modificabili, con descrizioni che dicono cosa vuol dire 5 e cosa vuol dire 1 (quelle incomplete sono segnalate); ognuno vota per conto suo, con i voti mancanti evidenziati e, sul telefono, una scheda per idea con le descrizioni sempre visibili; la matrice mostra media, disaccordi e chi non ha ancora votato, e con un tocco i voti di ciascuno; sotto ogni idea le prove raccolte (conversazioni vere, impegni concreti, esperimenti conclusi); le fotografie salvano criteri e voti di un momento e si confrontano tra loro o con adesso, e prima di cambiare pesi o criteri se ne salva una da sola |
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |

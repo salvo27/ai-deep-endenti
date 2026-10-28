@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import {
   BOARD_KINDS,
   DEFAULT_CRITERIA,
+  INTERVIEW_SOURCES,
   KINDS,
   autoInterviewTitle,
   defaultStatus,
   describePath,
+  fieldOf,
   formatValue,
+  isConversation,
   routeFor,
   sanitizeSnapshot,
   snapshotProblem,
@@ -138,6 +141,29 @@ test('snapshotProblem requires titles and parent ideas where the database does',
   assert.equal(snapshotProblem('score', { title: '', idea_id: null }), null);
   assert.equal(sanitizeSnapshot('experiment', { title: 'x', idea_id: 'bad' }).idea_id, null);
   assert.throws(() => sanitizeSnapshot('boh', {}), /Tipo sconosciuto/);
+});
+
+test('an interview is a conversation with a person unless it is marked as online research', () => {
+  const source = fieldOf('interview', 'source');
+  assert.equal(source.type, 'select');
+  assert.equal(source.label, 'Tipo');
+  assert.equal(source.default, 'colloquio');
+  assert.deepEqual(INTERVIEW_SOURCES, [
+    ['colloquio', 'Colloquio con una persona'],
+    ['ricerca', 'Ricerca online, senza parlare con nessuno'],
+  ]);
+  assert.equal(sanitizeSnapshot('interview', { title: 'X', data: { source: 'ricerca' } }).data.source, 'ricerca');
+  assert.equal(sanitizeSnapshot('interview', { title: 'X', data: { source: 'colloquio' } }).data.source, 'colloquio');
+  assert.equal('source' in sanitizeSnapshot('interview', { title: 'X', data: { source: 'sondaggio' } }).data, false);
+  assert.equal('source' in sanitizeSnapshot('interview', { title: 'X', data: {} }).data, false, 'nessun valore inventato al salvataggio');
+
+  assert.equal(isConversation({ data: {} }), true, 'le interviste di prima del campo sono colloqui');
+  assert.equal(isConversation({ data: { source: 'colloquio' } }), true);
+  assert.equal(isConversation({ data: { source: 'ricerca' } }), false);
+  assert.equal(isConversation({ data: { source: 'altro' } }), true);
+  assert.equal(isConversation(null), true);
+  assert.equal(describePath('interview', 'data.source'), 'Tipo');
+  assert.equal(formatValue('interview', 'data.source', 'ricerca'), 'Ricerca online, senza parlare con nessuno');
 });
 
 test('autoInterviewTitle builds a title from role and organization', () => {

@@ -17,7 +17,6 @@ import {
   canWrite,
   createItem,
   getItem,
-  saveSnapshot,
   ideas,
   isExample,
   itemsOf,
@@ -41,6 +40,7 @@ import { resizePhoto } from '../lib/photo.js';
 import { MAX_NOTE_IMAGES, imagePaths, imagePointer, markdownToNote, noteTitle, removeUnusedImages, renderNote, uploadNoteImage } from '../notes.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
+const stage = (status) => KINDS.contact.statuses.findIndex(([v]) => v === status);
 
 const CUSTOM_EDITORS = { canvas: canvasEditor, competitors: competitorsEditor, equity: equityEditor };
 
@@ -83,6 +83,7 @@ export function initialSnapshot(kind, query = new URLSearchParams()) {
   if (kind === 'contact') snapshot.data = { purpose: 'cliente', owner: state.user?.id };
   if (kind === 'interview') {
     snapshot.data = { date: today(), interviewer: state.user?.id };
+    if (KINDS.interview.statuses.some(([v]) => v === query.get('stato'))) snapshot.status = query.get('stato');
     const from = isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
     if (from?.kind === 'contact' && !isExample(from)) {
       snapshot.title = from.title;
@@ -403,6 +404,9 @@ export function fieldControl(def, working, onChange) {
     case 'textarea':
       return autoGrow(h('textarea', { class: 'input', rows: def.rows || 4, value: value || '', placeholder: def.placeholder || '', maxlength: LIMITS.text, onInput: (e) => set(e.target.value) }));
     case 'select':
+      if (def.default) {
+        return h('select', { class: 'input', onChange: (e) => set(e.target.value) }, def.options.map(([v, label]) => h('option', { value: v, selected: v === (value || def.default) }, label)));
+      }
       return h('select', { class: 'input', onChange: (e) => set(e.target.value || undefined) }, options(def.options, value));
     case 'date':
       return h('input', { class: 'input', type: 'date', value: value || '', onChange: (e) => set(e.target.value || undefined) });
@@ -616,15 +620,17 @@ export function editorView(outlet, params, query) {
     );
   }
 
-  // Un'intervista nata da una persona con cui interfacciarsi aggiorna anche la persona.
+  // Un'intervista nata da una persona con cui interfacciarsi aggiorna anche la persona: la collega e la porta avanti, mai indietro.
   async function linkContact(interview) {
     const contact = kind === 'interview' && isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
-    if (contact?.kind !== 'contact' || isExample(contact)) return;
-    const next = snapshotOf(contact);
-    next.status = interview.status === 'da_fare' ? 'fissata' : 'in_contatto';
-    next.data = { ...next.data, interview_id: interview.id };
+    if (contact?.kind !== 'contact' || isExample(contact) || contact.deleted_at) return;
+    const base = snapshotOf(contact);
+    const next = { ...base, data: { ...base.data, interview_id: interview.id } };
+    const target = interview.status === 'da_fare' ? 'fissata' : 'in_contatto';
+    if (stage(contact.status) < stage(target)) next.status = target;
     try {
-      await saveSnapshot(contact, next, 'Collegata all\'intervista');
+      const result = await saveWithMerge(contact, base, next, 'Collegata all\'intervista');
+      if (result.cancelled) toast('Intervista salvata; collega a mano la persona.', { type: 'error' });
     } catch {
       toast('Intervista salvata; aggiorna a mano lo stato della persona.', { type: 'error' });
     }

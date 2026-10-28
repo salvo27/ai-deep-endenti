@@ -1,5 +1,7 @@
 // Calcolo della classifica: media dei voti per criterio, pesata con i pesi dei criteri.
 
+import { isHeldConversation, STRONG_COMMITMENTS } from './schema.js';
+
 export const DISAGREEMENT_SPREAD = 2;
 
 export function criterionStats(votes) {
@@ -150,4 +152,65 @@ export function comparePhotos(before, after, keep = () => true) {
     return pa !== qa ? pa - qa : pb - qb;
   });
   return { rows, criteria: criteriaChanges(before, after), voters: voteChanges(before, after) };
+}
+
+export const NO_EVIDENCE = Object.freeze({ conversations: 0, commitments: 0, experiments: 0 });
+
+// Prove raccolte per ogni idea. Un impegno conta solo se forte (pilota o pagamento) e preso in una conversazione vera.
+export function evidenceByIdea(interviews, experiments) {
+  const out = new Map();
+  const of = (ideaId) => {
+    if (!out.has(ideaId)) out.set(ideaId, { ...NO_EVIDENCE });
+    return out.get(ideaId);
+  };
+  for (const interview of interviews) {
+    if (!interview.idea_id || !isHeldConversation(interview)) continue;
+    const e = of(interview.idea_id);
+    e.conversations += 1;
+    if (STRONG_COMMITMENTS.has(interview.data?.commitment)) e.commitments += 1;
+  }
+  for (const experiment of experiments) {
+    if (experiment.idea_id && experiment.status === 'concluso') of(experiment.idea_id).experiments += 1;
+  }
+  return out;
+}
+
+// Chi vota ma su questa idea non ha ancora votato alcuni criteri. result è una riga di ideaScore o ranking.
+export function missingVotes(result, criteria, voterIds) {
+  return voterIds
+    .map((memberId) => ({
+      memberId,
+      keys: criteria.filter((c) => !result.perCriterion[c.key]?.byMember.some((v) => v.memberId === memberId)).map((c) => c.key),
+    }))
+    .filter((m) => m.keys.length);
+}
+
+// Voti mancanti di una persona (scores[ideaId][criterio]): quanti in tutto e su quante idee.
+export function countMissing(ideaIds, criteria, scores) {
+  let votes = 0;
+  let ideas = 0;
+  for (const ideaId of ideaIds) {
+    const missing = criteria.filter((c) => !Number.isInteger(scores?.[ideaId]?.[c.key])).length;
+    votes += missing;
+    if (missing) ideas += 1;
+  }
+  return { votes, ideas };
+}
+
+// Una descrizione chiara dice cosa vuol dire 5 e cosa vuol dire 1, per esempio "5 = ...; 1 = ..." o "da 1 (...) a 5 (...)".
+const scaleEnd = (n) => new RegExp(`(^|[^\\d.,])${n}\\s*[=:(>→-]`);
+
+export function scaleEnds(description) {
+  const text = String(description || '');
+  return { high: scaleEnd(5).test(text), low: scaleEnd(1).test(text) };
+}
+
+// La classifica cambia se cambiano i pesi o se si aggiungono o tolgono criteri; nomi, descrizioni e ordine no.
+export function criteriaWeightsChanged(before, after) {
+  const weights = (list) => new Map((list || []).map((c) => [c.key, c.weight]));
+  const a = weights(before);
+  const b = weights(after);
+  if (a.size !== b.size) return true;
+  for (const [key, weight] of a) if (!b.has(key) || b.get(key) !== weight) return true;
+  return false;
 }

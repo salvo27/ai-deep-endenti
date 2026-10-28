@@ -2,11 +2,13 @@
 // Segue il percorso del manuale (Customer Development, Lean Startup, team, finanza, aspetti legali, deep tech).
 // Un passo è fatto solo quando lo segna qualcuno (data.roadmap); i controlli sui dati della board sono solo suggerimenti.
 
-import { STRONG_COMMITMENTS, parseRoadmapMark } from './schema.js';
+import { STRONG_COMMITMENTS, isHeldConversation, parseRoadmapMark } from './schema.js';
 
-const doneInterviews = (ctx) => ctx.interviews.filter((i) => i.status === 'fatta' || i.status === 'analizzata').length;
-const analyzedInterviews = (ctx) => ctx.interviews.filter((i) => i.status === 'analizzata').length;
-const strongCommitments = (ctx) => ctx.interviews.filter((i) => STRONG_COMMITMENTS.has(i.data.commitment)).length;
+// Contano solo i colloqui avvenuti con persone: una ricerca online non è un'intervista.
+const conversations = (ctx) => ctx.interviews.filter(isHeldConversation);
+const doneInterviews = (ctx) => conversations(ctx).filter((i) => i.status === 'fatta' || i.status === 'analizzata').length;
+const analyzedInterviews = (ctx) => conversations(ctx).filter((i) => i.status === 'analizzata').length;
+const strongCommitments = (ctx) => conversations(ctx).filter((i) => STRONG_COMMITMENTS.has(i.data.commitment)).length;
 const maxValidated = (ctx) => Math.max(0, ...ctx.canvases.map((c) => Object.keys(c.data.validated || {}).length));
 const maxRivals = (ctx) => Math.max(0, ...ctx.competitors.map((c) => c.data.rivals?.length || 0));
 const deep = (ctx) => ctx.deeptechs[0] || null;
@@ -339,7 +341,7 @@ export const ROADMAP = [
           'Chiudete chiedendo un piccolo impegno: un\'altra persona da sentire, una data per una demo.',
           'Ogni 5 interviste rivedete le domande.',
         ],
-        done: 'Almeno 20 interviste sono fatte o analizzate.',
+        done: 'Almeno 20 interviste sono fatte o analizzate. Contano solo i colloqui con persone, non le ricerche online.',
         mistake: 'Fermarsi a 5 interviste che confermano quello che volevate sentire.',
         concept: 'intervista-validazione',
         href: tab('interviste'),

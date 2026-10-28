@@ -46,6 +46,7 @@ import {
   metaLine,
   onlineHere,
   pageHeader,
+  sourceBadge,
   statusPill,
   tabs,
 } from './components.js';
@@ -301,7 +302,12 @@ function contactsBlock(idea, writable) {
       'div',
       { class: 'section-head' },
       h('h2', null, 'Persone con cui interfacciarsi', conceptButton('fuori-dall-ufficio')),
-      writable ? button('Aggiungi una persona', { kind: contacts.length ? 'ghost' : 'primary', iconName: 'plus', href: `#/nuovo/contact?idea=${idea.id}` }) : null,
+      h(
+        'div',
+        { class: 'row' },
+        contacts.length && !example ? button('Apri in Contatti', { iconName: 'users', href: `#/contatti?idea=${idea.id}`, title: 'Responsabili, date e stati da cambiare direttamente in tabella' }) : null,
+        writable ? button('Aggiungi una persona', { kind: contacts.length ? 'ghost' : 'primary', iconName: 'plus', href: `#/nuovo/contact?idea=${idea.id}` }) : null,
+      ),
     ),
     contacts.length
       ? h(
@@ -369,7 +375,7 @@ function interviewsTab(idea, writable) {
                 'tr',
                 null,
                 h('td', null, i.data.date ? fmtDate(i.data.date) : '-'),
-                h('td', null, itemLink(i)),
+                h('td', null, itemLink(i), sourceBadge(i)),
                 h('td', null, statusPill('interview', i.status)),
                 h('td', null, commitmentBadge(i.data.commitment) || '-'),
                 h('td', null, i.data.problem_intensity ? `${i.data.problem_intensity}/5` : '-'),

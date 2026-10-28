@@ -210,6 +210,11 @@ test('a photo of the scores is saved with a name and compared with now', async (
 test('the criteria editor saves reordered and new criteria', async () => {
   await visit('#/valutazione');
   let saved = null;
+  let photo = null;
+  api.createItem = async (args) => {
+    photo = args;
+    return item({ id: 'a8888888-8888-4888-8888-888888888888', kind: 'scoresnap', title: args.title, data: args.data });
+  };
   api.saveItem = async (args) => {
     saved = args;
     return { status: 'ok', item: item({ ...store.getItem(IDS.criteria), version: 2, data: args.snapshot.data }) };
@@ -222,6 +227,7 @@ test('the criteria editor saves reordered and new criteria', async () => {
   await flush(10);
   assert.deepEqual(saved.snapshot.data.criteria.map((c) => c.key).slice(0, 2), ['mercato', 'cliente']);
   assert.equal(saved.snapshot.data.criteria.length, 3);
+  assert.equal(photo.title, 'Fotografia 1, prima di cambiare i criteri', 'un criterio in più cambia la classifica: prima si salva una fotografia');
 });
 
 test('generator shows the grid and saves a cell', async () => {

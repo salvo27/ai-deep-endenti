@@ -35,6 +35,17 @@ export const COMMITMENT = [
 
 export const STRONG_COMMITMENTS = new Set(['pilota', 'pagamento']);
 
+export const INTERVIEW_SOURCES = [
+  ['colloquio', 'Colloquio con una persona'],
+  ['ricerca', 'Ricerca online, senza parlare con nessuno'],
+];
+
+// Senza tipo è un colloquio: le interviste salvate prima del campo restano valide.
+export const isConversation = (interview) => interview?.data?.source !== 'ricerca';
+
+// Come prova conta solo un colloquio già avvenuto, non uno ancora da fare.
+export const isHeldConversation = (interview) => isConversation(interview) && interview?.status !== 'da_fare';
+
 export const CANVAS_BLOCKS = [
   { key: 'problem', label: 'Problema', area: 'prob', help: 'I tre problemi principali', main: true },
   { key: 'alternatives', label: 'Alternative esistenti', area: 'prob', help: 'Come lo risolvono oggi' },
@@ -199,6 +210,7 @@ export const KINDS = {
       ['analizzata', 'Analizzata'],
     ],
     fields: [
+      field('source', 'Tipo', 'select', { options: INTERVIEW_SOURCES, default: 'colloquio', help: 'Solo i colloqui contano come interviste nei numeri e nella roadmap.' }),
       field('date', 'Data', 'date'),
       field('interviewer', 'Intervistatore', 'member'),
       field('role', 'Ruolo dell\'intervistato', 'text', { placeholder: 'Per esempio: responsabile acquisti, medico di base' }),

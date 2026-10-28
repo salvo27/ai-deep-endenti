@@ -9,7 +9,7 @@ import { commentsPanel } from './comments.js';
 import { aiButton } from './ai-panel.js';
 import { archiveWithConfirm, changeStatus } from './actions.js';
 import { ideaContext } from './idea.js';
-import { button, errorBox, exampleBanner, fieldsGrid, itemLink, metaLine, onlineHere, pageHeader, statusPill, tabs } from './components.js';
+import { button, errorBox, exampleBanner, fieldsGrid, itemLink, metaLine, onlineHere, pageHeader, sourceBadge, statusPill, tabs } from './components.js';
 
 const TABS = [
   ['dettagli', 'Dettagli'],
@@ -63,7 +63,7 @@ export function itemView(outlet, params) {
         back: { href: idea ? `#/idea/${idea.id}${item.kind === 'note' ? '/appunti' : ''}` : `#${LIST_ROUTES[item.kind] || '/'}` },
         eyebrow: h('span', { class: 'kind-eyebrow' }, def.label, idea ? [' di ', itemLink(idea)] : null),
         title: item.title,
-        subtitle: h('span', { class: 'row' }, statusControl, metaLine(item), hereHost),
+        subtitle: h('span', { class: 'row' }, statusControl, item.kind === 'interview' ? sourceBadge(item) : null, metaLine(item), hereHost),
         actions: [
           critique,
           writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,

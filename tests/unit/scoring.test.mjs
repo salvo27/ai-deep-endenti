@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { comparePhotos, criterionStats, ideaScore, photoRanking, ranking } from '../../assets/js/scoring.js';
+import { isHeldConversation } from '../../assets/js/schema.js';
+import {
+  comparePhotos,
+  countMissing,
+  criteriaWeightsChanged,
+  criterionStats,
+  evidenceByIdea,
+  ideaScore,
+  missingVotes,
+  photoRanking,
+  ranking,
+  scaleEnds,
+} from '../../assets/js/scoring.js';
 
 const criteria = [
   { key: 'cliente', label: 'Cliente', weight: 3 },
@@ -123,4 +135,71 @@ test('comparePhotos keeps ideas that entered or left the ranking', () => {
   assert.equal(cmp.rows.at(-1).ideaId, A, 'chi esce dalla classifica va in fondo');
   const fresh = comparePhotos({ ...photoBefore, votes: {} }, photoAfter);
   assert.ok(fresh.rows.every((r) => r.before === null && r.after));
+});
+
+test('evidenceByIdea counts real conversations, strong commitments and concluded experiments', () => {
+  const interview = (ideaId, status, data = {}) => ({ kind: 'interview', idea_id: ideaId, status, data });
+  const interviews = [
+    interview(A, 'fatta'),
+    interview(A, 'analizzata', { commitment: 'pagamento' }),
+    interview(A, 'fatta', { commitment: 'demo' }),
+    interview(A, 'fatta', { source: 'ricerca', commitment: 'pilota' }),
+    interview(A, 'da_fare', { commitment: 'pilota' }),
+    interview(B, 'fatta', { source: 'conversazione', commitment: 'pilota' }),
+    interview(null, 'fatta'),
+  ];
+  const experiments = [
+    { kind: 'experiment', idea_id: A, status: 'concluso' },
+    { kind: 'experiment', idea_id: A, status: 'in_corso' },
+    { kind: 'experiment', idea_id: C, status: 'concluso' },
+  ];
+  const evidence = evidenceByIdea(interviews, experiments);
+  assert.deepEqual(evidence.get(A), { conversations: 3, commitments: 1, experiments: 1 });
+  assert.deepEqual(evidence.get(B), { conversations: 1, commitments: 1, experiments: 0 });
+  assert.deepEqual(evidence.get(C), { conversations: 0, commitments: 0, experiments: 1 });
+  assert.equal(isHeldConversation(interview(A, 'fatta')), true, 'senza source è una conversazione');
+  assert.equal(isHeldConversation(interview(A, 'fatta', { source: 'ricerca' })), false);
+  assert.equal(isHeldConversation(interview(A, 'da_fare')), false, 'un colloquio in programma non è ancora una prova');
+});
+
+test('missingVotes says which criteria each voter has not voted on an idea', () => {
+  const voters = ['u1', 'u2', 'u3'];
+  assert.deepEqual(missingVotes(ideaScore(A, criteria, scores), criteria, voters), [
+    { memberId: 'u2', keys: ['extra'] },
+    { memberId: 'u3', keys: ['cliente', 'mercato', 'extra'] },
+  ]);
+  assert.deepEqual(missingVotes(ideaScore(A, criteria, scores), criteria, ['u1']), []);
+});
+
+test('countMissing counts my empty votes and the ideas they are on', () => {
+  const mine = { [A]: { cliente: 5, mercato: 1, extra: 5 }, [B]: { cliente: 2 } };
+  assert.deepEqual(countMissing([A, B, C], criteria, mine), { votes: 5, ideas: 2 });
+  assert.deepEqual(countMissing([A], criteria, mine), { votes: 0, ideas: 0 });
+  assert.deepEqual(countMissing([A], criteria, undefined), { votes: 3, ideas: 1 });
+});
+
+test('scaleEnds checks that a description explains both 5 and 1', () => {
+  assert.deepEqual(scaleEnds('5 = pochi concorrenti; 1 = mercato affollato'), { high: true, low: true });
+  assert.deepEqual(scaleEnds('Da 1 (mai) a 5 (ogni giorno)'), { high: true, low: true });
+  assert.deepEqual(scaleEnds('1: nessun ostacolo. 5: vietato'), { high: true, low: true });
+  assert.deepEqual(scaleEnds('5 = ricavi entro sei mesi'), { high: true, low: false });
+  assert.deepEqual(scaleEnds('Dimensione e disponibilità a pagare'), { high: false, low: false });
+  assert.deepEqual(scaleEnds('15 clienti e 1.5 milioni, 10 = tanti'), { high: false, low: false }, 'numeri qualsiasi non contano');
+  assert.deepEqual(scaleEnds(undefined), { high: false, low: false });
+});
+
+test('criteriaWeightsChanged ignores labels, descriptions and order', () => {
+  const before = [
+    { key: 'cliente', label: 'Cliente', description: '', weight: 3 },
+    { key: 'mercato', label: 'Mercato', description: '', weight: 1 },
+  ];
+  const relabeled = [
+    { key: 'mercato', label: 'Mercato e prezzo', description: '5 = grande; 1 = piccolo', weight: 1 },
+    { key: 'cliente', label: 'Cliente vero', description: 'Nuova', weight: 3 },
+  ];
+  assert.equal(criteriaWeightsChanged(before, relabeled), false);
+  assert.equal(criteriaWeightsChanged(before, [before[0], { ...before[1], weight: 2 }]), true);
+  assert.equal(criteriaWeightsChanged(before, [...before, { key: 'nuovo', label: 'Nuovo', weight: 0 }]), true, 'anche con peso zero');
+  assert.equal(criteriaWeightsChanged(before, [before[0]]), true);
+  assert.equal(criteriaWeightsChanged(before, [before[0], { ...before[1], key: 'altro' }]), true);
 });

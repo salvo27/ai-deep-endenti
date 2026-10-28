@@ -1,7 +1,7 @@
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';
-import { KINDS } from '../schema.js';
+import { KINDS, isHeldConversation } from '../schema.js';
 import { canWrite, criteriaList, exampleIdeas, getItem, ideas, itemsOf, on, readLocal, scoreItems, state, writeLocal } from '../store.js';
 import { ranking } from '../scoring.js';
 import { navigate } from '../router.js';
@@ -11,7 +11,7 @@ import { changeStatus } from './actions.js';
 export function ideaCounts(ideaId) {
   return {
     experiments: itemsOf('experiment', { ideaId }).length,
-    interviews: itemsOf('interview', { ideaId }).length,
+    interviews: itemsOf('interview', { ideaId }).filter(isHeldConversation).length,
     comments: state.commentCounts.get(ideaId) || 0,
   };
 }

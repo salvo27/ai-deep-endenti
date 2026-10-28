@@ -1,6 +1,6 @@
 import { h, mount } from '../lib/dom.js';
 import { daysUntil, fmtDate, plural } from '../lib/format.js';
-import { KINDS, STRONG_COMMITMENTS } from '../schema.js';
+import { KINDS, STRONG_COMMITMENTS, isHeldConversation } from '../schema.js';
 import { api } from '../lib/api.js';
 import {
   criteriaList,
@@ -16,6 +16,7 @@ import {
 import { ranking } from '../scoring.js';
 import { avatar, button, emptyState, errorBox, itemLink, kindBadge, loading, pageHeader, statusPill } from './components.js';
 import { revisionLine } from './history.js';
+import { dueLabel, myContactTodos, unownedContacts } from './contacts.js';
 
 export function dashboardData(now = new Date()) {
   const allIdeas = ideas();
@@ -23,18 +24,21 @@ export function dashboardData(now = new Date()) {
   const experiments = itemsOf('experiment');
   const running = experiments.filter((e) => e.status === 'in_corso');
   const interviews = itemsOf('interview');
+  // Come prova contano solo i colloqui avvenuti, non le ricerche online né quelli ancora da fare.
+  const conversations = interviews.filter(isHeldConversation);
   const monthAgo = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const recentInterviews = interviews.filter((i) => (i.data.date || i.created_at.slice(0, 10)) >= monthAgo);
-  const strong = interviews.filter((i) => STRONG_COMMITMENTS.has(i.data.commitment));
+  const recentInterviews = conversations.filter((i) => (i.data.date || i.created_at.slice(0, 10)) >= monthAgo);
+  const strong = conversations.filter((i) => STRONG_COMMITMENTS.has(i.data.commitment));
   const pipeline = KINDS.idea.statuses.map(([status, label]) => ({ status, label, count: allIdeas.filter((i) => i.status === status).length }));
   const myId = state.user?.id;
   const myTodo = [
     ...experiments.filter((e) => e.data.owner === myId && e.status !== 'concluso'),
     ...interviews.filter((i) => i.data.interviewer === myId && i.status === 'da_fare'),
-    ...itemsOf('contact').filter((c) => c.data.owner === myId && ['da_contattare', 'contattata', 'fissata'].includes(c.status)),
+    ...myContactTodos(myId, now),
   ];
+  const unowned = unownedContacts().length;
   const top = ranking(active, criteriaList(), scoreItems()).slice(0, 5);
-  return { allIdeas, active, running, recentInterviews, strong, pipeline, myTodo, top };
+  return { allIdeas, active, running, recentInterviews, strong, pipeline, myTodo, unowned, top };
 }
 
 function stat(value, label, href) {
@@ -74,8 +78,8 @@ export function dashboardView(outlet) {
         { class: 'stats' },
         stat(d.active.length, 'idee attive', '#/idee'),
         stat(d.running.length, 'esperimenti in corso', '#/esperimenti'),
-        stat(d.recentInterviews.length, 'interviste negli ultimi 30 giorni', '#/interviste'),
-        stat(d.strong.length, 'impegni concreti (piloti)', '#/interviste'),
+        stat(d.recentInterviews.length, 'interviste negli ultimi 30 giorni', '#/interviste?tipo=colloquio'),
+        stat(d.strong.length, 'impegni concreti (piloti)', '#/interviste?tipo=colloquio'),
       ),
       h(
         'div',
@@ -120,8 +124,11 @@ export function dashboardView(outlet) {
           { class: 'card' },
           h('h2', null, 'Le tue cose da fare'),
           d.myTodo.length
-            ? h('ul', { class: 'list' }, d.myTodo.map((i) => h('li', null, kindBadge(i.kind), itemLink(i), i.kind === 'experiment' ? deadline(i) : null)))
+            ? h('ul', { class: 'list' }, d.myTodo.map((i) => h('li', null, kindBadge(i.kind), itemLink(i), i.kind === 'experiment' ? deadline(i) : i.kind === 'contact' ? dueLabel(i) : null)))
             : h('p', { class: 'muted' }, 'Niente in sospeso.'),
+          canWrite() && d.unowned
+            ? h('p', { class: 'small' }, h('a', { href: '#/contatti?filtro=senza' }, `${plural(d.unowned, 'persona', 'persone')} senza responsabile`), ': scegli chi se ne occupa.')
+            : null,
         ),
         h('section', { class: 'card card-wide' }, h('h2', null, lastSeen ? 'Novità dall\'ultima visita' : 'Ultime modifiche'), news),
       ),
