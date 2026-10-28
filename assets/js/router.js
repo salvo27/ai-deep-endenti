@@ -23,6 +23,11 @@ export function addRoute(pattern, view) {
   routes.push({ pattern, view, ...compile(pattern) });
 }
 
+// Indirizzo vecchio che porta a quello nuovo, con gli stessi parametri dopo «?» e senza una voce in più nella cronologia.
+export function addRedirect(pattern, target) {
+  routes.push({ pattern, redirect: target, ...compile(pattern) });
+}
+
 export function clearRoutes() {
   routes.length = 0;
 }
@@ -88,7 +93,15 @@ export function goBack(fallback) {
 }
 
 export async function render(hash = location.hash) {
-  const { path, query } = parseHash(hash);
+  let { path, query } = parseHash(hash);
+  let found = match(path);
+  if (found?.route.redirect) {
+    const search = query.toString();
+    const target = search ? `${found.route.redirect}?${search}` : found.route.redirect;
+    history.replaceState(history.state, '', `#${target}`);
+    ({ path, query } = parseHash(target));
+    found = match(path);
+  }
   if (current.path !== null && path !== current.path && leaveGuard) {
     const ok = await leaveGuard();
     if (!ok) {
@@ -98,7 +111,6 @@ export async function render(hash = location.hash) {
     leaveGuard = null;
   }
   markHistory();
-  const found = match(path);
   current.cleanup?.();
   current = { path, cleanup: null };
   outlet.replaceChildren();

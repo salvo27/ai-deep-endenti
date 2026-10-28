@@ -80,7 +80,7 @@ export function teamView(outlet) {
     mount(
       outlet,
       pageHeader({
-        title: 'Team',
+        title: 'Membri',
         subtitle: 'Admin: gestisce il team. Membro: crea e modifica le board. Advisor: legge, commenta e vota.',
         actions: [exportButton],
       }),

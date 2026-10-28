@@ -1,17 +1,19 @@
 import { h, mount } from '../lib/dom.js';
 import { CHAPTERS, CONCEPTS, VERIFIED_ON } from '../concepts.js';
 import { KINDS } from '../schema.js';
-import { button, emptyState, pageHeader } from './components.js';
+import { emptyState } from './components.js';
 import { conceptBody } from './concept-help.js';
 
 const normalize = (text) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-export function conceptsView(outlet, params, query) {
+export const CONCEPTS_INTRO = `I concetti di «Il manuale dello startupper» e del capitolo sul deep tech, spiegati in breve e collegati agli strumenti della board. Norme e dati verificati il ${VERIFIED_ON}: ricontrollali prima di decidere.`;
+
+// Seconda scheda della Guida: filtri ed elenco dei concetti, con in evidenza quello aperto da un link.
+export function conceptsPanel(focus) {
   let search = '';
   let chapter = 0;
   let phase = '';
   let showMinor = true;
-  const focus = query.get('c');
   const listHost = h('div', { class: 'concept-list' });
 
   const matches = (concept) => {
@@ -82,16 +84,5 @@ export function conceptsView(outlet, params, query) {
   );
 
   render();
-  mount(
-    outlet,
-    pageHeader({
-      title: 'Concetti',
-      subtitle: `I concetti di «Il manuale dello startupper» e del capitolo sul deep tech, spiegati in breve e collegati agli strumenti della board. Norme e dati verificati il ${VERIFIED_ON}: ricontrollali prima di decidere.`,
-      actions: [button('Guida per fase', { iconName: 'compass', href: '#/guida' })],
-    }),
-    h('div', { class: 'filters concept-filters' }, searchInput, chapterSelect, phaseSelect, minorToggle),
-    listHost,
-  );
-  if (focus) document.getElementById(`concetto-${focus}`)?.scrollIntoView?.({ block: 'center' });
-  return null;
+  return [h('div', { class: 'filters concept-filters' }, searchInput, chapterSelect, phaseSelect, minorToggle), listHost];
 }

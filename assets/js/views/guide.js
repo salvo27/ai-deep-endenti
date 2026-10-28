@@ -2,8 +2,15 @@ import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ROADMAP, ROADMAP_STEPS } from '../roadmap.js';
 import { exampleIdeas, ideas } from '../store.js';
-import { button, emptyState, itemLink, pageHeader, statusPill } from './components.js';
+import { emptyState, itemLink, pageHeader, statusPill, tabs } from './components.js';
+import { CONCEPTS_INTRO, conceptsPanel } from './concepts.js';
 import { ideaRoadmap, phaseSection } from './roadmap.js';
+
+// Due schede: la roadmap con il metodo su /guida, i concetti su /guida/concetti (anche /concetti porta lì).
+const TABS = [
+  ['roadmap', 'Roadmap'],
+  ['concetti', 'Concetti'],
+];
 
 const TOOLS = [
   ['Idea', 'La scheda di partenza: frase, problema, cliente, soluzione.', 'idea'],
@@ -48,16 +55,9 @@ function progressTable() {
   );
 }
 
-export function guideView(outlet, params, query) {
-  const focus = query.get('fase');
+function roadmapGuide() {
   const sample = exampleIdeas().find((e) => e.status === 'scelta');
-  mount(
-    outlet,
-    pageHeader({
-      title: 'Guida',
-      subtitle: 'La roadmap da seguire per ogni idea, in ordine: dalla squadra alla società. Ogni idea ne ha una copia interattiva nel tab Roadmap, dove segnate i passi fatti.',
-      actions: [button('Concetti', { iconName: 'book', href: '#/concetti' })],
-    }),
+  return [
     h('section', { class: 'card stack' }, h('h2', null, 'A che punto sono le vostre idee'), progressTable()),
     h(
       'section',
@@ -81,7 +81,24 @@ export function guideView(outlet, params, query) {
       h('h2', null, 'Gli strumenti della board'),
       h('div', { class: 'tool-grid' }, TOOLS.map(([name, text, iconName]) => h('div', { class: 'tool' }, icon(iconName, 18), h('div', null, h('strong', null, name), h('p', { class: 'muted small' }, text))))),
     ),
+  ];
+}
+
+export function guideView(outlet, params, query) {
+  const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'roadmap';
+  const concepts = tab === 'concetti';
+  mount(
+    outlet,
+    pageHeader({
+      title: 'Guida',
+      subtitle: concepts
+        ? CONCEPTS_INTRO
+        : 'La roadmap da seguire per ogni idea, in ordine: dalla squadra alla società. Ogni idea ne ha una copia interattiva nel tab Roadmap, dove segnate i passi fatti.',
+    }),
+    tabs(TABS, tab, (key) => (key === 'roadmap' ? '#/guida' : `#/guida/${key}`)),
+    h('div', { class: 'tab-body stack' }, concepts ? conceptsPanel(query.get('c')) : roadmapGuide()),
   );
-  if (focus) document.getElementById(`fase-${focus}`)?.scrollIntoView?.({ block: 'start' });
+  const focus = concepts ? query.get('c') : query.get('fase');
+  if (focus) document.getElementById(`${concepts ? 'concetto' : 'fase'}-${focus}`)?.scrollIntoView?.({ block: concepts ? 'center' : 'start' });
   return null;
 }

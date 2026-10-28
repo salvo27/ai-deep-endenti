@@ -7,7 +7,7 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Sezione | A cosa serve |
 |---|---|
 | Dashboard | Classifica, idee per fase, esperimenti in corso, cose da fare (con le persone da sentire entro una settimana), novità dall'ultima visita |
-| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha Panoramica (con il riquadro «Prossimo passo» e le decisioni collegate), Lean Canvas, Clienti, Mercato, Deep tech, Esperimenti, Persone e interviste, Voti, Commenti, Storico |
+| Idee | Colonne per fase (trascinabili) o tabella; ogni idea ha sei schede: Panoramica (con il riquadro «Prossimo passo» e le decisioni collegate), Roadmap, Analisi (Lean Canvas, Clienti, Mercato, Deep tech), Validazione (Esperimenti, Persone e interviste), Appunti e Discussione (Commenti, Voti, Storico). Le schede con più sezioni mostrano sotto una seconda riga; ogni sezione ha il suo indirizzo, per esempio `#/idea/<id>/commenti`, e sul telefono le sei schede stanno su due righe |
 | Esempi | Un'idea compilata per ogni fase, ispirata alla storia di startup note (Uber, Airbnb, Dropbox, Spotify, Netflix, Odeo); in sola lettura, nascondibili, fuori da statistiche e backup |
 | Lean Canvas | I nove blocchi classici, ciascuno con il segno "validato con dati" |
 | Clienti | Buyer persona a scheda (una per tipo di cliente) con foto, dati demografici, obiezioni e fonti di informazione; Value Proposition Canvas a due lati |
@@ -24,11 +24,13 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
-| Roadmap, Guida e Concetti | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; si spuntano a mano, con autore e data, e si possono togliere; quando i dati della board fanno pensare che un passo sia fatto, la roadmap lo suggerisce. La Guida mostra la roadmap completa e a che punto è ogni idea; i Concetti spiegano circa novanta voci del manuale, collegate ai campi con il pulsante «?» |
+| Roadmap e Guida | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; si spuntano a mano, con autore e data, e si possono togliere; quando i dati della board fanno pensare che un passo sia fatto, la roadmap lo suggerisce. La Guida ha due schede: Roadmap, con la roadmap completa e a che punto è ogni idea, e Concetti (`#/guida/concetti`), che spiega circa novanta voci del manuale, collegate ai campi con il pulsante «?». Il vecchio indirizzo `#/concetti` porta ancora lì |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
-| Team e Profilo | Ruoli, stato della 2FA, registro di sicurezza, dispositivi, password, avvisi del browser, backup |
+| Membri e Profilo | Membri (`#/membri`, prima Team, il vecchio indirizzo funziona ancora): ruoli, stato della 2FA, registro di sicurezza, backup. Profilo: dispositivi, password, avvisi del browser |
 | Notifiche | Campanella con le novità degli altri (nuove idee, cambi di fase, decisioni, esperimenti conclusi, nuove schede, persone, commenti), avviso a comparsa in tempo reale e, se attivati, avvisi del browser |
+
+Il menu laterale raggruppa le pagine in **Lavoro** (Dashboard, Idee, Valutazione, Esperimenti, Interviste, Contatti, Decisioni, Chat), **Strumenti** (Generatore, Guida), **Team** (Squadra, Membri) e **Sistema** (Storico, Cestino); in fondo ci sono Profilo ed Esci, che chiede conferma perché per rientrare servono password e codice di verifica. Sul telefono la ricerca è un pulsante con la lente che apre una riga larga quanto lo schermo; da tastiera si apre con «/».
 
 Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore. Le risposte sono formattate (titoli, elenchi, tabelle) senza mai interpretare HTML.
 
@@ -45,7 +47,7 @@ assets/js/
   auth.js                   login, 2FA, recupero password
   schema.js                 definizione di ogni board: campi, stati, validazione
   store.js                  stato condiviso, aggiornamenti dal vivo, salvataggi
-  router.js                 rotte con hash (#/idee, #/idea/:id, ...)
+  router.js                 rotte con hash (#/idee, #/idea/:id, ...) e vecchi indirizzi rimandati ai nuovi
   examples.js               idee di esempio in sola lettura, una per fase
   roadmap.js, concepts.js   fasi e passi della roadmap, concetti del manuale
   scoring.js, ai.js, export.js
@@ -59,7 +61,7 @@ docs/SICUREZZA.md           principi e misure di sicurezza
 docs/TEST.md                come sono scritti i test e cosa coprono
 ```
 
-Per aggiungere una board basta una nuova definizione in `schema.js`, il tipo nel vincolo `kind` di `schema.sql` e una voce nel menu.
+Per aggiungere una board basta una nuova definizione in `schema.js`, il tipo nel vincolo `kind` di `schema.sql` e una voce nel menu (`NAV_GROUPS` in `views/shell.js`).
 
 Quando si aggiunge o si toglie un file JavaScript, `npm run preload` aggiorna in `index.html` l'elenco dei moduli da precaricare (un test controlla che sia allineato): così il browser li scarica tutti insieme invece che a cascata.
 
@@ -106,7 +108,7 @@ Il servizio email predefinito di Supabase ha limiti molto bassi: per il recupero
    select public.add_member('email-dell-admin', 'Nome Cognome', 'admin');
    ```
 
-3. Gli altri li aggiunge l'admin dal sito (Team), dopo averli creati come al punto 1.
+3. Gli altri li aggiunge l'admin dal sito (Membri), dopo averli creati come al punto 1.
 4. Al primo accesso ognuno attiva la verifica in due passaggi: senza, il database non restituisce nulla, e cambia la password temporanea dal Profilo.
 
 ### 4. Claude
@@ -172,9 +174,9 @@ delete from auth.mfa_factors where user_id = (select id from auth.users where em
 
 Al login successivo gli verrà chiesto di attivare un nuovo dispositivo. Conviene anche chiudere le sue sessioni da Authentication › Users.
 
-**Rimuovere qualcuno.** Dal sito (Team) perde subito l'accesso ai dati. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
+**Rimuovere qualcuno.** Dal sito (Membri) perde subito l'accesso ai dati. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
 
-**Backup.** Team › Esporta un backup completo scarica idee, storico e commenti in JSON. I file di backup sono esclusi da git.
+**Backup.** Membri › Esporta un backup completo scarica idee, storico e commenti in JSON. I file di backup sono esclusi da git.
 
 **Svuotare il cestino per sempre.** Il sito non cancella mai davvero. Se serve, l'admin fa prima un backup e poi, dal SQL Editor, elimina gli elementi nel cestino insieme a quelli delle idee archiviate; storico e commenti collegati spariscono con loro:
 
@@ -185,7 +187,7 @@ delete from public.items where deleted_at is not null;
 commit;
 ```
 
-**Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza, visibile agli admin nella pagina Team.
+**Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza, visibile agli admin nella pagina Membri.
 
 ## Documenti
 

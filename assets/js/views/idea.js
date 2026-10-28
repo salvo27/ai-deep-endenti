@@ -53,20 +53,54 @@ import {
 
 const EXAMPLE_TABS = new Set(['panoramica', 'roadmap', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste']);
 
-const TABS = [
-  ['panoramica', 'Panoramica'],
-  ['roadmap', 'Roadmap'],
-  ['canvas', 'Lean Canvas'],
-  ['clienti', 'Clienti'],
-  ['mercato', 'Mercato'],
-  ['deeptech', 'Deep tech'],
-  ['esperimenti', 'Esperimenti'],
-  ['interviste', 'Persone e interviste'],
-  ['appunti', 'Appunti'],
-  ['voti', 'Voti'],
-  ['commenti', 'Commenti'],
-  ['storico', 'Storico'],
+const SECTIONS = {
+  panoramica: 'Panoramica',
+  roadmap: 'Roadmap',
+  canvas: 'Lean Canvas',
+  clienti: 'Clienti',
+  mercato: 'Mercato',
+  deeptech: 'Deep tech',
+  esperimenti: 'Esperimenti',
+  interviste: 'Persone e interviste',
+  appunti: 'Appunti',
+  commenti: 'Commenti',
+  voti: 'Voti',
+  storico: 'Storico',
+};
+
+// Sei schede con le sezioni sotto. L'indirizzo tiene la sezione (#/idea/<id>/commenti apre Discussione su Commenti); quello della scheda apre la prima sezione.
+const GROUPS = [
+  ['panoramica', 'Panoramica', ['panoramica']],
+  ['roadmap', 'Roadmap', ['roadmap']],
+  ['analisi', 'Analisi', ['canvas', 'clienti', 'mercato', 'deeptech']],
+  ['validazione', 'Validazione', ['esperimenti', 'interviste']],
+  ['appunti', 'Appunti', ['appunti']],
+  ['discussione', 'Discussione', ['commenti', 'voti', 'storico']],
 ];
+
+function visibleGroups(example) {
+  return GROUPS.map(([key, label, sections]) => [key, label, sections.filter((s) => !example || EXAMPLE_TABS.has(s))]).filter(([, , sections]) => sections.length);
+}
+
+function sectionFor(param, groups) {
+  const group = groups.find(([key]) => key === param);
+  if (group) return group[2][0];
+  return groups.some(([, , sections]) => sections.includes(param)) ? param : 'panoramica';
+}
+
+function ideaTabs(idea, groups, section, counts) {
+  const href = (key) => `#/idea/${idea.id}/${key}`;
+  const [activeKey, activeLabel, activeSections] = groups.find(([, , sections]) => sections.includes(section));
+  const total = (sections) => (sections.length === 1 ? counts[sections[0]] : sections.reduce((sum, key) => sum + (Number(counts[key]) || 0), 0));
+  return h(
+    'div',
+    { class: 'idea-tabs' },
+    tabs(groups.map(([key, label, sections]) => [key, label, total(sections)]), activeKey, href, { ariaLabel: 'Schede dell\'idea', className: 'idea-groups' }),
+    activeSections.length > 1
+      ? tabs(activeSections.map((key) => [key, SECTIONS[key], counts[key]]), section, href, { ariaLabel: activeLabel, className: 'subtabs' })
+      : null,
+  );
+}
 
 // Tutte le schede collegate all'idea: i loro commenti compaiono anche nella sezione Commenti dell'idea.
 function childIds(ideaId) {
@@ -430,7 +464,8 @@ function historyTab(idea) {
 
 export function ideaView(outlet, params, query = new URLSearchParams()) {
   const example = isExample(getItem(params.id));
-  const tab = TABS.some(([key]) => key === params.tab) && (!example || EXAMPLE_TABS.has(params.tab)) ? params.tab : 'panoramica';
+  const groups = visibleGroups(example);
+  const tab = sectionFor(params.tab, groups);
   let commentsEl = null;
   const hereHost = h('span', { class: 'here-host' });
   const renderHere = () => mount(hereHost, onlineHere(`/idea/${params.id}`) || '');
@@ -494,11 +529,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
           writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(idea, { backTo: '/idee' }) }) : null,
         ],
       }),
-      tabs(
-        TABS.filter(([key]) => !example || EXAMPLE_TABS.has(key)).map(([key, label]) => [key, label, counts[key]]),
-        tab,
-        (key) => `#/idea/${idea.id}/${key}`,
-      ),
+      ideaTabs(idea, groups, tab, counts),
       h('div', { class: 'tab-body' }, body),
     );
   };

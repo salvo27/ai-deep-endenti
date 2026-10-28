@@ -3,7 +3,7 @@ import { h, mount, toast } from './lib/dom.js';
 import { CONFIG } from './config.js';
 import { notMemberScreen, errorScreen } from './auth.js';
 import { loadAll, on, startRealtime, startSync, state, stopRealtime, stopSync, syncItems, trackPresence } from './store.js';
-import { addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
+import { addRedirect, addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
@@ -25,7 +25,6 @@ import { chatView } from './views/chat.js';
 import { profileView } from './views/profile.js';
 import { squadView } from './views/squad.js';
 import { guideView } from './views/guide.js';
-import { conceptsView } from './views/concepts.js';
 import { emptyState } from './views/components.js';
 
 export function registerRoutes() {
@@ -43,13 +42,14 @@ export function registerRoutes() {
   addRoute('/valutazione', scoringView);
   addRoute('/generatore', generatorView);
   addRoute('/squadra/:tab?', squadView);
-  addRoute('/guida', guideView);
-  addRoute('/concetti', conceptsView);
+  addRoute('/guida/:tab?', guideView);
+  addRedirect('/concetti', '/guida/concetti');
   addRoute('/storico', logView);
   addRoute('/storico/:id', itemHistoryView);
   addRoute('/diff/:id/:to/:from?', diffView);
   addRoute('/cestino', trashView);
-  addRoute('/team', teamView);
+  addRoute('/membri', teamView);
+  addRedirect('/team', '/membri');
   addRoute('/profilo', profileView);
 }
 

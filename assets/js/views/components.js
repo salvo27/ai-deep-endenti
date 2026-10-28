@@ -92,10 +92,10 @@ export function emptyState(text, action) {
   return h('div', { class: 'empty' }, h('p', null, text), action || null);
 }
 
-export function tabs(entries, active, hrefFor) {
+export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', className } = {}) {
   return h(
     'nav',
-    { class: 'tabs', 'aria-label': 'Sezioni' },
+    { class: ['tabs', className], 'aria-label': ariaLabel },
     entries.map(([key, label, count]) =>
       h(
         'a',

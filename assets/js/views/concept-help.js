@@ -29,7 +29,7 @@ export function openConcept(key) {
       'div',
       { class: 'stack' },
       conceptBody(concept),
-      h('a', { class: 'btn btn-ghost', href: `#/concetti?c=${concept.key}`, onClick: () => modal.close() }, icon('book', 16), h('span', null, 'Tutti i concetti')),
+      h('a', { class: 'btn btn-ghost', href: `#/guida/concetti?c=${concept.key}`, onClick: () => modal.close() }, icon('book', 16), h('span', null, 'Tutti i concetti')),
     ),
   });
   return modal;
@@ -57,5 +57,5 @@ export function conceptButton(key) {
 export function conceptLink(key, text) {
   const concept = conceptByKey(key);
   if (!concept) return null;
-  return h('a', { href: `#/concetti?c=${key}`, class: 'concept-link' }, text || concept.term);
+  return h('a', { href: `#/guida/concetti?c=${key}`, class: 'concept-link' }, text || concept.term);
 }

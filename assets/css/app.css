@@ -228,7 +228,23 @@ del {
 .nav {
   display: flex;
   flex-direction: column;
+  gap: 0.85rem;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+
+.nav-group-title {
+  margin: 0;
+  padding: 0 0.6rem 0.15rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .nav-link {
@@ -253,7 +269,22 @@ del {
 }
 
 .sidebar-foot {
+  display: flex;
+  gap: 0.25rem;
   margin-top: auto;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-foot .nav-link {
+  flex: 1;
+}
+
+.sign-out {
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 .main {
@@ -323,6 +354,42 @@ del {
 .search-result:hover {
   background: var(--surface-2);
   text-decoration: none;
+}
+
+/* Sul telefono la ricerca diventa un pulsante che apre una riga sopra tutta la barra */
+.topbar .search-toggle,
+.search .search-close {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .search {
+    display: none;
+  }
+
+  .topbar .search-toggle {
+    display: inline-flex;
+  }
+
+  .search.is-open {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    max-width: none;
+    padding: 0 0.75rem;
+    background: var(--bg);
+  }
+
+  .search.is-open .search-close {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .search.is-open .search-results {
+    left: 0.75rem;
+    right: 0.75rem;
+  }
 }
 
 .live-dot {
@@ -917,6 +984,68 @@ select.input:disabled {
   border-radius: 999px;
   background: var(--surface-2);
   font-size: 0.75rem;
+}
+
+/* Idea: sei schede e, sotto, le sezioni della scheda aperta */
+.idea-tabs {
+  margin-bottom: 1.25rem;
+}
+
+.idea-tabs .tabs {
+  margin-bottom: 0;
+}
+
+.subtabs {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  overflow: visible;
+  border-bottom: 0;
+}
+
+.subtabs .tab {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.subtabs .tab.is-active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+/* Sul telefono le sei schede stanno su due righe da tre, senza scorrere di lato */
+@media (max-width: 720px) {
+  .idea-groups {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    overflow: visible;
+    border-bottom: 0;
+  }
+
+  .idea-groups .tab {
+    min-width: 0;
+    padding: 0.4rem 0.25rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 0.8rem;
+    text-align: center;
+    text-overflow: ellipsis;
+  }
+
+  .idea-groups .tab.is-active {
+    background: var(--primary-soft);
+    border-color: var(--primary);
+  }
+
+  .idea-groups .tab-count {
+    margin-left: 0.2rem;
+    padding: 0 0.3rem;
+  }
 }
 
 .tab-body > * + * {

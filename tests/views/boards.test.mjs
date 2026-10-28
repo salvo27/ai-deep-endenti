@@ -221,7 +221,7 @@ test('the question mark next to a field opens the concept', async () => {
   await flush();
   const dialog = document.querySelector('dialog.modal');
   assert.match(text(dialog), /TAM, SAM e SOM/);
-  assert.ok(dialog.querySelector('a[href="#/concetti?c=tam-sam-som"]'));
+  assert.ok(dialog.querySelector('a[href="#/guida/concetti?c=tam-sam-som"]'));
 });
 
 test('Claude receives the new boards but never the people and their contacts', () => {

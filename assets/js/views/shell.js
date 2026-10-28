@@ -1,4 +1,4 @@
-import { h, mount } from '../lib/dom.js';
+import { confirmDialog, h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';
 import { CONFIG } from '../config.js';
@@ -9,22 +9,44 @@ import { navigate, onRouteChange } from '../router.js';
 import { avatar, kindBadge } from './components.js';
 import { mentionsButton, notificationBell } from './notifications.js';
 
-export const NAV = [
-  ['/', 'Dashboard', 'dashboard'],
-  ['/idee', 'Idee', 'idea'],
-  ['/valutazione', 'Valutazione', 'scoring'],
-  ['/esperimenti', 'Esperimenti', 'experiment'],
-  ['/interviste', 'Interviste', 'interview'],
-  ['/decisioni', 'Decisioni', 'decision'],
-  ['/chat', 'Chat', 'comment'],
-  ['/generatore', 'Generatore', 'generator'],
-  ['/squadra', 'Squadra', 'heart'],
-  ['/guida', 'Guida', 'compass'],
-  ['/concetti', 'Concetti', 'book'],
-  ['/storico', 'Storico', 'history'],
-  ['/cestino', 'Cestino', 'trash'],
-  ['/team', 'Team', 'users'],
+export const NAV_GROUPS = [
+  [
+    'Lavoro',
+    [
+      ['/', 'Dashboard', 'dashboard'],
+      ['/idee', 'Idee', 'idea'],
+      ['/valutazione', 'Valutazione', 'scoring'],
+      ['/esperimenti', 'Esperimenti', 'experiment'],
+      ['/interviste', 'Interviste', 'interview'],
+      ['/contatti', 'Contatti', 'at'],
+      ['/decisioni', 'Decisioni', 'decision'],
+      ['/chat', 'Chat', 'comment'],
+    ],
+  ],
+  [
+    'Strumenti',
+    [
+      ['/generatore', 'Generatore', 'generator'],
+      ['/guida', 'Guida', 'compass'],
+    ],
+  ],
+  [
+    'Team',
+    [
+      ['/squadra', 'Squadra', 'heart'],
+      ['/membri', 'Membri', 'users'],
+    ],
+  ],
+  [
+    'Sistema',
+    [
+      ['/storico', 'Storico', 'history'],
+      ['/cestino', 'Cestino', 'trash'],
+    ],
+  ],
 ];
+
+export const NAV = NAV_GROUPS.flatMap(([, entries]) => entries);
 
 export function searchItems(query, limit = 8) {
   const q = query.trim().toLowerCase();
@@ -42,11 +64,33 @@ export function searchItems(query, limit = 8) {
     .map((r) => r.item);
 }
 
+// Sul telefono la ricerca è un pulsante: toccandolo si apre una riga larga quanto lo schermo sopra la barra in alto.
 function globalSearch() {
   const input = h('input', { class: 'input search-input', type: 'search', placeholder: 'Cerca nelle board  /', 'aria-label': 'Cerca nelle board', maxlength: 100 });
   const results = h('div', { class: 'search-results', hidden: true, role: 'listbox' });
+  const box = h('div', { class: 'search', id: 'search' });
+  const toggle = h(
+    'button',
+    { type: 'button', class: 'icon-btn search-toggle', 'aria-label': 'Cerca', 'aria-expanded': 'false', 'aria-controls': 'search', onClick: () => setOpen(true) },
+    icon('search', 20),
+  );
   const close = () => {
     results.hidden = true;
+  };
+  const setOpen = (open) => {
+    box.classList.toggle('is-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) {
+      input.focus();
+      return;
+    }
+    input.value = '';
+    close();
+  };
+  const dismiss = () => {
+    setOpen(false);
+    input.blur();
+    toggle.focus();
   };
   const render = () => {
     const found = searchItems(input.value);
@@ -55,43 +99,63 @@ function globalSearch() {
     mount(results,
       ...(found.length
         ? found.map((item) =>
-            h('a', { class: 'search-result', href: routeFor(item), role: 'option', onClick: close }, kindBadge(item.kind), h('span', null, truncate(item.title, 80))),
+            h('a', { class: 'search-result', href: routeFor(item), role: 'option', onClick: () => setOpen(false) }, kindBadge(item.kind), h('span', null, truncate(item.title, 80))),
           )
         : [h('p', { class: 'muted small' }, 'Nessun risultato.')]),
     );
   };
   input.addEventListener('input', render);
+  input.addEventListener('focus', render);
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      input.value = '';
-      close();
-      input.blur();
-    }
+    if (event.key === 'Escape') dismiss();
     if (event.key === 'Enter') {
       const first = searchItems(input.value)[0];
       if (first) {
         navigate(routeFor(first).slice(1));
-        input.value = '';
-        close();
+        setOpen(false);
       }
     }
   });
-  input.addEventListener('blur', () => setTimeout(close, 150));
+  // Toccando fuori i risultati si chiudono; la riga resta aperta solo se c'è qualcosa scritto.
+  input.addEventListener('blur', () =>
+    setTimeout(() => {
+      close();
+      if (!input.value.trim()) setOpen(false);
+    }, 150),
+  );
   document.addEventListener('keydown', (event) => {
     if (event.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
       event.preventDefault();
-      input.focus();
+      setOpen(true);
     }
   });
-  return h('div', { class: 'search' }, icon('search', 16), input, results);
+  mount(
+    box,
+    icon('search', 16),
+    input,
+    h('button', { type: 'button', class: 'icon-btn search-close', 'aria-label': 'Chiudi la ricerca', onClick: dismiss }, icon('close', 18)),
+    results,
+  );
+  return [toggle, box];
 }
 
 export function buildShell(root, { onSignOut }) {
   const outlet = h('main', { class: 'content', id: 'content', tabindex: '-1' });
   const chatBadge = h('span', { class: 'nav-badge', hidden: true });
-  const links = NAV.map(([path, label, iconName]) =>
-    h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label), path === '/chat' ? chatBadge : null),
+  const groups = NAV_GROUPS.map(([title, entries], index) =>
+    h(
+      'div',
+      { class: 'nav-group', role: 'group', 'aria-labelledby': `nav-group-${index}` },
+      h('p', { class: 'nav-group-title', id: `nav-group-${index}` }, title),
+      entries.map(([path, label, iconName]) =>
+        h('a', { class: 'nav-link', href: `#${path}`, dataset: { path } }, icon(iconName, 18), h('span', null, label), path === '/chat' ? chatBadge : null),
+      ),
+    ),
   );
+  const links = groups.flatMap((group) => [...group.querySelectorAll('.nav-link')]);
+  const signOut = async () => {
+    if (await confirmDialog('Per rientrare servono password e codice di verifica.', { title: 'Vuoi uscire?', okLabel: 'Esci' })) onSignOut();
+  };
   const renderChatBadge = () => {
     const n = totalUnread();
     chatBadge.hidden = n === 0;
@@ -103,8 +167,13 @@ export function buildShell(root, { onSignOut }) {
     'aside',
     { class: 'sidebar', id: 'menu' },
     h('a', { class: 'brand', href: '#/' }, icon('shield', 22), h('span', null, CONFIG.appName)),
-    h('nav', { class: 'nav', 'aria-label': 'Sezioni' }, links),
-    h('div', { class: 'sidebar-foot' }, h('a', { class: 'nav-link', href: '#/profilo', dataset: { path: '/profilo' } }, icon('user', 18), h('span', null, 'Profilo'))),
+    h('nav', { class: 'nav', 'aria-label': 'Sezioni' }, groups),
+    h(
+      'div',
+      { class: 'sidebar-foot' },
+      h('a', { class: 'nav-link', href: '#/profilo', dataset: { path: '/profilo' } }, icon('user', 18), h('span', null, 'Profilo')),
+      h('button', { type: 'button', class: 'nav-link sign-out', onClick: signOut }, icon('logout', 18), h('span', null, 'Esci')),
+    ),
   );
   const presence = h('div', { class: 'presence', 'aria-label': 'Online ora' });
   const live = h('span', { class: 'live-dot', title: 'Aggiornamenti dal vivo' });
@@ -129,13 +198,7 @@ export function buildShell(root, { onSignOut }) {
     }
   });
   setMenu(false);
-  const userButton = h(
-    'div',
-    { class: 'user-box' },
-    avatar(state.user.id, 30),
-    h('span', { class: 'user-name' }, state.me?.display_name || ''),
-    h('button', { type: 'button', class: 'icon-btn', title: 'Esci', 'aria-label': 'Esci', onClick: onSignOut }, icon('logout', 18)),
-  );
+  const userBox = h('div', { class: 'user-box' }, avatar(state.user.id, 30), h('span', { class: 'user-name' }, state.me?.display_name || ''));
 
   mount(
     root,
@@ -144,7 +207,7 @@ export function buildShell(root, { onSignOut }) {
       { class: 'app' },
       sidebar,
       backdrop,
-      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, mentionsButton(), notificationBell(), userButton), offline, outlet),
+      h('div', { class: 'main' }, h('header', { class: 'topbar' }, menuButton, globalSearch(), live, presence, mentionsButton(), notificationBell(), userBox), offline, outlet),
     ),
   );
 

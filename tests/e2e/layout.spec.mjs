@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
-const IDEA_TABS = ['roadmap', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'appunti', 'voti', 'commenti', 'storico'];
+const IDEA_TABS = ['roadmap', 'analisi', 'validazione', 'discussione', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'appunti', 'voti', 'commenti', 'storico'];
 
 const PAGES = [
   '#/',
@@ -20,9 +20,11 @@ const PAGES = [
   '#/generatore',
   '#/squadra',
   '#/guida',
+  '#/guida/concetti',
   '#/concetti',
   '#/storico',
   '#/cestino',
+  '#/membri',
   '#/team',
   '#/profilo',
 ];
