@@ -464,6 +464,42 @@ test('the start screen image is reduced in the browser, uploaded to the survey s
   }
 });
 
+test('the questionnaire exports to PDF as it is made: numbered questions and possible answers, no results', async () => {
+  await visit(`#/questionario/${S.open}/domande`);
+  const pageTitle = document.title;
+  let printed = null;
+  const savedPrint = window.print;
+  window.print = () => {
+    const root = document.getElementById('print-root');
+    printed = { active: document.body.classList.contains('print-note'), title: document.title, text: text(root), questions: [...root.querySelectorAll('.ps-q')].map(text), options: [...root.querySelectorAll('.ps-question')].map((q) => [...q.querySelectorAll('li')].map(text)) };
+  };
+  try {
+    byText(outlet, 'button', 'Esporta PDF').click();
+    await flush(5);
+  } finally {
+    window.print = savedPrint;
+  }
+  assert.ok(printed, 'il dialogo di stampa si apre');
+  assert.equal(printed.active, true);
+  assert.equal(printed.title, 'Questionario - Turni in corsia', 'il nome del file proposto');
+  assert.equal(printed.questions[0], '1. Che lavoro fai?');
+  assert.equal(printed.questions.length, QUESTIONS.length);
+  assert.deepEqual(printed.options[0], ['○ Infermiere', '○ Medico', '○ Altro:']);
+  assert.equal(printed.options[2].length, 5, 'una riga per ogni punto della scala');
+  assert.match(printed.text, /Questionario · 8 domande · circa \d+ minut/);
+  assert.match(printed.text, /Introduzione.*Siamo un gruppo di studenti/);
+  assert.match(printed.text, /Una risposta/);
+  assert.match(printed.text, /Numero intero, almeno 0/);
+  assert.match(printed.text, /☐ Potete ricontattarmi per una breve chiacchierata/);
+  assert.match(printed.text, /Messaggio finale.*Grazie!/);
+  assert.match(printed.text, /Informativa sulla privacy.*Informativa breve\./);
+  assert.doesNotMatch(printed.text, /Risposte complete|%/, 'niente risultati');
+  window.dispatchEvent(new window.Event('afterprint'));
+  assert.equal(document.getElementById('print-root'), null);
+  assert.equal(document.body.classList.contains('print-note'), false);
+  assert.equal(document.title, pageTitle);
+});
+
 test('sharing: opening creates the link, the link is copied, closed and changed with a confirmation', async () => {
   await visit(`#/questionario/${S.draft}/condividi`);
   assert.match(text(outlet), /Il link si crea quando aprite il questionario/);

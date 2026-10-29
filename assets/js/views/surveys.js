@@ -10,6 +10,7 @@ import { navigate, setLeaveGuard } from '../router.js';
 import { estimateMinutes, minutesLabel } from '../public/survey-time.js';
 import { previewPage, questionWarnings, surveyWarnings } from '../survey-checks.js';
 import { surveyTemplate } from '../survey-template.js';
+import { printSurvey } from '../survey-print.js';
 import { saveWithMerge } from './merge.js';
 import { archiveWithConfirm } from './actions.js';
 import { conceptButton } from './concept-help.js';
@@ -354,6 +355,14 @@ export function surveyView(outlet, params) {
         title: item.title,
         subtitle: h('span', { class: 'row' }, statusPill('survey', item.status), metaLine(item), hereHost),
         actions: [
+          button('Esporta PDF', {
+            iconName: 'download',
+            title: 'Domande e risposte possibili, senza risultati',
+            onClick: () => {
+              if (panel?.session?.dirty) toast('Ci sono modifiche non salvate: il PDF mostra l\'ultima versione salvata.', { type: 'info' });
+              printSurvey(getItem(item.id) || item);
+            },
+          }),
           button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
           h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}/commenti`, title: 'Commenti su questo questionario' }, icon('comment', 16), h('span', null, comments ? `Commenti (${comments})` : 'Commenti')),
           writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(item, { backTo: idea ? `/idea/${idea.id}/questionari` : '/questionari' }) }) : null,

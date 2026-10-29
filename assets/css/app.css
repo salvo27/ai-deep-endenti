@@ -4309,6 +4309,91 @@ button.chat-quote {
   }
 }
 
+/* Questionario da salvare in PDF (survey-print.js): domande numerate e risposte possibili */
+.print-survey h2 {
+  margin: 1.4rem 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.print-survey .ps-section {
+  margin: 1.2rem 0 0.4rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.print-survey .ps-text {
+  white-space: pre-line;
+}
+
+/* Un titolo non resta mai in fondo alla pagina, staccato da ciò che segue. */
+.print-survey h2,
+.print-survey .ps-section {
+  break-after: avoid;
+}
+
+.ps-question {
+  margin: 0 0 1rem;
+  break-inside: avoid;
+}
+
+.ps-question p {
+  margin: 0 0 0.2rem;
+}
+
+.ps-q {
+  font-weight: 600;
+}
+
+.ps-kind {
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.ps-help {
+  font-style: italic;
+  color: #444;
+}
+
+.ps-muted {
+  color: #555;
+  font-weight: 400;
+}
+
+.ps-options {
+  margin: 0.25rem 0 0;
+  padding-left: 0.5rem;
+  list-style: none;
+}
+
+.ps-options li {
+  margin: 0.15rem 0;
+}
+
+.ps-fill {
+  display: inline-block;
+  min-width: 12rem;
+  border-bottom: 1px solid #999;
+  color: #777;
+  font-size: 0.85rem;
+}
+
+.ps-line {
+  width: 60%;
+  height: 1.5rem;
+  border-bottom: 1px solid #999;
+}
+
+.ps-box {
+  height: 5rem;
+  border: 1px solid #999;
+  border-radius: 4px;
+}
+
+.ps-consent {
+  margin-top: 0.4rem;
+}
+
 /* Questionari */
 
 .st-bozza {
