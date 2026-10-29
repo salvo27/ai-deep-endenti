@@ -176,7 +176,7 @@ test('mentions are grouped in one email per person after 10 minutes, then marked
   ];
   const { handle, sent, calls } = setup({ mentions: [...mentions, mention({ id: 5, user_id: DARIO, created_at: minutesAgo(MONDAY, 4) })] });
   const res = await handle(request());
-  assert.deepEqual(await res.json(), { job: 'mentions', configured: true, sent: 2, mentions: 4, skipped: 0, waiting: 1, failed: 0 });
+  assert.deepEqual(await res.json(), { job: 'mentions', configured: true, sent: 2, mentions: 4, skipped: 0, waiting: 1, failed: 0, statuses: [] });
   assert.deepEqual(calls.claimed, [[1, 2], [3, 4]], 'si segnano tutte quelle della persona, anche le più recenti');
 
   assert.equal(sent.length, 2);
@@ -243,10 +243,11 @@ test('a refused email releases its mentions; an uncertain one keeps them marked 
   const refused = setup({ mentions: [mention({ id: 1 }), mention({ id: 2, user_id: BRUNO })], brevoStatus: (n) => (n === 1 ? 400 : 201) });
   const r1 = await (await refused.handle(request())).json();
   assert.deepEqual([r1.sent, r1.failed], [1, 1]);
+  assert.deepEqual(r1.statuses, [400], 'il codice del rifiuto si legge nella risposta');
   assert.deepEqual(refused.calls.released, [[1]], 'rifiutata: si riprova al prossimo giro');
 
   const wrongKey = setup({ mentions: [mention({ id: 1 }), mention({ id: 2, user_id: BRUNO })], brevoStatus: () => 401 });
-  await wrongKey.handle(request());
+  assert.deepEqual((await (await wrongKey.handle(request())).json()).statuses, [401]);
   assert.equal(wrongKey.sent.length, 1, 'con la chiave sbagliata non si insiste');
   assert.deepEqual(wrongKey.calls.claimed, [[1]]);
   assert.deepEqual(wrongKey.logs.find((l) => l.event === 'notify_send_failed'), { event: 'notify_send_failed', job: 'mentions', status: 401, released: true });
@@ -259,6 +260,7 @@ test('a refused email releases its mentions; an uncertain one keeps them marked 
   const offline = setup({ mentions: [mention({ id: 1 })], deps: { fetch: async () => { throw new TypeError('fetch failed'); } } });
   const r4 = await (await offline.handle(request())).json();
   assert.equal(r4.failed, 1);
+  assert.deepEqual(r4.statuses, ['rete']);
   assert.deepEqual(offline.calls.released, []);
 });
 
@@ -408,7 +410,7 @@ test('logs carry only counts, never names, emails or content', async () => {
   for (const secretish of ['Anna', 'Bruno', 'Chiara', 'board.example', 'Generale', 'guarda i dati', 'Idea alfa', 'Responsabile', 'chiave-di-prova', ANNA]) {
     assert.ok(!logged.includes(secretish), `nei log compare ${secretish}`);
   }
-  assert.deepEqual(runs[0].logs, [{ event: 'notify_done', job: 'mentions', sent: 1, mentions: 1, skipped: 1, waiting: 0, failed: 0 }]);
+  assert.deepEqual(runs[0].logs, [{ event: 'notify_done', job: 'mentions', sent: 1, mentions: 1, skipped: 1, waiting: 0, failed: 0, statuses: [] }]);
 });
 
 test('dates follow the Italian calendar across daylight saving changes', () => {

@@ -189,6 +189,8 @@ async function deliver(ctx, person, message, release) {
     const notSent = error instanceof SendError && error.notSent;
     if (notSent) await release().catch(() => ctx.log('notify_release_failed', { job: ctx.job }));
     ctx.log('notify_send_failed', { job: ctx.job, status, released: notSent });
+    // Il codice del rifiuto finisce anche nella risposta, che il database conserva: si legge senza aprire i log.
+    if (!ctx.statuses.includes(status ?? 'rete')) ctx.statuses.push(status ?? 'rete');
     return !notSent || [401, 403, 429].includes(status) ? 'stop' : 'failed';
   }
 }
@@ -205,7 +207,7 @@ async function runMentions(ctx) {
     groups.get(row.user_id).push(row);
   }
 
-  const result = { sent: 0, mentions: 0, skipped: 0, waiting: 0, failed: 0 };
+  const result = { sent: 0, mentions: 0, skipped: 0, waiting: 0, failed: 0, statuses: ctx.statuses };
   for (const [userId, list] of groups) {
     // Si scrive solo se almeno una menzione aspetta da 10 minuti; allora partono tutte quelle non lette.
     if (!list.some((m) => now.getTime() - Date.parse(m.created_at) >= MENTION_DELAY_MS)) {
@@ -254,7 +256,7 @@ async function runWeekly(ctx, { manual = false } = {}) {
   const { deps, siteUrl } = ctx;
   const { people, today, weekStart, reportFor } = await loadWeek(ctx);
   const key = manual ? today : weekStart;
-  const result = { sent: 0, empty: 0, optedOut: 0, already: 0, failed: 0 };
+  const result = { sent: 0, empty: 0, optedOut: 0, already: 0, failed: 0, statuses: ctx.statuses };
   for (const person of people) {
     if (!person.weekly) {
       result.optedOut += 1;
@@ -309,6 +311,7 @@ export function createHandler(deps) {
     deps,
     log,
     now: clock(),
+    statuses: [],
     siteUrl: config.siteUrl,
     send: (person, message) => sendWithBrevo(deps.fetch, config.brevo, person, message),
   });
@@ -334,7 +337,7 @@ export function createHandler(deps) {
     try {
       const ctx = context(job, config);
       const result = job === 'weekly-preview' ? await previewWeekly(ctx, caller.userId) : await runWeekly(ctx, { manual: true });
-      if (job === 'weekly-now') log('notify_done', { job, sent: result.sent, empty: result.empty, optedOut: result.optedOut, already: result.already, failed: result.failed });
+      if (job === 'weekly-now') log('notify_done', { job, sent: result.sent, empty: result.empty, optedOut: result.optedOut, already: result.already, failed: result.failed, statuses: result.statuses });
       return json(200, { job, configured: !config.missing.length, ...result }, cors);
     } catch (error) {
       log('notify_failed', { job, kind: error?.name || 'Error' });
