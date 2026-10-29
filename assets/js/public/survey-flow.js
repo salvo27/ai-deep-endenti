@@ -316,6 +316,14 @@ export const storageKey = (token) => `questionario:${token}`;
 export const sentKey = (token) => `questionario:${token}:inviato`;
 // Segno della scheda aperta: dopo un ricaricamento si riprende subito, a una nuova visita si saluta prima.
 export const tabKey = (token) => `questionario:${token}:scheda`;
+// Quando il dispositivo ha aperto il link: le aperture si contano una volta per dispositivo, non a ogni ricaricamento.
+export const seenKey = (token) => `questionario:${token}:visto`;
+
+// Vero se il dispositivo ha già aperto il link negli ultimi 30 giorni.
+export function seenRecently(raw, now = Date.now()) {
+  const at = Number(raw);
+  return Number.isFinite(at) && at > 0 && at <= now && now - at < KEEP_DAYS * 86_400_000;
+}
 export const KEEP_DAYS = 30;
 
 // Domande senza una risposta valida, nell'ordine del questionario.

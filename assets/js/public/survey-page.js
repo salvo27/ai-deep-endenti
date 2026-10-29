@@ -18,6 +18,8 @@ import {
   progressFor,
   readStored,
   screenOf,
+  seenKey,
+  seenRecently,
   selectedChoices,
   sentKey,
   storageKey,
@@ -121,6 +123,8 @@ const storage = {
   },
   inThisTab: () => safe(() => sessionStorage.getItem(tabKey(state.token)) === '1', false),
   markSent: () => safe(() => localStorage.setItem(sentKey(state.token), new Date().toISOString().slice(0, 10))),
+  seen: () => seenRecently(safe(() => localStorage.getItem(seenKey(state.token)))),
+  markSeen: () => safe(() => localStorage.setItem(seenKey(state.token), String(Date.now()))),
   sentOn: () => safe(() => localStorage.getItem(sentKey(state.token))),
 };
 
@@ -795,7 +799,11 @@ async function load() {
     else showWelcomeBack();
     return;
   }
-  recordSurveyEvent(state.token, 'view');
+  // Una visita per dispositivo: chi ricarica o riapre il link da un'altra app dello stesso telefono non conta di nuovo.
+  if (!storage.seen()) {
+    recordSurveyEvent(state.token, 'view');
+    storage.markSeen();
+  }
   showIntro();
 }
 

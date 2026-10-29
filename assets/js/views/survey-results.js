@@ -50,7 +50,7 @@ function funnelCard(funnel) {
       'p',
       { class: 'small' },
       h('strong', null, `Completamento: ${fmtShare(funnel.completionRate)}`),
-      ` (${funnel.steps[3].count} completati su ${funnel.starts} iniziati). Le percentuali sono sul numero più alto tra visite e inizi.`,
+      ` (${funnel.steps[3].count} completati su ${funnel.starts} iniziati). Le percentuali sono sul numero più alto tra visite e inizi. Le visite si contano una volta per dispositivo.`,
     ),
   );
 }

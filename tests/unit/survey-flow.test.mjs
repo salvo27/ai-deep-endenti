@@ -22,6 +22,8 @@ import {
   parseInteger,
   progressFor,
   readStored,
+  seenKey,
+  seenRecently,
   sentKey,
   tabKey,
   unanswered,
@@ -421,4 +423,13 @@ test('the free text option can be renamed and keeps «Altro» as its default nam
   assert.equal(otherMessage(q), 'Scrivi la tua risposta accanto a «Un software o un\'app», per favore.');
   assert.equal(byId('dove').other_label, 'Altro');
   assert.equal(otherMessage(byId('dove')), MESSAGES.other);
+});
+
+test('a device that opened the link counts as one visit for 30 days', () => {
+  const day = 86_400_000;
+  const now = 100 * day;
+  assert.equal(seenKey('Qx7pL2mN9vR4tY6wZ1bC3d'), 'questionario:Qx7pL2mN9vR4tY6wZ1bC3d:visto');
+  assert.equal(seenRecently(String(now - 29 * day), now), true);
+  assert.equal(seenRecently(String(now - 31 * day), now), false, 'dopo 30 giorni è una nuova visita');
+  for (const bad of [null, '', 'ieri', '0', String(now + day)]) assert.equal(seenRecently(bad, now), false, String(bad));
 });

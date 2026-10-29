@@ -10,7 +10,7 @@ export const PRIVACY_TEMPLATE = [
   'Perché: capire come le persone [affrontano il problema] per il nostro progetto. Non vendiamo nulla e non usiamo le risposte per pubblicità.',
   'Quali dati: solo le risposte che scegli di dare. Non salviamo nome, indirizzo IP o posizione. L\'email è facoltativa e serve solo a ricontattarti, se lo chiedi.',
   'Anonimato: le risposte senza email sono anonime e i risultati si mostrano solo tutti insieme.',
-  'Sul tuo dispositivo: il browser tiene le risposte in corso per 30 giorni, così puoi riprendere da dove eri, e dopo l\'invio solo la data, così non ti chiediamo di rispondere due volte. Niente cookie né strumenti di analisi.',
+  'Sul tuo dispositivo: per 30 giorni il browser ricorda quando hai aperto il link e le risposte in corso, per farti riprendere; dopo l\'invio, solo la data. Niente cookie né analisi.',
   'Per quanto tempo: teniamo le risposte fino a [data, per esempio la fine del progetto], poi le cancelliamo. L\'email la cancelliamo dopo il contatto o quando ce lo chiedi.',
   'I tuoi diritti: puoi chiedere di vedere, correggere o cancellare i tuoi dati scrivendo a [email di contatto], e puoi rivolgerti al Garante per la protezione dei dati personali.',
   'Rispondere è volontario e puoi fermarti quando vuoi.',

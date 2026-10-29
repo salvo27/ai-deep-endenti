@@ -223,7 +223,10 @@ test('invio finale con tutte le risposte, durata e dispositivo, poi il grazie; n
   expect(saves.slice(0, -1).every((s) => s.p_meta.final === false && !('duration_seconds' in s.p_meta))).toBe(true);
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
   const kept = await page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])));
-  expect(kept, 'sul dispositivo resta solo la data dell\'invio, senza risposte').toEqual({ [`questionario:${TOKEN}:inviato`]: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+  expect(kept, 'sul dispositivo restano solo la data dell\'invio e il momento della prima apertura, senza risposte').toEqual({
+    [`questionario:${TOKEN}:inviato`]: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    [`questionario:${TOKEN}:visto`]: expect.stringMatching(/^\d{13}$/),
+  });
   const origin = new URL(baseURL).origin;
   expect(requests.filter((url) => new URL(url).origin !== origin)).toEqual([]);
   expect(await page.evaluate(() => window.__csp), 'la pagina rispetta la stessa policy di q.html').toEqual([]);
@@ -480,6 +483,19 @@ test('la voce con il campo di testo può avere un nome suo e un esempio nel camp
   await page.getByRole('button', { name: 'Invia' }).click();
   await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
   expect((await rpc(page, 'submit_survey')).at(-1).p_answers).toEqual({ 'dove:altro': 'Nutrium' });
+});
+
+test('le visite si contano una volta per dispositivo: ricaricare o riaprire il link non ne aggiunge', async ({ page }) => {
+  await open(page);
+  expect(await rpc(page, 'survey_event')).toEqual([{ p_token: TOKEN, p_kind: 'view' }]);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Inizia' })).toBeVisible();
+  expect(await rpc(page, 'survey_event'), 'ricaricando').toEqual([]);
+  const again = await page.context().newPage();
+  await open(again);
+  expect(await rpc(again, 'survey_event'), 'riaprendo il link').toEqual([]);
+  await again.getByRole('button', { name: 'Inizia' }).click();
+  expect((await rpc(again, 'survey_event')).map((e) => e.p_kind), 'l\'inizio conta sempre').toEqual(['start']);
 });
 
 test('chi ha già inviato, riaprendo il link, vede «Hai già risposto» e non può ricominciare', async ({ page }) => {
