@@ -90,7 +90,7 @@ test('survey warnings count roles, open and required questions, duration, intro,
     questions: [
       ...many(11, { role: 'problema', type: 'scelta', options: [{ id: 'a', label: 'Sì' }] }),
       ...many(4, { role: 'persona', type: 'numero' }),
-      ...many(3, { role: 'altro', type: 'lunga', required: true, help: 'parola '.repeat(60) }),
+      ...many(3, { role: 'altro', type: 'lunga', required: true, help: 'parola '.repeat(200) }),
     ],
   };
   const found = codes(surveyWarnings(data));

@@ -1,5 +1,5 @@
 import { PREFER_NOT } from './survey-api.js';
-import { PRIVACY_WORDS_READ, minutesLabel } from './survey-time.js';
+import { minutesLabel } from './survey-time.js';
 import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';
 
 export { accentTokens, contrastRatio, contrastText };
@@ -139,22 +139,6 @@ export function progressFor(screens, index) {
   const last = first + (screens[index]?.questions.length ?? 1) - 1;
   const text = first === last ? `Domanda ${first} di ${total}` : `Domande ${first}-${last} di ${total}`;
   return { first, last, total, ratio: total ? last / total : 0, text };
-}
-
-// Privacy ridotta alle prime parole (le stesse contate nel tempo stimato); il resto si apre a richiesta.
-export function condense(text, maxWords = PRIVACY_WORDS_READ) {
-  const source = str(text).trim();
-  const words = /\S+/g;
-  let count = 0;
-  let match;
-  while ((match = words.exec(source))) {
-    count += 1;
-    if (count === maxWords) {
-      const end = match.index + match[0].length;
-      return end < source.length ? { text: `${source.slice(0, end)}…`, truncated: true } : { text: source, truncated: false };
-    }
-  }
-  return { text: source, truncated: false };
 }
 
 export const durationText = (minutes) => `${minutes === 1 ? 'Ci vorrà' : 'Ci vorranno'} ${minutesLabel(minutes)}.`;

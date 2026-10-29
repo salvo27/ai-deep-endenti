@@ -208,6 +208,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* clip taglia gli angoli come hidden ma non blocca «Inizia» agganciato in basso */
+  overflow: clip;
   background: var(--surface);
   border: var(--line) solid var(--card-border);
   border-radius: 24px;
@@ -229,7 +231,7 @@ body {
 .band-cover {
   display: grid;
   place-items: center;
-  height: 280px;
+  height: 240px;
   padding: 0;
   overflow: hidden;
   background: var(--accent-tint);
@@ -237,7 +239,7 @@ body {
 }
 
 .band-cover.is-empty {
-  height: 160px;
+  height: 130px;
 }
 
 .band-cover img {
@@ -314,15 +316,29 @@ h2 {
   line-height: 1.55;
 }
 
-.hello {
-  display: inline-block;
-  margin: 0 0 12px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--accent-tint);
-  color: var(--accent-text);
-  font-size: 0.88rem;
-  font-weight: 600;
+/* Introduzione e ritorno: titolo e testo più piccoli, così «Inizia» resta in vista. */
+[data-mode='intro'] .title,
+[data-mode='ritorno'] .title {
+  margin-bottom: 10px;
+  font-size: 1.5rem;
+}
+
+[data-mode='intro'] .text,
+[data-mode='ritorno'] .text {
+  margin-bottom: 0;
+  font-size: 0.95rem;
+}
+
+/* «Inizia» non esce mai dallo schermo: resta in basso finché il testo sopra scorre. Qui non ci sono risposte
+   né tastiera da coprire; sotto c'è solo l'informativa, che quando si scorre fin lì lo lascia al suo posto. */
+[data-mode='intro'] .nav,
+[data-mode='ritorno'] .nav {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 20px;
+  padding: 16px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--surface) 14px);
 }
 
 [data-mode='done'] .sheet {
@@ -337,11 +353,11 @@ h2 {
 .facts {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 20px 0 0;
-  padding: 14px 16px;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 12px 14px;
   border: 1px solid var(--hairline);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--row);
   list-style: none;
 }
@@ -350,8 +366,8 @@ h2 {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  font-size: 0.95rem;
-  line-height: 1.45;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .fact-icon {
@@ -400,19 +416,18 @@ h2 {
 
 .privacy {
   margin: 0;
-  padding-top: 16px;
-  border-top: 1px solid var(--hairline);
   font-size: 0.94rem;
   color: var(--text-2);
 }
 
-.privacy-title {
-  font-size: 1rem;
-  color: var(--text);
+.privacy-toggle {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-2);
 }
 
 .privacy-text {
-  margin-bottom: 4px;
+  margin: 4px 0 0;
 }
 
 .link-btn {
@@ -765,7 +780,7 @@ h2.q-title {
 }
 
 .after {
-  margin-top: 24px;
+  margin-top: 8px;
 }
 
 .after:empty {
@@ -856,8 +871,13 @@ h2.q-title {
     font-size: 2.5rem;
   }
 
+  [data-mode='intro'] .title,
+  [data-mode='ritorno'] .title {
+    font-size: 1.9rem;
+  }
+
   .band-cover.is-empty {
-    height: 180px;
+    height: 140px;
   }
 }
 
@@ -881,12 +901,12 @@ h2.q-title {
   }
 
   .band-cover {
-    height: 220px;
+    height: 170px;
     padding: 0;
   }
 
   .band-cover.is-empty {
-    height: 140px;
+    height: 104px;
   }
 
   .sheet {
@@ -897,8 +917,13 @@ h2.q-title {
     font-size: 1.8rem;
   }
 
-  .nav {
+  .nav,
+  [data-mode='intro'] .nav,
+  [data-mode='ritorno'] .nav {
     margin-top: auto;
+  }
+
+  .nav {
     padding-top: 32px;
   }
 

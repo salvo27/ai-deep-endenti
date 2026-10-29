@@ -34,7 +34,7 @@ const counter = (page) => page.locator('.progress-text');
 const rpc = (page, name) => page.evaluate((n) => window.__fakeSupabase.calls.filter((c) => c[0] === 'rpc' && c[1] === n).map((c) => c[2]), name);
 const withQuestions = (ids, extra = {}) => ({ ...SURVEY, ...extra, questions: SURVEY.questions.filter((q) => ids.includes(q.id)) });
 
-test('l\'introduzione mostra durata, email facoltativa e privacy riassunta che si apre sul posto', async ({ page }) => {
+test('l\'introduzione mostra durata ed email facoltativa, con l\'informativa chiusa che si apre sul posto', async ({ page }) => {
   await open(page);
   await expect(page.getByRole('heading', { level: 1, name: SURVEY.title })).toBeVisible();
   await expect(page.getByText('Non vendiamo nulla.')).toBeVisible();
@@ -42,12 +42,16 @@ test('l\'introduzione mostra durata, email facoltativa e privacy riassunta che s
   await expect(page.locator('.facts')).toContainText(`Ci vorranno circa ${minutes} minuti.`);
   await expect(page.locator('.facts')).toContainText('Alla fine, se vuoi, potrai lasciarci la tua email.');
   const privacy = page.locator('.privacy-text');
-  await expect(privacy).not.toContainText('Fine dell\'informativa.');
-  const more = page.getByRole('button', { name: 'Leggi tutto' });
+  await expect(privacy).toBeHidden();
+  const more = page.getByRole('button', { name: 'Leggi l\'informativa sulla privacy' });
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await more.click();
+  await expect(privacy).toBeVisible();
+  await expect(privacy).toContainText('Frase 1 dell\'informativa di prova.');
   await expect(privacy).toContainText('Fine dell\'informativa.');
-  await expect(page.getByRole('button', { name: 'Mostra meno' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await more.click();
+  await expect(privacy).toBeHidden();
   await expect(page.getByRole('checkbox')).toHaveCount(0);
   expect(await rpc(page, 'survey_event')).toEqual([{ p_token: TOKEN, p_kind: 'view' }]);
   await page.getByRole('button', { name: 'Inizia' }).click();
@@ -376,7 +380,7 @@ test('copertina: l\'immagine del questionario con la sua descrizione, e la fasci
   const picture = readFileSync(new URL('../../assets/img/anteprima-indaco.png', import.meta.url));
   await page.route(coverRoute, (route) => route.fulfill({ status: 200, contentType: 'image/jpeg', body: picture }));
   await open(page, { survey: { ...SURVEY, cover: { path: COVER, alt: 'Il nostro gruppo davanti all\'università' } } });
-  await expect(page.getByText('Ciao!')).toBeVisible();
+  await expect(page.getByText('Ciao!')).toHaveCount(0);
   const image = page.getByRole('img', { name: 'Il nostro gruppo davanti all\'università' });
   await expect(image).toHaveAttribute('src', `https://ixhnqeabctkpflwkdarj.supabase.co/storage/v1/object/public/questionari-immagini/${COVER}`);
   await expect.poll(() => image.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
@@ -392,6 +396,22 @@ test('copertina: l\'immagine del questionario con la sua descrizione, e la fasci
   await open(plain);
   await expect(plain.locator('.band-cover.is-empty .cover-icon')).toBeVisible();
   await expect(plain.getByRole('button', { name: 'Inizia' })).toBeVisible();
+});
+
+test('sul telefono «Inizia» resta sempre visibile, anche con un\'introduzione lunga e l\'immagine', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'telefono', 'solo sul telefono');
+  await page.setViewportSize({ width: 360, height: 640 });
+  const long = Array.from({ length: 12 }, (_, i) => `Frase ${i + 1} di un\'introduzione lunga, scritta per vedere se il pulsante resta in vista.`).join(' ');
+  await page.route(coverRoute, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: readFileSync(new URL('../../assets/img/anteprima-indaco.png', import.meta.url)) }));
+  await open(page, { survey: { ...SURVEY, intro: long, cover: { path: COVER, alt: 'Foto' } } });
+  const begin = page.getByRole('button', { name: 'Inizia' });
+  const inView = async () => {
+    const box = await begin.boundingBox();
+    return box.y >= 0 && box.y + box.height <= page.viewportSize().height;
+  };
+  expect(await inView(), 'Inizia visibile all\'apertura').toBe(true);
+  await page.mouse.wheel(0, 200);
+  expect(await inView(), 'Inizia visibile mentre si legge').toBe(true);
 });
 
 test('chi ha già inviato, riaprendo il link, vede «Hai già risposto» e non può ricominciare', async ({ page }) => {
@@ -412,7 +432,6 @@ test('tornando dopo aver chiuso la pagina c\'è un saluto con le domande che man
   await page.getByLabel('Che lavoro fai?').fill('Cuoca');
   const later = await page.context().newPage();
   await open(later);
-  await expect(later.getByText('Rieccoci!')).toBeVisible();
   await expect(later.getByText('Ti mancano 5 domande su 7: le risposte che avevi dato sono ancora qui, riprendi da dove eri.')).toBeVisible();
   expect(await rpc(later, 'survey_event')).toEqual([]);
   await later.getByRole('button', { name: 'Riprendi' }).click();
@@ -531,7 +550,7 @@ test('sul telefono a 360 px niente scorre in orizzontale, ogni riga si tocca ben
     expect(small, `${where}: elementi troppo piccoli da toccare`).toEqual([]);
   };
   await check('introduzione');
-  await page.getByRole('button', { name: 'Leggi tutto' }).click();
+  await page.getByRole('button', { name: 'Leggi l\'informativa sulla privacy' }).click();
   await check('privacy aperta');
   await page.getByRole('button', { name: 'Inizia' }).click();
   for (let i = 1; i <= 7; i += 1) {

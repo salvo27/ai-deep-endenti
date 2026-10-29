@@ -8,7 +8,6 @@ import {
   buildMeta,
   buildScreens,
   collectAnswers,
-  condense,
   durationText,
   emailQuestion,
   firstInvalidScreen,
@@ -46,7 +45,6 @@ const ICONS = {
   clock: [CIRCLE, 'M12 7v5l3 2'],
   mail: ['M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 'M3 7l9 6 9-6'],
   saved: [CIRCLE, 'M8.5 12.5l2.5 2.5 4.5-5'],
-  lock: ['M5 13a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z', 'M8 11V8a4 4 0 1 1 8 0v3'],
   back: ['M19 12H5', 'M11 6l-6 6 6 6'],
   hello: ['M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M12 14l-2.6-2.5a1.6 1.6 0 0 1 2.6-2a1.6 1.6 0 0 1 2.6 2z'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
@@ -197,21 +195,16 @@ const showNotFound = () =>
 
 const showClosed = () => showMessage('Questionario chiuso', 'Questo questionario non accetta più risposte. Grazie comunque per il tuo interesse.');
 
+// Informativa a due livelli: chiusa sotto «Inizia», si apre sul posto con un tocco.
 function privacyBlock(text) {
-  const short = condense(text);
-  const body = h('p', { class: 'privacy-text', id: 'privacy-testo' }, short.text);
-  const nodes = [h('h2', { class: 'privacy-title', id: 'privacy-titolo' }, 'Informativa sulla privacy'), body];
-  if (short.truncated) {
-    const toggle = h('button', { type: 'button', class: 'link-btn', 'aria-expanded': 'false', 'aria-controls': body.id }, 'Leggi tutto');
-    toggle.addEventListener('click', () => {
-      const open = toggle.getAttribute('aria-expanded') !== 'true';
-      body.textContent = open ? text : short.text;
-      toggle.setAttribute('aria-expanded', String(open));
-      toggle.textContent = open ? 'Mostra meno' : 'Leggi tutto';
-    });
-    nodes.push(toggle);
-  }
-  return h('section', { class: 'privacy', 'aria-labelledby': 'privacy-titolo' }, nodes);
+  const body = h('p', { class: 'privacy-text', id: 'privacy-testo', hidden: true }, text);
+  const toggle = h('button', { type: 'button', class: 'link-btn privacy-toggle', 'aria-expanded': 'false', 'aria-controls': body.id }, 'Leggi l\'informativa sulla privacy');
+  toggle.addEventListener('click', () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    body.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  return h('section', { class: 'privacy', 'aria-label': 'Informativa sulla privacy' }, toggle, body);
 }
 
 // Copertina: l'immagine scelta dal team o, senza immagine (o se non si carica), una fascia leggera con un'icona.
@@ -236,10 +229,8 @@ function showIntro() {
   const email = emailQuestion(survey);
   if (email) facts.push(['mail', email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.']);
   facts.push(['saved', 'Le risposte si salvano a ogni passaggio: se ti fermi, riprendi da dove eri.']);
-  if (survey.privacy) facts.push(['lock', 'Trovi l\'informativa sulla privacy qui sotto.']);
   mount(
     [
-      h('p', { class: 'hello' }, 'Ciao!'),
       h('h1', { class: 'title' }, survey.title),
       survey.intro ? h('p', { class: 'text' }, survey.intro) : null,
       h('ul', { class: 'facts' }, facts.map(([name, fact]) => h('li', {}, h('span', { class: 'fact-icon' }, icon(name, 18)), h('span', {}, fact)))),
@@ -261,7 +252,6 @@ function showWelcomeBack() {
   const left = missing === 1 ? 'Ti manca una domanda' : `Ti mancano ${missing} domande`;
   mount(
     [
-      h('p', { class: 'hello' }, 'Rieccoci!'),
       h('h1', { class: 'title' }, survey.title),
       h('p', { class: 'text' }, `${left} su ${asked}: le risposte che avevi dato sono ancora qui, riprendi da dove eri.`),
     ],

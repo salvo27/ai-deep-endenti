@@ -13,16 +13,17 @@ const survey = {
   ],
 };
 
-test('the estimate reads words at 3.3 per second, adds time per question type and a phone margin', () => {
-  const words = 8 + 150 + 2 + (4 + 3 + 3) + (3 + 1 + 1) + 6;
+test('the estimate reads intro and questions at 4 words per second, adds time per question type and a small phone margin', () => {
+  const words = 8 + 2 + (4 + 3 + 3) + (3 + 1 + 1) + 6;
   const answering = ANSWER_SECONDS.sezione + ANSWER_SECONDS.scelta + ANSWER_SECONDS.scala + ANSWER_SECONDS.lunga;
   assert.equal(countWords('  due   parole '), 2);
-  assert.equal(estimateSeconds(survey), Math.round(1.4 * (words / 3.3 + answering)), 'della privacy contano solo le prime 150 parole');
-  assert.equal(estimateMinutes(survey), Math.ceil(estimateSeconds(survey) / 60));
+  assert.equal(estimateSeconds(survey), Math.round(1.1 * (words / 4 + answering)), 'l\'informativa, chiusa, non conta');
+  assert.equal(estimateMinutes(survey), Math.max(1, Math.round(estimateSeconds(survey) / 60)));
 });
 
 test('the observed median wins when it is known, and minutes never go below one', () => {
-  assert.equal(estimateMinutes(survey, 301), 6, 'arrotondato per eccesso');
+  assert.equal(estimateMinutes(survey, 301), 5, 'al minuto più vicino');
+  assert.equal(estimateMinutes(survey, 331), 6);
   assert.equal(estimateMinutes({ questions: [] }), 1);
   assert.equal(estimateMinutes(survey, null), estimateMinutes(survey));
   assert.equal(minutesLabel(1), 'circa 1 minuto');

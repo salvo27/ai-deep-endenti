@@ -11,7 +11,6 @@ import {
   buildMeta,
   buildScreens,
   collectAnswers,
-  condense,
   contrastRatio,
   contrastText,
   durationText,
@@ -272,21 +271,6 @@ test('text on the accent colour is black or white, whichever contrasts more', ()
     assert.ok(contrastRatio(color, chosen) >= contrastRatio(color, other), color);
     assert.ok(contrastRatio(color, chosen) >= 4.5, `${color}: almeno 4,5:1`);
   }
-});
-
-test('the privacy notice is condensed to its first 150 words and the full text stays available', () => {
-  const short = 'Chi siamo.\nCosa raccogliamo.';
-  assert.deepEqual(condense(short), { text: short, truncated: false });
-  const words = Array.from({ length: 150 }, (_, i) => `p${i + 1}`).join(' ');
-  assert.deepEqual(condense(words), { text: words, truncated: false });
-  const long = `${words}\nAltre parole in fondo.`;
-  const result = condense(long);
-  assert.equal(result.truncated, true);
-  assert.equal(result.text, `${words}…`);
-  assert.equal(condense('uno due tre', 2).text, 'uno due…');
-  assert.deepEqual(condense(null), { text: '', truncated: false });
-  assert.equal(durationText(1), 'Ci vorrà circa 1 minuto.');
-  assert.equal(durationText(4), 'Ci vorranno circa 4 minuti.');
 });
 
 test('meta carries the session and the trap field; recontact only with an email, duration and device only at the end', () => {
