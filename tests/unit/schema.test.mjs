@@ -224,6 +224,14 @@ test('the survey cover is only a JPEG of the survey images space and a one-line 
     assert.equal(cover(bad), undefined, JSON.stringify(bad));
   }
   assert.equal(formatValue('survey', 'data.cover.path', path), 'immagine caricata');
+  const thanks = sanitizeSnapshot('survey', { data: { thanks_image: { path, alt: 'A presto' }, thanks_contact: '  Ti scriviamo noi.  ' } }).data;
+  assert.deepEqual(thanks.thanks_image, { path, alt: 'A presto' });
+  assert.equal(thanks.thanks_contact, 'Ti scriviamo noi.');
+  assert.equal(sanitizeSnapshot('survey', { data: { thanks_image: { path: 'x.png' } } }).data.thanks_image, undefined);
+  const question = (over) => sanitizeSnapshot('survey', { data: { questions: [{ id: 'q', type: 'scelta', label: 'Con cosa?', options: [{ id: 'a', label: 'Word' }], ...over }] } }).data.questions[0];
+  const renamed = question({ allow_other: true, other_label: ' Un software o un\'app ', other_placeholder: 'Quale?\nScrivi il nome' });
+  assert.deepEqual([renamed.other_label, renamed.other_placeholder], ['Un software o un\'app', 'Quale? Scrivi il nome']);
+  assert.equal(question({ allow_other: false, other_label: 'Software' }).other_label, undefined, 'senza «Altro» il nome non serve');
 });
 
 test('survey questions are validated by type, with unique ids and one email question at most', () => {

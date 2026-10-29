@@ -16,8 +16,13 @@ export const PRIVACY_TEMPLATE = [
   'Rispondere è volontario e puoi fermarti quando vuoi.',
 ].join('\n');
 
+// Per chi lascia l'email e chiede di essere ricontattato; la pagina aggiunge sotto l'indirizzo che ha scritto.
+export const THANKS_CONTACT_TEMPLATE =
+  'Grazie! Ti scriviamo nei prossimi giorni per fissare una chiacchierata di 20 minuti, quando ti è comodo. Se cambi idea, basta risponderci «no grazie».';
+
+// Per tutti gli altri: grazie e una porta aperta, senza insistere.
 export const THANKS_TEMPLATE =
-  'Grazie per il tuo tempo! Le tue risposte ci aiutano a capire meglio il problema. Se hai lasciato l\'email, ti scriveremo solo per proporti una breve chiacchierata.';
+  'Grazie per il tuo tempo! Le tue risposte ci aiutano a capire meglio il problema. Se più avanti ti va di raccontarci la tua esperienza, scrivici a [email di contatto].';
 
 // Etichette per ogni punto: specifiche della domanda, mai «d'accordo / in disaccordo» (Saris e altri 2010).
 export const SCALE_PRESETS = [
@@ -62,6 +67,8 @@ export function convertQuestion(q, type) {
   if (type === 'scelta' || type === 'scelte') {
     next.options = q.options?.length ? q.options.map((o) => ({ ...o })) : [option('Prima opzione'), option('Seconda opzione')];
     next.allow_other = q.allow_other === true;
+    if (q.other_label) next.other_label = q.other_label;
+    if (q.other_placeholder) next.other_placeholder = q.other_placeholder;
     next.prefer_not = q.prefer_not === true;
   }
   if (type === 'scala') next.scale = q.scale ? structuredClone(q.scale) : scaleFromLabels(presetLabels('frequenza', 5));
@@ -81,6 +88,7 @@ export function surveyTemplate() {
     intro: INTRO_TEMPLATE,
     privacy: PRIVACY_TEMPLATE,
     thanks: THANKS_TEMPLATE,
+    thanks_contact: THANKS_CONTACT_TEMPLATE,
     layout: 'una',
     progress: 'contatore',
     show_time: true,

@@ -37,6 +37,9 @@ export const MESSAGES = Object.freeze({
   empty: 'Rispondi ad almeno una domanda prima di inviare.',
 });
 
+// Il messaggio usa il nome della voce, se il team l'ha rinominata.
+export const otherMessage = (q) => (q.other_label && q.other_label !== 'Altro' ? `Scrivi la tua risposta accanto a «${q.other_label}», per favore.` : MESSAGES.other);
+
 export const tooLong = (max) => `Al massimo ${max} caratteri: accorcia un po' la risposta.`;
 
 const str = (value) => (typeof value === 'string' ? value : '');
@@ -68,6 +71,8 @@ function normalizeQuestion(q) {
       return ok;
     }).map((o) => ({ id: o.id, label: o.label.trim() }));
     out.allow_other = q.allow_other === true;
+    out.other_label = out.allow_other ? str(q.other_label).trim().slice(0, 120) || 'Altro' : '';
+    out.other_placeholder = out.allow_other ? str(q.other_placeholder).trim().slice(0, 120) : '';
     out.prefer_not = q.prefer_not === true;
     if (!out.options.length && !out.allow_other) return null;
   } else if (q.type === 'scala') {
@@ -83,6 +88,8 @@ function normalizeQuestion(q) {
   }
   return out;
 }
+
+const image = (raw) => (COVER_RE.test(str(raw?.path)) ? { path: raw.path, alt: str(raw.alt).trim().slice(0, 200) } : null);
 
 // Il questionario come arriva da public_survey, ripulito: valori sconosciuti diventano quelli predefiniti.
 export function normalizeSurvey(data) {
@@ -103,7 +110,9 @@ export function normalizeSurvey(data) {
     progress: PROGRESS.has(data?.progress) ? data.progress : 'contatore',
     show_time: data?.show_time !== false,
     median_seconds: Number.isFinite(data?.median_seconds) && data.median_seconds > 0 ? data.median_seconds : null,
-    cover: COVER_RE.test(str(data?.cover?.path)) ? { path: data.cover.path, alt: str(data.cover.alt).trim().slice(0, 200) } : null,
+    cover: image(data?.cover),
+    thanks_image: image(data?.thanks_image),
+    thanks_contact: str(data?.thanks_contact).trim(),
     appearance: { theme: THEMES.has(theme) ? theme : 'automatico', accent, onAccent: contrastText(accent) },
     questions,
   };
@@ -205,7 +214,7 @@ export function validateQuestion(q, draft = {}, { recontact = false } = {}) {
       const chosenOther = q.allow_other && value === OTHER;
       const error = otherError(q, draft, chosenOther);
       if (error) return error;
-      if (chosenOther) return q.required && !cleanText(draft[otherKey(q.id)]) ? MESSAGES.other : null;
+      if (chosenOther) return q.required && !cleanText(draft[otherKey(q.id)]) ? otherMessage(q) : null;
       return q.required && !isOption(q, value) ? MESSAGES.required : null;
     }
     case 'scelte': {
@@ -215,7 +224,7 @@ export function validateQuestion(q, draft = {}, { recontact = false } = {}) {
       if (error) return error;
       const answered = list.some((v) => v !== OTHER) || (chosenOther && cleanText(draft[otherKey(q.id)]));
       if (!q.required || answered) return null;
-      return chosenOther ? MESSAGES.other : MESSAGES.required;
+      return chosenOther ? otherMessage(q) : MESSAGES.required;
     }
     case 'scala':
       return q.required && !(Number.isInteger(value) && value >= 1 && value <= q.scale.points) ? MESSAGES.required : null;
@@ -335,4 +344,49 @@ export function readStored(raw, screenCount, now = Date.now()) {
     recontact: data.recontact === true,
     startedAt: Number.isFinite(data.startedAt) ? data.startedAt : null,
   };
+}
+
+// Domini più usati in Italia (e alcuni veri che somigliano a quelli): un indirizzo con un dominio quasi uguale
+// a uno di questi, come gmial.com o gmail.con, è quasi sempre un errore di battitura.
+const EMAIL_DOMAINS = [
+  'gmail.com', 'libero.it', 'hotmail.it', 'hotmail.com', 'outlook.it', 'outlook.com', 'live.it', 'live.com', 'yahoo.it', 'yahoo.com',
+  'icloud.com', 'me.com', 'alice.it', 'tiscali.it', 'virgilio.it', 'tin.it', 'tim.it', 'fastwebnet.it', 'email.it', 'inwind.it',
+  'pec.it', 'legalmail.it', 'mail.com', 'email.com', 'gmx.com', 'gmx.it', 'aol.com', 'protonmail.com', 'proton.me',
+];
+// Errori frequenti che le lettere da sole non prendono: gmail esiste solo come .com.
+const EMAIL_FIXES = { 'gmail.it': 'gmail.com', 'googlemail.it': 'gmail.com' };
+
+// Distanza tra due parole contando sostituzioni, aggiunte, tolte e due lettere scambiate.
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j += 1) d[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+// L'indirizzo corretto da proporre, oppure null: solo con un dominio vicino a uno noto e senza dubbi tra due.
+export function emailSuggestion(value) {
+  const text = cleanText(value);
+  const at = text.lastIndexOf('@');
+  if (at < 1 || !EMAIL_RE.test(text)) return null;
+  const domain = text.slice(at + 1).toLowerCase();
+  if (EMAIL_DOMAINS.includes(domain)) return null;
+  let best = EMAIL_FIXES[domain] || null;
+  if (!best) {
+    let bestDistance = 3;
+    let tie = false;
+    for (const known of EMAIL_DOMAINS) {
+      const distance = editDistance(domain, known);
+      if (distance < bestDistance) [best, bestDistance, tie] = [known, distance, false];
+      else if (distance === bestDistance) tie = true;
+    }
+    if (!best || tie || (bestDistance === 2 && domain.length < 8)) return null;
+  }
+  return `${text.slice(0, at)}@${best}`;
 }

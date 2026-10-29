@@ -336,13 +336,23 @@ begin
        end) then
       raise exception 'Aspetto del questionario non valido';
     end if;
-    -- Immagine della schermata iniziale: solo un file dello spazio «questionari-immagini» e la sua descrizione.
+    -- Immagini della schermata iniziale e del grazie: solo un file dello spazio «questionari-immagini» e la sua descrizione.
     if new.data ? 'cover' and (case
          when jsonb_typeof(new.data -> 'cover') = 'object' then
            jsonb_typeof(new.data -> 'cover' -> 'path') is distinct from 'string'
            or (new.data -> 'cover' ->> 'path') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
            or (new.data -> 'cover' ? 'alt' and (jsonb_typeof(new.data -> 'cover' -> 'alt') <> 'string' or char_length(new.data -> 'cover' ->> 'alt') > 200))
            or exists (select 1 from jsonb_object_keys(new.data -> 'cover') k where k not in ('path', 'alt'))
+         else true
+       end) then
+      raise exception 'Immagine del questionario non valida';
+    end if;
+    if new.data ? 'thanks_image' and (case
+         when jsonb_typeof(new.data -> 'thanks_image') = 'object' then
+           jsonb_typeof(new.data -> 'thanks_image' -> 'path') is distinct from 'string'
+           or (new.data -> 'thanks_image' ->> 'path') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+           or (new.data -> 'thanks_image' ? 'alt' and (jsonb_typeof(new.data -> 'thanks_image' -> 'alt') <> 'string' or char_length(new.data -> 'thanks_image' ->> 'alt') > 200))
+           or exists (select 1 from jsonb_object_keys(new.data -> 'thanks_image') k where k not in ('path', 'alt'))
          else true
        end) then
       raise exception 'Immagine del questionario non valida';
@@ -1074,7 +1084,7 @@ $$;
 -- Immagini dei questionari
 -- =========================================================================
 
--- Spazio pubblico per l'immagine della schermata iniziale: la vede chiunque abbia il link del questionario, senza account.
+-- Spazio pubblico per le immagini della schermata iniziale e del grazie: le vede chiunque abbia il link del questionario, senza account.
 -- Solo JPEG già ridotti nel browser, caricati e cancellati da chi può modificare; nessuna regola di lettura, così nessuno
 -- può elencare i file: si apre solo quello di cui si conosce il percorso.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -1111,7 +1121,7 @@ as $$
     and (case when p_paths is null then o.created_at < now() - interval '24 hours' else o.name = any (p_paths) end)
     and not exists (
       select 1 from public.items i
-      where i.kind = 'survey' and i.data -> 'cover' ->> 'path' = o.name
+      where i.kind = 'survey' and o.name in (i.data -> 'cover' ->> 'path', i.data -> 'thanks_image' ->> 'path')
     )
 $$;
 
@@ -1695,6 +1705,13 @@ begin
         'allow_other', v_other,
         'prefer_not', coalesce(v_q -> 'prefer_not' = 'true'::jsonb, false)
       );
+      -- La voce con il campo di testo può avere un nome suo e un esempio nel campo.
+      if v_other then
+        v_item := v_item || jsonb_build_object(
+          'other_label', coalesce(nullif(public.survey_text(v_q -> 'other_label', 120), ''), 'Altro'),
+          'other_placeholder', public.survey_text(v_q -> 'other_placeholder', 120)
+        );
+      end if;
     elsif v_type = 'scala' then
       v_points := case when v_q -> 'scale' -> 'points' = '7'::jsonb then 7 else 5 end;
       v_item := v_item || jsonb_build_object('scale', jsonb_build_object(
@@ -1819,6 +1836,11 @@ begin
       'path', s.data -> 'cover' ->> 'path',
       'alt', coalesce(left(s.data -> 'cover' ->> 'alt', 200), '')
     ) end,
+    'thanks_image', case when s.data -> 'thanks_image' ->> 'path' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$' then jsonb_build_object(
+      'path', s.data -> 'thanks_image' ->> 'path',
+      'alt', coalesce(left(s.data -> 'thanks_image' ->> 'alt', 200), '')
+    ) end,
+    'thanks_contact', public.survey_text(s.data -> 'thanks_contact', 1000),
     'appearance', jsonb_build_object(
       'theme', case when s.data -> 'appearance' ->> 'theme' in ('chiaro', 'scuro', 'seppia', 'contrasto') then s.data -> 'appearance' ->> 'theme' else 'automatico' end,
       'accent', case when s.data -> 'appearance' ->> 'accent' ~ '^#[0-9a-f]{6}$' then s.data -> 'appearance' ->> 'accent' else '#3b4bc8' end

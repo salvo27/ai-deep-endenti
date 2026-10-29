@@ -10,6 +10,7 @@ import {
   collectAnswers,
   durationText,
   emailQuestion,
+  emailSuggestion,
   firstInvalidScreen,
   normalizeSurvey,
   numberHint,
@@ -34,7 +35,7 @@ import {
 
 const ALREADY_SENT = /già state inviate/i;
 const SEND_ERROR = 'Invio non riuscito. Riprova tra poco.';
-const THANKS = 'Le tue risposte sono arrivate. Ora puoi chiudere questa pagina.';
+const THANKS = 'Le tue risposte sono arrivate.';
 const asText = (value) => (typeof value === 'string' ? value : '');
 const CHOICE_TYPES = new Set(['scelta', 'scelte', 'scala']);
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -316,7 +317,7 @@ function choiceControls(q, block, keyed) {
   } else {
     for (const option of q.options) rows.push(row(option.id, h('span', { class: 'opt-label' }, option.label)));
     if (q.allow_other) {
-      rows.push(row(OTHER, h('span', { class: 'opt-label' }, 'Altro')));
+      rows.push(row(OTHER, h('span', { class: 'opt-label' }, q.other_label)));
       block.otherField = h('input', {
         type: 'text',
         class: 'field opt-other',
@@ -324,7 +325,8 @@ function choiceControls(q, block, keyed) {
         'data-other': '',
         maxlength: LIMITS.other,
         autocomplete: 'off',
-        'aria-label': 'Altro: scrivi la tua risposta',
+        placeholder: q.other_placeholder || undefined,
+        'aria-label': `${q.other_label}: scrivi la tua risposta`,
         value: asText(state.draft[otherKey(q.id)]),
       });
       rows.push(block.otherField);
@@ -360,8 +362,10 @@ function fieldControl(q, block, describedBy, last) {
   }
   block.inputs.push(input);
   if (q.type !== 'email') return input;
+  // Dominio quasi uguale a uno noto (gmial.com): si propone la correzione quando si esce dal campo, senza bloccare.
+  block.suggest = h('p', { class: 'email-suggest', 'aria-live': 'polite' });
   const consent = h('input', { type: 'checkbox', name: 'recontact', class: 'opt-input', 'data-q': q.id, checked: state.recontact });
-  return [input, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'), h('span', { class: 'opt-mark is-box' }))];
+  return [input, block.suggest, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'), h('span', { class: 'opt-mark is-box' }))];
 }
 
 function questionBlock(q, level, last, keyed) {
@@ -476,6 +480,21 @@ function afterChange(id) {
   if (![...blocks.values()].some((b) => !b.error.hidden)) setAlert('');
 }
 
+function suggestEmail(block, input) {
+  const suggestion = emailSuggestion(input.value);
+  block.suggest.textContent = '';
+  if (!suggestion) return;
+  const fix = h('button', { type: 'button', class: 'btn-fix' }, 'Sì, correggi');
+  fix.addEventListener('click', () => {
+    input.value = suggestion;
+    state.draft[block.q.id] = suggestion;
+    block.suggest.textContent = '';
+    afterChange(block.q.id);
+    input.focus();
+  });
+  block.suggest.append(h('span', {}, 'Intendevi ', h('strong', {}, suggestion), '?'), fix);
+}
+
 function onInput(event) {
   const el = event.target;
   if (el === ui.trap) {
@@ -486,6 +505,8 @@ function onInput(event) {
   const id = el.dataset.q;
   if ('other' in el.dataset) state.draft[otherKey(id)] = el.value;
   else state.draft[id] = el.value;
+  const suggest = blocks.get(id)?.suggest;
+  if (suggest) suggest.textContent = '';
   if (el.tagName === 'TEXTAREA') grow(el);
   afterChange(id);
 }
@@ -493,6 +514,7 @@ function onInput(event) {
 function onChange(event) {
   const el = event.target;
   const block = blocks.get(el.dataset.q);
+  if (block?.suggest && el.type === 'email') suggestEmail(block, el);
   if (!block || (el.type !== 'radio' && el.type !== 'checkbox')) return;
   const { q } = block;
   if (el.name === 'recontact') {
@@ -578,14 +600,39 @@ function setBusy(busy, label) {
   ui.submit.textContent = label;
 }
 
+// Immagine finale scelta dal team, in fondo al grazie; se non si carica, sparisce.
+function thanksImage() {
+  const data = state.survey.thanks_image;
+  if (!data) return null;
+  const img = h('img', { src: coverUrl(data.path), alt: data.alt, decoding: 'async' });
+  const figure = h('figure', { class: 'thanks-image' }, img);
+  img.addEventListener('error', () => figure.remove());
+  return figure;
+}
+
+// Chi ha lasciato l'email e chiesto di essere ricontattato legge cosa succede adesso e l'indirizzo che ha scritto,
+// così si accorge di un errore; gli altri il messaggio finale di tutti.
 function showThanks() {
+  const email = emailQuestion(state.survey);
+  const address = email ? collectAnswers([email], state.draft)[email.id] : null;
+  const contact = Boolean(address && state.recontact);
   storage.clear();
   storage.markSent();
   state.mode = 'done';
   document.title = 'Grazie';
   ui.progress.hidden = true;
   const title = h('h1', { class: 'title', tabindex: '-1' }, 'Grazie!');
-  mount([title, h('p', { class: 'text' }, state.survey.thanks || THANKS)], { band: [h('span', { class: 'band-mark' }, icon('check', 40))], enter: 'next' });
+  const text = (contact && state.survey.thanks_contact) || state.survey.thanks || THANKS;
+  mount(
+    [
+      title,
+      h('p', { class: 'text' }, text),
+      contact ? h('p', { class: 'thanks-mail' }, h('span', {}, 'Ti scriveremo a'), h('strong', {}, address)) : null,
+      thanksImage(),
+      h('p', { class: 'thanks-close' }, 'Ora puoi chiudere questa pagina.'),
+    ].filter(Boolean),
+    { band: [h('span', { class: 'band-mark' }, icon('check', 40))], enter: 'next' },
+  );
   ui.nav.textContent = '';
   window.scrollTo(0, 0);
   title.focus({ preventScroll: true });
@@ -727,6 +774,8 @@ async function load() {
   state.survey = normalizeSurvey(data);
   state.screens = buildScreens(state.survey);
   applyAppearance(state.survey.appearance);
+  // L'immagine del grazie si scarica subito, così alla fine compare senza attese.
+  if (state.survey.thanks_image) new Image().src = coverUrl(state.survey.thanks_image.path);
   if (!state.screens.length) {
     showClosed();
     return;

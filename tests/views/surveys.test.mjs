@@ -444,7 +444,19 @@ test('the start screen image is reduced in the browser, uploaded to the survey s
     assert.deepEqual(saves[0].snapshot.data.cover, { path, alt: 'Il gruppo davanti all\'università' });
     byText(outlet, 'button', 'Togli').click();
     assert.ok(outlet.querySelector('.sv-cover-thumb.is-empty'));
-    assert.ok(byText(outlet, 'button', 'Scegli un\'immagine'));
+    assert.equal([...outlet.querySelectorAll('button')].filter((b) => text(b) === 'Scegli un\'immagine').length, 2, 'copertina e grazie');
+
+    assert.match(text(outlet), /Immagine del grazie/);
+    const thanksInput = outlet.querySelectorAll('input[type="file"]')[1];
+    Object.defineProperty(thanksInput, 'files', { value: [new window.File(['x'], 'gruppo.jpg', { type: 'image/jpeg' })], configurable: true });
+    thanksInput.dispatchEvent(new window.Event('change'));
+    await flush(10);
+    assert.equal(uploads.length, 2);
+    typeInto(outlet.querySelectorAll('.sv-cover')[1].querySelector('input[type="text"]'), 'Il gruppo');
+    byText(outlet, '.save-bar button', 'Salva').click();
+    await flush(5);
+    assert.deepEqual(saves.at(-1).snapshot.data.thanks_image, { path: uploads[1][0], alt: 'Il gruppo' });
+    assert.equal(saves.at(-1).snapshot.data.cover, undefined);
   } finally {
     Object.assign(globalThis, { createImageBitmap: saved.bitmap });
     Object.assign(proto, { getContext: saved.ctx, toBlob: saved.blob });

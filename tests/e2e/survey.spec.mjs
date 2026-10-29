@@ -414,6 +414,74 @@ test('sul telefono «Inizia» resta sempre visibile, anche con un\'introduzione 
   expect(await inView(), 'Inizia visibile mentre si legge').toBe(true);
 });
 
+test('il grazie cambia per chi chiede di essere ricontattato, con l\'indirizzo scritto e l\'immagine finale in fondo', async ({ page, browser }) => {
+  const picture = readFileSync(new URL('../../assets/img/anteprima-indaco.png', import.meta.url));
+  const survey = withQuestions(['eta', 'mail'], { thanks_contact: 'Ti scriviamo nei prossimi giorni.', thanks_image: { path: COVER, alt: 'Il gruppo di ricerca' } });
+  await page.route(coverRoute, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+  await start(page, { survey });
+  await page.getByLabel('Meno di 30').check();
+  await next(page);
+  await page.getByLabel('La tua email').fill('persona@esempio.it');
+  await page.getByLabel('Potete ricontattarmi per una breve chiacchierata').check();
+  await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+  await expect(page.getByText('Ti scriviamo nei prossimi giorni.')).toBeVisible();
+  await expect(page.locator('.thanks-mail')).toHaveText('Ti scriveremo apersona@esempio.it');
+  await expect(page.getByRole('img', { name: 'Il gruppo di ricerca' })).toBeVisible();
+  await expect(page.getByText('Ora puoi chiudere questa pagina.')).toBeVisible();
+
+  for (const typed of ['', '   ']) {
+    const context = await browser.newContext();
+    const other = await context.newPage();
+    await other.route(coverRoute, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+    await start(other, { survey });
+    await other.getByLabel('Meno di 30').check();
+    await next(other);
+    await other.getByLabel('La tua email').fill(typed);
+    await other.getByRole('button', { name: 'Invia' }).click();
+    await expect(other.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+    await expect(other.getByText('Grazie per il tuo tempo!'), JSON.stringify(typed)).toBeVisible();
+    await expect(other.getByText('Ti scriviamo nei prossimi giorni.')).toHaveCount(0);
+    await expect(other.locator('.thanks-mail')).toHaveCount(0);
+    await context.close();
+  }
+});
+
+test('un dominio dell\'email scritto male fa proporre la correzione, che si applica con un tocco e non blocca', async ({ page }) => {
+  await start(page, { survey: withQuestions(['mail']) });
+  const field = page.getByLabel('La tua email');
+  await field.fill('persona@gmial.con');
+  await field.press('Tab');
+  const hint = page.locator('.email-suggest');
+  await expect(hint).toContainText('Intendevi persona@gmail.com?');
+  await page.getByRole('button', { name: 'Sì, correggi' }).click();
+  await expect(field).toHaveValue('persona@gmail.com');
+  await expect(hint).toBeEmpty();
+  await field.fill('persona@studio-rossi.it');
+  await field.press('Tab');
+  await expect(hint).toBeEmpty();
+  await field.fill('persona@gmial.con');
+  await field.press('Tab');
+  await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+  expect((await rpc(page, 'submit_survey')).at(-1).p_answers.mail, 'il suggerimento non cambia nulla da solo').toBe('persona@gmial.con');
+});
+
+test('la voce con il campo di testo può avere un nome suo e un esempio nel campo', async ({ page }) => {
+  const survey = withQuestions(['dove']);
+  survey.questions = survey.questions.map((q) => ({ ...q, other_label: 'Un software o un\'app', other_placeholder: 'Quale? Scrivi il nome' }));
+  await start(page, { survey });
+  await page.getByLabel('Un software o un\'app', { exact: true }).check();
+  const field = page.getByLabel('Un software o un\'app: scrivi la tua risposta');
+  await expect(field).toBeVisible();
+  await expect(field).toHaveAttribute('placeholder', 'Quale? Scrivi il nome');
+  await expect(page.getByLabel('Altro', { exact: true })).toHaveCount(0);
+  await field.fill('Nutrium');
+  await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+  expect((await rpc(page, 'submit_survey')).at(-1).p_answers).toEqual({ 'dove:altro': 'Nutrium' });
+});
+
 test('chi ha già inviato, riaprendo il link, vede «Hai già risposto» e non può ricominciare', async ({ page }) => {
   await start(page, { survey: withQuestions(['eta']) });
   await page.getByLabel('Meno di 30').check();

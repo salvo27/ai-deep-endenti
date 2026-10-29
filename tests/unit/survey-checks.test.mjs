@@ -80,7 +80,8 @@ test('the template follows the book: only the brackets to replace are left as wa
   assert.ok(clean.questions.some((x) => /^Nelle ultime 4 settimane, quante volte/.test(x.label)));
   assert.ok(estimateMinutes(clean) <= LIMITS_ADVICE.minutes);
   assert.deepEqual(codes(surveyWarnings(clean)), ['parentesi']);
-  assert.match(surveyWarnings(clean)[0].text, /introduzione, privacy, \d domande/);
+  assert.match(surveyWarnings(clean)[0].text, /introduzione, privacy, messaggio finale, \d domande/);
+  assert.ok(clean.thanks_contact, 'messaggio per chi vuole essere ricontattato');
   for (const question of clean.questions) assert.ok(codes(questionWarnings(question)).every((c) => c === 'parentesi' || c === 'etichette'), question.id);
 });
 

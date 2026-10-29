@@ -139,7 +139,8 @@ export const SURVEY_THEMES = [
 
 export const SURVEY_ACCENT = '#3b4bc8';
 
-// Immagine della schermata iniziale: un JPEG nello spazio pubblico «questionari-immagini», percorso <questionario>/<uuid>.jpg.
+// Immagini della schermata iniziale (cover) e del grazie (thanks_image): JPEG nello spazio pubblico «questionari-immagini»,
+// percorso <questionario>/<uuid>.jpg.
 export const SURVEY_IMAGE_BUCKET = 'questionari-immagini';
 export const SURVEY_COVER_PATH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
 
@@ -531,11 +532,12 @@ export const KINDS = {
       field('intro', 'Introduzione', 'textarea', { wide: true, help: 'A cosa serve il questionario: è la prima cosa che legge chi risponde.' }),
       field('privacy', 'Informativa sulla privacy', 'textarea', { wide: true }),
       field('thanks', 'Messaggio finale', 'textarea', { rows: 2 }),
+      field('thanks_contact', 'Messaggio per chi vuole essere ricontattato', 'textarea', { rows: 2 }),
       field('layout', 'Impaginazione', 'select', { options: SURVEY_LAYOUTS }),
       field('progress', 'Avanzamento', 'select', { options: SURVEY_PROGRESS }),
       field('experiment_id', 'Esperimento collegato', 'experiment'),
     ],
-    extraKeys: ['show_time', 'appearance', 'cover', 'token', 'questions'],
+    extraKeys: ['show_time', 'appearance', 'cover', 'thanks_image', 'token', 'questions'],
   },
   note: {
     label: 'Nota',
@@ -940,6 +942,11 @@ function sanitizeQuestions(list) {
     if (type === 'scelta' || type === 'scelte') {
       question.options = sanitizeOptions(row?.options);
       question.allow_other = row?.allow_other === true;
+      // La voce con il campo di testo si può rinominare (per esempio «Un software o un'app») e avere un esempio nel campo.
+      const otherLabel = question.allow_other ? cleanLine(row?.other_label, SURVEY_LIMITS.option) : '';
+      const otherPlaceholder = question.allow_other ? cleanLine(row?.other_placeholder, SURVEY_LIMITS.option) : '';
+      if (otherLabel) question.other_label = otherLabel;
+      if (otherPlaceholder) question.other_placeholder = otherPlaceholder;
       question.prefer_not = row?.prefer_not === true;
     }
     if (type === 'scala') question.scale = sanitizeScale(row?.scale);
@@ -969,15 +976,19 @@ function sanitizeSurvey(raw) {
   const intro = cleanText(raw.intro, SURVEY_LIMITS.intro);
   const privacy = cleanText(raw.privacy, SURVEY_LIMITS.privacy);
   const thanks = cleanText(raw.thanks, SURVEY_LIMITS.thanks);
+  const thanksContact = cleanText(raw.thanks_contact, SURVEY_LIMITS.thanks);
   if (intro) data.intro = intro;
   if (privacy) data.privacy = privacy;
   if (thanks) data.thanks = thanks;
+  if (thanksContact) data.thanks_contact = thanksContact;
   data.layout = pick(SURVEY_LAYOUTS, raw.layout, 'una');
   data.progress = pick(SURVEY_PROGRESS, raw.progress, 'contatore');
   data.show_time = typeof raw.show_time === 'boolean' ? raw.show_time : true;
   data.appearance = sanitizeAppearance(raw.appearance);
   const cover = sanitizeCover(raw.cover);
   if (cover) data.cover = cover;
+  const thanksImage = sanitizeCover(raw.thanks_image);
+  if (thanksImage) data.thanks_image = thanksImage;
   if (isUuid(raw.experiment_id)) data.experiment_id = raw.experiment_id;
   if (typeof raw.token === 'string' && SURVEY_TOKEN_RE.test(raw.token)) data.token = raw.token;
   data.questions = sanitizeQuestions(raw.questions);
@@ -1058,6 +1069,8 @@ const SURVEY_QUESTION_PARTS = {
   role: 'argomento',
   options: 'opzioni',
   allow_other: 'risposta «Altro»',
+  other_label: 'nome della risposta «Altro»',
+  other_placeholder: 'esempio nel campo di «Altro»',
   prefer_not: 'risposta «Preferisco non rispondere»',
   scale: 'scala',
   number: 'limiti',
@@ -1142,7 +1155,7 @@ export function formatValue(kind, path, value, ctx = {}) {
     return mark.state === 'skip' ? `non serve (${who})` : `fatto (${who})`;
   }
   if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
-  if (kind === 'survey' && path === 'data.cover.path') return 'immagine caricata';
+  if (kind === 'survey' && (path === 'data.cover.path' || path === 'data.thanks_image.path')) return 'immagine caricata';
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {

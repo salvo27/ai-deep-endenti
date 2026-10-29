@@ -120,6 +120,7 @@ export function surveyWarnings(data) {
   if (hasBrackets(data?.intro)) where.push('introduzione');
   if (hasBrackets(data?.privacy)) where.push('privacy');
   if (hasBrackets(data?.thanks)) where.push('messaggio finale');
+  if (hasBrackets(data?.thanks_contact)) where.push('messaggio per chi vuole essere ricontattato');
   const inQuestions = questions.filter((q) => hasBrackets(questionText(q))).length;
   if (inQuestions) where.push(inQuestions === 1 ? '1 domanda' : `${inQuestions} domande`);
   if (where.length) out.push(warning('parentesi', `Parti tra parentesi quadre ancora da sostituire: ${where.join(', ')}.`, 'Sostituisci le parti tra [ ] con il vostro testo prima di aprire il questionario.'));

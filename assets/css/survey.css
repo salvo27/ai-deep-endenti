@@ -953,3 +953,73 @@ h2.q-title {
     border-color: CanvasText;
   }
 }
+
+/* Grazie: l'indirizzo lasciato per essere ricontattati e l'immagine finale del team. */
+.thanks-mail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 16px auto 0;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--row);
+  color: var(--text-2);
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.thanks-mail strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.thanks-image {
+  margin: 20px 0 0;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.thanks-image img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.thanks-close {
+  margin: 16px 0 0;
+  color: var(--text-2);
+  font-size: 0.88rem;
+}
+
+/* Suggerimento per un indirizzo scritto male: si legge, si corregge con un tocco, non blocca nulla. */
+.email-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 0.94rem;
+}
+
+.email-suggest:empty {
+  display: none;
+}
+
+.email-suggest strong {
+  color: var(--text);
+}
+
+.btn-fix {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid var(--accent-ui);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}

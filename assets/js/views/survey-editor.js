@@ -143,6 +143,35 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
     list.querySelector('[data-action="toggle"]')?.focus();
   }
 
+  // La voce con il campo di testo: nome (vuoto vale «Altro») ed esempio dentro il campo.
+  function otherFields(q) {
+    const text = (key, label, placeholder, focus) =>
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, label),
+        h('input', {
+          class: 'input',
+          type: 'text',
+          value: q[key] || '',
+          maxlength: SURVEY_LIMITS.option,
+          placeholder,
+          dataset: focus ? { focus } : undefined,
+          onInput: (e) => {
+            if (e.target.value.trim()) q[key] = e.target.value;
+            else delete q[key];
+            refresh();
+          },
+        }),
+      );
+    return h(
+      'div',
+      { class: 'sq-other row' },
+      text('other_label', 'Nome della voce', 'Altro', `other-${q.id}`),
+      text('other_placeholder', 'Esempio nel campo', 'Per esempio: Quale? Scrivi il nome'),
+    );
+  }
+
   function optionsEditor(q) {
     const rows = q.options.map((o, i) =>
       h(
@@ -196,8 +225,9 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
       ),
       checkbox('Aggiungi «Altro» con uno spazio per scrivere', q.allow_other, (v) => {
         q.allow_other = v;
-        refresh();
+        rerender(`other-${q.id}`);
       }),
+      q.allow_other ? otherFields(q) : null,
       checkbox('Aggiungi «Preferisco non rispondere»', q.prefer_not, (v) => {
         q.prefer_not = v;
         refresh();
@@ -490,7 +520,8 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
       list,
       writable ? h('div', { class: 'sq-add row' }, h('span', { class: 'field-label' }, 'Nuova domanda'), newType, addButton) : null,
     ),
-    textCard('Messaggio finale', textArea('thanks', SURVEY_LIMITS.thanks, 2), 'Un grazie e, se hanno lasciato l\'email, cosa succede dopo.'),
+    textCard('Messaggio finale', textArea('thanks', SURVEY_LIMITS.thanks, 2), 'Lo vede chi non lascia l\'email o non chiede di essere ricontattato: un grazie e, se volete, un modo per scrivervi.'),
+    textCard('Messaggio per chi vuole essere ricontattato', textArea('thanks_contact', SURVEY_LIMITS.thanks, 2), 'Lo vede chi lascia l\'email e mette la spunta «Potete ricontattarmi»: cosa succede adesso. Sotto la pagina mostra l\'indirizzo che ha scritto, così si accorge se ha sbagliato. Vuoto: vale il messaggio finale.'),
   );
 
   const el = h(
@@ -567,6 +598,80 @@ function choiceGroup(legend, name, entries, value, onPick, { recommended, reason
   );
 }
 
+// Immagine del questionario (copertina o grazie): anteprima, scelta, descrizione per chi non la vede e rimozione.
+function imagePicker({ item, data, session, key, empty, placeholder }) {
+  const host = h('div', { class: 'sv-cover' });
+  const status = h('span', { class: 'muted small', role: 'status' });
+  const input = h('input', {
+    type: 'file',
+    class: 'file-input',
+    accept: 'image/jpeg,image/png,image/webp',
+    onChange: async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      status.textContent = 'Carico l\'immagine…';
+      try {
+        const path = await uploadSurveyCover(item.id, file);
+        data[key] = { path, alt: data[key]?.alt || '' };
+        status.textContent = 'Immagine caricata: salva per usarla.';
+        session.changed();
+        render();
+      } catch (error) {
+        status.textContent = '';
+        toast(error.message, { type: 'error' });
+      }
+    },
+  });
+
+  function render() {
+    const image = data[key];
+    const thumb = h('div', { class: ['sv-cover-thumb', !image && 'is-empty'] }, image ? null : h('span', { class: 'muted small' }, empty));
+    if (image) {
+      surveyCoverUrl(image.path).then((url) => {
+        if (data[key]?.path !== image.path) return;
+        mount(thumb, url ? h('img', { src: url, alt: '' }) : h('span', { class: 'muted small' }, 'Anteprima non disponibile.'));
+      });
+    }
+    const alt = image
+      ? h(
+          'label',
+          { class: 'field' },
+          h('span', { class: 'field-label' }, 'Descrizione dell\'immagine'),
+          h('input', {
+            class: 'input',
+            type: 'text',
+            maxlength: SURVEY_LIMITS.coverAlt,
+            value: image.alt,
+            placeholder,
+            onInput: (e) => {
+              data[key].alt = e.target.value;
+              session.changed();
+            },
+          }),
+          h('span', { class: 'muted small' }, 'La legge chi usa un lettore di schermo. Lasciala vuota solo se l\'immagine è decorativa.'),
+        )
+      : null;
+    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => input.click() }, icon('image', 14), h('span', null, image ? 'Cambia immagine' : 'Scegli un\'immagine'));
+    const drop = image
+      ? h('button', {
+          type: 'button',
+          class: 'btn btn-small btn-ghost',
+          onClick: () => {
+            delete data[key];
+            status.textContent = '';
+            session.changed();
+            render();
+          },
+        }, icon('trash', 14), h('span', null, 'Togli'))
+      : null;
+    mount(host, thumb, h('div', { class: 'row' }, pick, drop, status), alt, input);
+  }
+
+  render();
+  return host;
+}
+
 export function settingsPanel(item, { writable, onSaved }) {
   const session = editSession(item, { message: 'Aspetto e impostazioni', onSaved });
   const { working } = session;
@@ -577,74 +682,8 @@ export function settingsPanel(item, { writable, onSaved }) {
   const hex = h('input', { class: 'input input-small sv-hex', type: 'text', maxlength: 7, 'aria-label': 'Codice del colore', value: data.appearance.accent });
   const picker = h('input', { class: 'input input-color', type: 'color', 'aria-label': 'Colore personalizzato', value: data.appearance.accent });
   const swatches = h('div', { class: 'sv-swatches', role: 'radiogroup', 'aria-label': 'Colori consigliati' });
-  const coverHost = h('div', { class: 'sv-cover' });
-  const coverStatus = h('span', { class: 'muted small', role: 'status' });
-  const coverInput = h('input', {
-    type: 'file',
-    class: 'file-input',
-    accept: 'image/jpeg,image/png,image/webp',
-    onChange: async (e) => {
-      const file = e.target.files?.[0];
-      e.target.value = '';
-      if (!file) return;
-      coverStatus.textContent = 'Carico l\'immagine…';
-      try {
-        const path = await uploadSurveyCover(item.id, file);
-        data.cover = { path, alt: data.cover?.alt || '' };
-        coverStatus.textContent = 'Immagine caricata: salva per usarla.';
-        session.changed();
-        renderCover();
-      } catch (error) {
-        coverStatus.textContent = '';
-        toast(error.message, { type: 'error' });
-      }
-    },
-  });
-
-  // Immagine della copertina: anteprima, scelta, descrizione per chi non la vede e rimozione.
-  const renderCover = () => {
-    const cover = data.cover;
-    const thumb = h('div', { class: ['sv-cover-thumb', !cover && 'is-empty'] }, cover ? null : h('span', { class: 'muted small' }, 'Senza immagine in alto c\'è una fascia leggera nel colore scelto, con un\'icona.'));
-    if (cover) {
-      surveyCoverUrl(cover.path).then((url) => {
-        if (data.cover?.path !== cover.path) return;
-        mount(thumb, url ? h('img', { src: url, alt: '' }) : h('span', { class: 'muted small' }, 'Anteprima non disponibile.'));
-      });
-    }
-    const alt = cover
-      ? h(
-          'label',
-          { class: 'field' },
-          h('span', { class: 'field-label' }, 'Descrizione dell\'immagine'),
-          h('input', {
-            class: 'input',
-            type: 'text',
-            maxlength: SURVEY_LIMITS.coverAlt,
-            value: cover.alt,
-            placeholder: 'Per esempio: il nostro gruppo davanti all\'università',
-            onInput: (e) => {
-              data.cover.alt = e.target.value;
-              session.changed();
-            },
-          }),
-          h('span', { class: 'muted small' }, 'La legge chi usa un lettore di schermo. Lasciala vuota solo se l\'immagine è decorativa.'),
-        )
-      : null;
-    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => coverInput.click() }, icon('image', 14), h('span', null, cover ? 'Cambia immagine' : 'Scegli un\'immagine'));
-    const drop = cover
-      ? h('button', {
-          type: 'button',
-          class: 'btn btn-small btn-ghost',
-          onClick: () => {
-            delete data.cover;
-            coverStatus.textContent = '';
-            session.changed();
-            renderCover();
-          },
-        }, icon('trash', 14), h('span', null, 'Togli'))
-      : null;
-    mount(coverHost, thumb, h('div', { class: 'row' }, pick, drop, coverStatus), alt);
-  };
+  const coverPicker = imagePicker({ item, data, session, key: 'cover', empty: 'Senza immagine in alto c\'è una fascia leggera nel colore scelto, con un\'icona.', placeholder: 'Per esempio: il nostro gruppo davanti all\'università' });
+  const thanksPicker = imagePicker({ item, data, session, key: 'thanks_image', empty: 'Senza immagine il grazie ha solo il testo.', placeholder: 'Per esempio: Enrico, Francesco e Salvatore' });
 
   const renderSwatches = () =>
     mount(
@@ -778,14 +817,23 @@ export function settingsPanel(item, { writable, onSaved }) {
         { class: 'sv-reason' },
         'Facoltativa, in alto sopra il titolo. Meglio un\'immagine neutra: il gruppo, il posto, un logo. Una foto vicino alle domande può spostare le risposte (Couper, Tourangeau e Kenyon 2004), per questo compare solo all\'inizio. La vede chiunque abbia il link; viene ridotta e ripulita dai dati della foto (posizione, telefono).',
       ),
-      coverHost,
-      coverInput,
+      coverPicker,
+    ),
+    h(
+      'section',
+      { class: 'card stack' },
+      h('h2', null, 'Immagine del grazie'),
+      h(
+        'p',
+        { class: 'sv-reason' },
+        'Facoltativa, in fondo al messaggio finale, per esempio una foto del gruppo: un volto rende più facile dire sì alla chiacchierata. Alla fine non può influenzare le risposte, che sono già date. La pagina la scarica all\'inizio, così compare subito.',
+      ),
+      thanksPicker,
     ),
   );
 
   renderSwatches();
   renderLook();
-  renderCover();
   const el = h(
     'div',
     { class: 'stack survey-settings' },

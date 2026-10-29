@@ -245,12 +245,15 @@ as $$
     "show_time": false,
     "appearance": {"theme": "scuro", "accent": "#aa3300"},
     "cover": {"path": "aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg", "alt": "Il gruppo di ricerca"},
+    "thanks_image": {"path": "aaaaaaaa-0000-4000-8000-000000000001/eeeeeeee-0000-4000-8000-000000000005.jpg", "alt": "A presto"},
+    "thanks_contact": "Ti scriviamo nei prossimi giorni.",
     "questions": [
       {"id": "s-1", "type": "sezione", "label": "Chi sei", "help": "Due domande veloci"},
       {"id": "ruolo", "type": "scelta", "label": "Che lavoro fai?", "required": true, "role": "persona",
        "options": [{"id": "a", "label": "Medico"}, {"id": "b", "label": "Infermiere"}, {"id": "non-rispondo", "label": "Id riservato"}], "allow_other": true},
       {"id": "canali", "type": "scelte", "label": "Dove ti informi?", "role": "persona", "prefer_not": true,
-       "options": [{"id": "web", "label": "Siti"}, {"id": "riviste", "label": "Riviste"}], "allow_other": true},
+       "options": [{"id": "web", "label": "Siti"}, {"id": "riviste", "label": "Riviste"}], "allow_other": true,
+       "other_label": "Un software o un'app", "other_placeholder": "Quale? Scrivi il nome"},
       {"id": "fatica", "type": "scala", "label": "Quanto ti pesa?", "required": true, "role": "problema",
        "scale": {"points": 7, "min_label": "Poco", "max_label": "Molto"}},
       {"id": "ore", "type": "numero", "label": "Quante ore a settimana?", "number": {"min": 0, "max": 80}},
@@ -305,6 +308,8 @@ begin
   perform public.create_item('survey', 'Seppia', 'bozza', '{"appearance":{"theme":"seppia"}}', v_idea::uuid, null);
   perform public.create_item('survey', 'Contrasto', 'bozza', '{"appearance":{"theme":"contrasto"}}', v_idea::uuid, null);
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":"x.jpg"}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"thanks_image":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"thanks_image":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","css":"x"}}', %L)$q$, v_idea), 'Immagine');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"%1$s"}}', %2$L)$q$, replace('aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', '.jpg', '.png'), v_idea), 'Immagine');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","url":"https://altro.example"}}', %L)$q$, v_idea), 'Immagine');
@@ -355,7 +360,8 @@ declare
 begin
   assert r ->> 'status' = 'aperto', 'questionario aperto non visibile: ' || r::text;
   assert (select array_agg(k order by k) from jsonb_object_keys(r) k)
-    = array['appearance', 'cover', 'intro', 'layout', 'median_seconds', 'privacy', 'progress', 'questions', 'show_time', 'status', 'thanks', 'title'], 'campi inattesi: ' || r::text;
+    = array['appearance', 'cover', 'intro', 'layout', 'median_seconds', 'privacy', 'progress', 'questions', 'show_time', 'status', 'thanks', 'thanks_contact', 'thanks_image', 'title'], 'campi inattesi: ' || r::text;
+  assert r -> 'thanks_image' = '{"path":"aaaaaaaa-0000-4000-8000-000000000001/eeeeeeee-0000-4000-8000-000000000005.jpg","alt":"A presto"}'::jsonb and r ->> 'thanks_contact' = 'Ti scriviamo nei prossimi giorni.', 'grazie: ' || r::text;
   assert r -> 'cover' = '{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","alt":"Il gruppo di ricerca"}'::jsonb, 'immagine: ' || (r -> 'cover')::text;
   assert r -> 'median_seconds' = 'null'::jsonb, 'durata mediana senza risposte';
   assert r ->> 'title' = 'Turni in reparto' and r ->> 'intro' = 'Ci aiuti a capire come organizzi i turni.' and r ->> 'thanks' = 'Grazie del tempo.', 'testi';
@@ -363,9 +369,10 @@ begin
   assert r -> 'appearance' = '{"theme":"scuro","accent":"#aa3300"}'::jsonb, 'aspetto: ' || (r -> 'appearance')::text;
   assert (select array_agg(x ->> 'id' order by n) from jsonb_array_elements(r -> 'questions') with ordinality e (x, n))
     = array['s-1', 'ruolo', 'canali', 'fatica', 'ore', 'parola', 'racconto', 'mail'], 'domande mostrate: ' || (r -> 'questions')::text;
-  assert q -> 'ruolo' = '{"id":"ruolo","type":"scelta","label":"Che lavoro fai?","help":"","required":true,"options":[{"id":"a","label":"Medico"},{"id":"b","label":"Infermiere"}],"allow_other":true,"prefer_not":false}'::jsonb,
+  assert q -> 'ruolo' = '{"id":"ruolo","type":"scelta","label":"Che lavoro fai?","help":"","required":true,"options":[{"id":"a","label":"Medico"},{"id":"b","label":"Infermiere"}],"allow_other":true,"prefer_not":false,"other_label":"Altro","other_placeholder":""}'::jsonb,
     'scelta, senza l''opzione con l''id riservato: ' || (q -> 'ruolo')::text;
   assert q -> 'canali' -> 'prefer_not' = 'true'::jsonb, '«Preferisco non rispondere» mancante';
+  assert q -> 'canali' ->> 'other_label' = 'Un software o un''app' and q -> 'canali' ->> 'other_placeholder' = 'Quale? Scrivi il nome', 'voce «Altro» rinominata';
   assert q -> 's-1' = '{"id":"s-1","type":"sezione","label":"Chi sei","help":"Due domande veloci","required":false}'::jsonb, 'sezione: ' || (q -> 's-1')::text;
   assert q -> 'fatica' -> 'scale' = '{"points":7,"min_label":"Poco","max_label":"Molto"}'::jsonb, 'scala';
   assert q -> 'ore' -> 'number' = '{"min":0,"max":80}'::jsonb, 'limiti del numero';
@@ -1095,8 +1102,10 @@ do $$
 declare
   v_used text := 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg';
   v_orphan text := 'aaaaaaaa-0000-4000-8000-000000000001/cccccccc-0000-4000-8000-000000000003.jpg';
+  v_thanks text := 'aaaaaaaa-0000-4000-8000-000000000001/eeeeeeee-0000-4000-8000-000000000005.jpg';
 begin
-  insert into storage.objects (bucket_id, name) values ('questionari-immagini', v_used), ('questionari-immagini', v_orphan);
+  insert into storage.objects (bucket_id, name) values ('questionari-immagini', v_used), ('questionari-immagini', v_orphan), ('questionari-immagini', v_thanks);
+  assert (select count(*) from public.survey_image_orphans(array[v_thanks])) = 0, 'immagine del grazie considerata orfana';
   perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', 'cartella/foto.png')$q$, 'row-level security');
   assert (select array_agg(x) from public.survey_image_orphans(array[v_used, v_orphan]) x) = array[v_orphan], 'immagine in uso considerata orfana';
   assert (select count(*) from public.survey_image_orphans()) = 0, 'immagini appena caricate considerate orfane';

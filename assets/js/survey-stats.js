@@ -79,7 +79,7 @@ export function answerText(q, response, { scaleWithLabel = false } = {}) {
     case 'scelte': {
       const ids = Array.isArray(value) ? value : value ? [value] : [];
       const parts = ids.map((id) => optionLabel(q, id)).filter(Boolean);
-      if (other) parts.push(`Altro: ${other}`);
+      if (other) parts.push(`${q.other_label || 'Altro'}: ${other}`);
       return parts.join('; ');
     }
     case 'scala': {
@@ -226,7 +226,7 @@ export function personaAnswer(survey, response) {
     const value = answersOf(response)[q.id];
     if (value === SURVEY_PREFER_NOT || (Array.isArray(value) && value.includes(SURVEY_PREFER_NOT))) continue;
     const text = answerText(q, response, { scaleWithLabel: true });
-    if (text !== null && text !== '') return String(text).replace(/^Altro: /, '');
+    if (text !== null && text !== '') return String(text).startsWith(`${q.other_label || 'Altro'}: `) ? String(text).slice(`${q.other_label || 'Altro'}: `.length) : String(text);
   }
   return null;
 }

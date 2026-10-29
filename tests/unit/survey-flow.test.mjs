@@ -14,8 +14,10 @@ import {
   contrastRatio,
   contrastText,
   durationText,
+  emailSuggestion,
   firstInvalidScreen,
   normalizeSurvey,
+  otherMessage,
   numberHint,
   parseInteger,
   progressFor,
@@ -385,4 +387,38 @@ test('the cover image path comes only from the survey images space, with a short
   assert.equal(normalizeSurvey({ ...raw, cover: { path: 'https://altro.example/x.jpg', alt: 'x' } }).cover, null);
   assert.equal(normalizeSurvey({ ...raw, cover: { path: `${path}#x` } }).cover, null);
   assert.equal(normalizeSurvey(raw).cover, null);
+});
+
+test('a likely typo in a common email domain gets a suggestion, real or unknown domains never do', () => {
+  const cases = {
+    'm.rossi@gmial.con': 'm.rossi@gmail.com',
+    'a@gmail.it': 'a@gmail.com',
+    'a@gmai.com': 'a@gmail.com',
+    'a@hotmial.it': 'a@hotmail.it',
+    'a@libero.ti': 'a@libero.it',
+    'a@outlok.com': 'a@outlook.com',
+    '  a@virgilo.it ': 'a@virgilio.it',
+  };
+  for (const [typed, expected] of Object.entries(cases)) assert.equal(emailSuggestion(typed), expected, typed);
+  for (const fine of ['a@gmail.com', 'a@mail.com', 'a@gmx.com', 'a@unical.it', 'a@studenti.unical.it', 'a@studio-nutrizione.it', 'mario', 'a@', '', null]) {
+    assert.equal(emailSuggestion(fine), null, String(fine));
+  }
+});
+
+test('the thanks message for people asking to be contacted and the final image come only in their safe form', () => {
+  const path = '11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg';
+  const survey = normalizeSurvey({ ...raw, thanks_contact: ' Ti scriviamo noi. ', thanks_image: { path, alt: 'A presto' } });
+  assert.equal(survey.thanks_contact, 'Ti scriviamo noi.');
+  assert.deepEqual(survey.thanks_image, { path, alt: 'A presto' });
+  assert.equal(normalizeSurvey({ ...raw, thanks_image: { path: 'https://altro.example/x.jpg' } }).thanks_image, null);
+  assert.equal(normalizeSurvey(raw).thanks_contact, '');
+});
+
+test('the free text option can be renamed and keeps «Altro» as its default name', () => {
+  const survey = normalizeSurvey({ ...raw, questions: [{ id: 'piano', type: 'scelta', label: 'Con cosa?', options: [{ id: 'word', label: 'Word' }], allow_other: true, other_label: 'Un software o un\'app', other_placeholder: 'Quale?' }] });
+  const [q] = survey.questions;
+  assert.deepEqual([q.other_label, q.other_placeholder], ['Un software o un\'app', 'Quale?']);
+  assert.equal(otherMessage(q), 'Scrivi la tua risposta accanto a «Un software o un\'app», per favore.');
+  assert.equal(byId('dove').other_label, 'Altro');
+  assert.equal(otherMessage(byId('dove')), MESSAGES.other);
 });

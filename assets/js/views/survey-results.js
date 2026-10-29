@@ -85,10 +85,10 @@ function questionCard(stat, number) {
       'div',
       { class: 'sv-bars' },
       stat.options.map((o) => bar(o.label, o.count, stat.answered)),
-      q.allow_other ? bar('Altro', stat.other.length, stat.answered) : null,
+      q.allow_other ? bar(q.other_label || 'Altro', stat.other.length, stat.answered) : null,
       q.prefer_not ? bar('Preferisco non rispondere', stat.preferNot, stat.answered) : null,
       stat.multiple ? h('p', { class: 'muted small' }, 'Più risposte possibili: le percentuali non sommano a 100.') : null,
-      stat.other.length ? h('details', { class: 'sv-other' }, h('summary', null, `Testi di «Altro» (${stat.other.length})`), textList(stat.other, `${q.label}, Altro`)) : null,
+      stat.other.length ? h('details', { class: 'sv-other' }, h('summary', null, `Testi di «${q.other_label || 'Altro'}» (${stat.other.length})`), textList(stat.other, `${q.label}, ${q.other_label || 'Altro'}`)) : null,
     );
   } else if (stat.distribution) {
     body = h(
