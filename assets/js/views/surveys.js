@@ -8,7 +8,7 @@ import { KINDS, newSurveyToken, statusLabel } from '../schema.js';
 import { canWrite, createItem, getItem, ideas, itemsOf, on, state, trackPresence } from '../store.js';
 import { navigate, setLeaveGuard } from '../router.js';
 import { estimateMinutes, minutesLabel } from '../public/survey-time.js';
-import { questionWarnings, surveyWarnings } from '../survey-checks.js';
+import { previewPage, questionWarnings, surveyWarnings } from '../survey-checks.js';
 import { surveyTemplate } from '../survey-template.js';
 import { saveWithMerge } from './merge.js';
 import { archiveWithConfirm } from './actions.js';
@@ -24,9 +24,9 @@ const TABS = [
   ['risposte', 'Risposte'],
 ];
 
-// Link per chi risponde: la pagina pubblica accanto al sito, con il codice dopo #.
-export function shareLink(token) {
-  return `${new URL('q.html', location.href).href}#${token}`;
+// Link per chi risponde: la pagina pubblica accanto al sito, con il codice dopo #, nella copia con l'anteprima del colore scelto.
+export function shareLink(token, accent) {
+  return `${new URL(previewPage(accent), location.href).href}#${token}`;
 }
 
 const askedCount = (survey) => (survey.data.questions || []).filter((q) => q.type !== 'sezione').length;
@@ -46,7 +46,7 @@ async function copyLink(url, input) {
 }
 
 function linkBox(item, { compact = false } = {}) {
-  const url = shareLink(item.data.token);
+  const url = shareLink(item.data.token, item.data.appearance?.accent);
   const input = h('input', { class: 'input sv-link-input', type: 'text', value: url, readOnly: true, 'aria-label': 'Link pubblico del questionario', onFocus: (e) => e.target.select() });
   return h(
     'div',
@@ -303,7 +303,7 @@ function sharePanel(item, { writable, onSaved }) {
         ? [
             linkBox(item),
             item.status === 'aperto'
-              ? h('p', { class: 'small' }, 'Chi apre il link risponde senza account. Condividetelo dove si trovano le persone che cercate.')
+              ? h('p', { class: 'small' }, 'Chi apre il link risponde senza account. Condividetelo dove si trovano le persone che cercate. L\'anteprima nei messaggi (WhatsApp, Telegram, email) prende il colore scelto in «Aspetto».')
               : h('p', { class: 'banner banner-warn sv-closed' }, `Il questionario è «${statusLabel('survey', item.status)}»: chi apre il link ora vede «questionario chiuso». Apritelo per raccogliere risposte.`),
             writable
               ? h(

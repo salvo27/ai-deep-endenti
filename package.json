@@ -13,6 +13,7 @@
     "test:all": "npm test && npm run test:db",
     "serve": "python3 -m http.server 8080",
     "preload": "node scripts/update-preload.mjs",
+    "anteprime": "node scripts/anteprime.mjs immagini",
     "test:e2e": "playwright test"
   },
   "devDependencies": {

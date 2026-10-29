@@ -206,7 +206,7 @@ test('the Questionari page lists every questionnaire with status, idea, complete
   assert.match(text(open), /Aperto.*Idea: Idea alfa.*Risposte complete: 4/);
   byText(open, 'button', 'Copia il link').click();
   await flush(2);
-  assert.deepEqual(copied, [`https://board.example/q.html#${TOKEN}`]);
+  assert.deepEqual(copied, [`https://board.example/q-indaco.html#${TOKEN}`]);
   assert.match(text(outlet.querySelector(`.sv-card[data-id="${S.draft}"]`)), /Mai aperto.*Il link si crea quando lo aprite/);
   assert.match(text(outlet.querySelector(`.sv-card[data-id="${S.other}"]`)), /Chiuso.*Risposte complete: 1.*Il link mostra «questionario chiuso»/);
 
@@ -426,7 +426,7 @@ test('sharing: opening creates the link, the link is copied, closed and changed 
   assert.equal(saves[0].message, 'Stato: Bozza → Aperto');
   const token = saves[0].snapshot.data.token;
   assert.match(token, schema.SURVEY_TOKEN_RE);
-  const url = `https://board.example/q.html#${token}`;
+  const url = `https://board.example/q-indaco.html#${token}`;
   assert.equal(outlet.querySelector('.sv-link-input').value, url);
   assert.equal(byText(outlet, 'a', 'Apri').getAttribute('href'), url);
   assert.equal(byText(outlet, 'a', 'Apri').getAttribute('target'), '_blank');
@@ -606,7 +606,7 @@ test('advisors see every tab read-only', async () => {
   await visit(`#/questionario/${S.open}/condividi`);
   assert.equal(outlet.querySelector('.sv-status'), null);
   assert.equal(byText(outlet, 'button', 'Cambia link'), null);
-  assert.equal(outlet.querySelector('.sv-link-input').value, `https://board.example/q.html#${TOKEN}`);
+  assert.equal(outlet.querySelector('.sv-link-input').value, `https://board.example/q-indaco.html#${TOKEN}`);
 
   await visit(`#/questionario/${S.open}/risposte`);
   assert.equal(byText(outlet, 'button', 'Cancella'), null);

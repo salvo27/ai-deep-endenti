@@ -179,6 +179,18 @@ export const ACCENT_PALETTE = [
   ['#7c3aed', 'Viola'],
 ];
 
+// Ogni colore della tavolozza ha la sua copia di q.html con l'anteprima del link in quel colore (scripts/anteprime.mjs).
+const slugOf = (name) => name.toLowerCase().replace(/\s+/g, '-');
+export const PREVIEW_PAGES = ACCENT_PALETTE.map(([color, name]) => ({
+  color,
+  name,
+  page: `q-${slugOf(name)}.html`,
+  image: `anteprima-${slugOf(name)}.png`,
+}));
+
+// Un colore fuori dalla tavolozza usa q.html, con l'anteprima del colore predefinito.
+export const previewPage = (accent) => PREVIEW_PAGES.find((p) => p.color === String(accent || '').toLowerCase())?.page || 'q.html';
+
 // Testo del pulsante: bianco o nero, quello che si legge meglio (almeno 4,5:1). Colore sullo sfondo: almeno 3:1 per bordi e barra.
 export function accentCheck(accent, theme = 'automatico') {
   const white = contrastRatio(accent, '#ffffff');
