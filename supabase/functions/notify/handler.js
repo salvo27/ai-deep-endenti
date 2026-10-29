@@ -1,4 +1,4 @@
-import { APP_NAME, isIsoDate, mentionsEmail, oneLine, weeklyEmail } from './templates.js';
+import { APP_NAME, WEEKLY_SUBJECT, greeting, isIsoDate, mentionsEmail, oneLine, weeklyEmail, weeklySections } from './templates.js';
 
 export const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 export const MIN_SECRET_LENGTH = 32;
@@ -10,6 +10,9 @@ export const WEEK_MS = 7 * 24 * 3600 * 1000;
 export const STRONG_COMMITMENTS = new Set(['pilota', 'pagamento']);
 
 const JOBS = new Set(['mentions', 'weekly']);
+// Dal sito, solo per l'admin: anteprima del riepilogo (la sua versione) e invio subito a tutti.
+const ADMIN_JOBS = new Set(['weekly-preview', 'weekly-now']);
+export const MANUAL_INTRO = 'ecco il riepilogo della settimana.';
 const MAX_BODY_BYTES = 1024;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
@@ -25,8 +28,26 @@ export class SendError extends Error {
   }
 }
 
-function json(status, body) {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+function json(status, body, extra = {}) {
+  return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
+}
+
+export function parseOrigins(value) {
+  return String(value || '')
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter((s) => /^https?:\/\/[^/\s]+$/.test(s));
+}
+
+function corsHeaders(origin, allowed) {
+  const headers = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Max-Age': '600',
+    Vary: 'Origin',
+  };
+  if (origin && allowed.includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+  return headers;
 }
 
 export function readConfig(getEnv) {
@@ -57,13 +78,13 @@ export async function sameSecret(given, expected) {
   return diff === 0;
 }
 
-async function readJob(req) {
+async function readJob(req, jobs = JOBS) {
   const raw = await req.text();
   if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return null;
   try {
     const body = JSON.parse(raw);
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'job')) return null;
-    return JOBS.has(body.job) ? body.job : null;
+    return jobs.has(body.job) ? body.job : null;
   } catch {
     return null;
   }
@@ -215,32 +236,41 @@ async function runMentions(ctx) {
   return result;
 }
 
-async function runWeekly(ctx) {
-  const { deps, now, siteUrl } = ctx;
+async function loadWeek(ctx) {
+  const { deps, now } = ctx;
   const today = romeDate(now);
   const weekStart = mondayOf(today);
   const weekEnd = addDays(weekStart, 6);
   const since = new Date(now.getTime() - WEEK_MS).toISOString();
   const [people, data] = await Promise.all([deps.recipients(), deps.weeklyData(since)]);
   const team = teamSummary(data || {});
+  const reportFor = (userId) => ({ todo: personalTodo(data || {}, userId, { today, weekEnd }), team, unread: unreadFor(data || {}, userId) });
+  return { people: people || [], today, weekStart, reportFor };
+}
 
+// key: il giorno con cui si segna l'invio a ogni persona. Il lunedì automatico usa il lunedì della settimana,
+// l'invio a mano dal sito il giorno stesso: un secondo clic nello stesso giorno non manda nulla, il lunedì dopo sì.
+async function runWeekly(ctx, { manual = false } = {}) {
+  const { deps, siteUrl } = ctx;
+  const { people, today, weekStart, reportFor } = await loadWeek(ctx);
+  const key = manual ? today : weekStart;
   const result = { sent: 0, empty: 0, optedOut: 0, already: 0, failed: 0 };
-  for (const person of people || []) {
+  for (const person of people) {
     if (!person.weekly) {
       result.optedOut += 1;
       continue;
     }
-    const report = { todo: personalTodo(data || {}, person.user_id, { today, weekEnd }), team, unread: unreadFor(data || {}, person.user_id) };
+    const report = reportFor(person.user_id);
     if (isEmptyReport(report)) {
       result.empty += 1;
       continue;
     }
-    const message = weeklyEmail({ name: person.display_name, report, siteUrl });
-    if (!(await deps.claimWeekly(person.user_id, weekStart))) {
+    const message = weeklyEmail({ name: person.display_name, report, siteUrl, intro: manual ? MANUAL_INTRO : undefined });
+    if (!(await deps.claimWeekly(person.user_id, key))) {
       result.already += 1;
       continue;
     }
-    const outcome = await deliver(ctx, person, message, () => deps.releaseWeekly(person.user_id, weekStart));
+    const outcome = await deliver(ctx, person, message, () => deps.releaseWeekly(person.user_id, key));
     if (outcome === 'sent') {
       result.sent += 1;
     } else {
@@ -251,12 +281,70 @@ async function runWeekly(ctx) {
   return result;
 }
 
+// L'anteprima è la versione di chi la chiede, in pezzi di testo e link: il sito la mostra senza HTML.
+// I conteggi dicono quante persone la riceverebbero adesso.
+async function previewWeekly(ctx, userId) {
+  const { people, reportFor } = await loadWeek(ctx);
+  const counts = { recipients: 0, empty: 0, optedOut: 0 };
+  for (const person of people) {
+    if (!person.weekly) counts.optedOut += 1;
+    else if (isEmptyReport(reportFor(person.user_id))) counts.empty += 1;
+    else counts.recipients += 1;
+  }
+  const report = reportFor(userId);
+  const me = people.find((p) => p.user_id === userId);
+  const preview = isEmptyReport(report)
+    ? null
+    : { subject: WEEKLY_SUBJECT, hello: greeting(me?.display_name), intro: MANUAL_INTRO, sections: weeklySections(report, ctx.siteUrl) };
+  return { ...counts, preview };
+}
+
 export function createHandler(deps) {
   const log = deps.log || ((event, fields) => console.log(JSON.stringify({ event, ...fields })));
   const clock = deps.now || (() => new Date());
   const getEnv = deps.env || (() => undefined);
 
+  const context = (job, config) => ({
+    job,
+    deps,
+    log,
+    now: clock(),
+    siteUrl: config.siteUrl,
+    send: (person, message) => sendWithBrevo(deps.fetch, config.brevo, person, message),
+  });
+
+  // Dal sito: solo dalle origini ammesse, con il token di un admin con la verifica in due passaggi.
+  async function fromSite(req) {
+    const allowed = parseOrigins(getEnv('ALLOWED_ORIGINS'));
+    const origin = req.headers.get('origin');
+    const cors = corsHeaders(origin, allowed);
+    if (req.method === 'OPTIONS') return new Response(null, { status: origin && allowed.includes(origin) ? 204 : 403, headers: cors });
+    if (!origin || !allowed.includes(origin)) return json(403, { error: 'Origine non autorizzata.' }, cors);
+    if (req.method !== 'POST') return json(405, { error: 'Metodo non consentito.' }, cors);
+    const caller = await Promise.resolve(deps.verifyAdmin?.(req.headers.get('authorization'))).catch(() => null);
+    if (!caller?.userId) return json(401, { error: 'Accesso richiesto.' }, cors);
+    if (!caller.admin) return json(403, { error: 'Solo l\'admin, con la verifica in due passaggi, può farlo.' }, cors);
+    const job = await readJob(req, ADMIN_JOBS);
+    if (!job) return json(400, { error: 'Richiesta non valida.' }, cors);
+    const config = readConfig(getEnv);
+    if (job === 'weekly-now' && config.missing.length) {
+      log('notify_not_configured', { job, missing: config.missing });
+      return json(200, { job, configured: false, missing: config.missing }, cors);
+    }
+    try {
+      const ctx = context(job, config);
+      const result = job === 'weekly-preview' ? await previewWeekly(ctx, caller.userId) : await runWeekly(ctx, { manual: true });
+      if (job === 'weekly-now') log('notify_done', { job, sent: result.sent, empty: result.empty, optedOut: result.optedOut, already: result.already, failed: result.failed });
+      return json(200, { job, configured: !config.missing.length, ...result }, cors);
+    } catch (error) {
+      log('notify_failed', { job, kind: error?.name || 'Error' });
+      return json(500, { error: 'Riepilogo non riuscito. Riprova tra poco.' }, cors);
+    }
+  }
+
   return async function handle(req) {
+    // I job di pg_cron mandano il segreto condiviso; tutto il resto arriva dal sito.
+    if (!req.headers.has('x-notify-secret')) return fromSite(req);
     if (req.method !== 'POST') return json(405, { error: 'Metodo non consentito.' });
     const config = readConfig(getEnv);
     if (!config.secret) {
@@ -276,14 +364,7 @@ export function createHandler(deps) {
       return json(200, { job, configured: false, missing: config.missing });
     }
 
-    const ctx = {
-      job,
-      deps,
-      log,
-      now: clock(),
-      siteUrl: config.siteUrl,
-      send: (person, message) => sendWithBrevo(deps.fetch, config.brevo, person, message),
-    };
+    const ctx = context(job, config);
     try {
       const result = job === 'mentions' ? await runMentions(ctx) : await runWeekly(ctx);
       log('notify_done', { job, ...result });

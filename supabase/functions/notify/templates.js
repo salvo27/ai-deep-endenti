@@ -55,7 +55,9 @@ export function mentionRoute(m) {
 }
 
 const authorName = (m) => oneLine(m.author_name, 80) || 'Qualcuno';
-const greeting = (name) => (oneLine(name, 80) ? `Ciao ${oneLine(name, 80)},` : 'Ciao,');
+export const greeting = (name) => (oneLine(name, 80) ? `Ciao ${oneLine(name, 80)},` : 'Ciao,');
+export const WEEKLY_INTRO = 'ecco il riepilogo del lunedì.';
+export const WEEKLY_SUBJECT = `La tua settimana su ${APP_NAME}`;
 
 // Una riga è fatta di pezzi: testo semplice oppure testo con link.
 const t = (text) => ({ text });
@@ -203,10 +205,9 @@ export function weeklySections(report, siteUrl) {
   ].filter((s) => s.lines.length);
 }
 
-export function weeklyEmail({ name, report, siteUrl }) {
-  const subject = `La tua settimana su ${APP_NAME}`;
+export function weeklyEmail({ name, report, siteUrl, intro = WEEKLY_INTRO }) {
+  const subject = WEEKLY_SUBJECT;
   const hello = greeting(name);
-  const intro = 'ecco il riepilogo del lunedì.';
   const sections = weeklySections(report, siteUrl);
 
   const body = [

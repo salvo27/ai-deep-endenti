@@ -85,6 +85,22 @@ async function allPages(build) {
   }
 }
 
+// Le funzioni di Supabase rispondono con { error } e uno stato: il messaggio arriva com'è, al massimo 300 caratteri.
+async function invokeFunction(name, body, fallback, code) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let message = fallback;
+    try {
+      const payload = await error.context?.json?.();
+      if (typeof payload?.error === 'string') message = payload.error.slice(0, 300);
+    } catch {
+      // risposta non JSON: resta il messaggio generico
+    }
+    throw new AppError(message, { code, status: error.context?.status ?? null });
+  }
+  return data;
+}
+
 export const api = {
   async getSession() {
     const data = await unwrap(supabase.auth.getSession());
@@ -322,18 +338,16 @@ export const api = {
   },
 
   async invokeClaude(task, context) {
-    const { data, error } = await supabase.functions.invoke(CONFIG.claudeFunction, { body: { task, context } });
-    if (error) {
-      let message = 'Claude non è disponibile in questo momento. Riprova più tardi.';
-      try {
-        const body = await error.context?.json?.();
-        if (typeof body?.error === 'string') message = body.error.slice(0, 300);
-      } catch {
-        // risposta non JSON: resta il messaggio generico
-      }
-      throw new AppError(message, { code: 'claude', status: error.context?.status ?? null });
-    }
-    return data;
+    return invokeFunction(CONFIG.claudeFunction, { task, context }, 'Claude non è disponibile in questo momento. Riprova più tardi.', 'claude');
+  },
+
+  // Riepilogo settimanale, solo per l'admin: la sua anteprima con quante persone lo riceverebbero, e l'invio subito a tutti.
+  async weeklyPreview() {
+    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-preview' }, 'Anteprima non disponibile. Riprova tra poco.', 'notify');
+  },
+
+  async sendWeeklyNow() {
+    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-now' }, 'Invio non riuscito. Riprova tra poco.', 'notify');
   },
 
   // I questionari sono tra gli items; le risposte sono solo quelle visibili (questionario e idea non archiviati).

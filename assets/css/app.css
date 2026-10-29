@@ -4926,3 +4926,25 @@ button.chat-quote {
   height: 100%;
   object-fit: cover;
 }
+
+/* Anteprima del riepilogo settimanale (solo admin) */
+.email-preview {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.email-preview h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.email-preview ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.email-preview li {
+  margin-bottom: 0.3rem;
+}

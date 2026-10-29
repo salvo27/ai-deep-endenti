@@ -35,7 +35,9 @@ const ENV = {
   BREVO_SENDER_EMAIL: 'avvisi@board.example',
   BREVO_SENDER_NAME: 'Board di prova',
   SITE_URL: SITE,
+  ALLOWED_ORIGINS: 'https://board.example, http://localhost:8080',
 };
+const ORIGIN = 'https://board.example';
 
 const people = () => [
   { user_id: ANNA, display_name: 'Anna', email: 'anna@board.example', mentions: true, weekly: true },
@@ -126,7 +128,7 @@ function request({ job = 'mentions', secret = SECRET, method = 'POST', body } = 
 
 test('only calls with the shared secret are accepted', async () => {
   const { handle, calls, sent, logs } = setup();
-  assert.equal((await handle(request({ secret: null }))).status, 401);
+  assert.equal((await handle(request({ secret: null }))).status, 403, 'senza segreto è una chiamata dal sito, e senza origine non passa');
   assert.equal((await handle(request({ secret: 'x'.repeat(40) }))).status, 401);
   assert.equal((await handle(request({ secret: SECRET.slice(1) }))).status, 401);
   assert.equal((await handle(request({ method: 'GET' }))).status, 405);
@@ -428,4 +430,78 @@ test('personal tasks and team news follow the rules of the report', () => {
   const team = teamSummary(busyWeek());
   assert.deepEqual([team.interviews, team.commitments], [2, 1]);
   assert.deepEqual([...STRONG_COMMITMENTS].sort(), [...SITE_COMMITMENTS].sort(), 'stessi impegni concreti del sito');
+});
+
+function fromSite({ job = 'weekly-preview', origin = ORIGIN, token = 'Bearer admin', method = 'POST', body } = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (origin) headers.origin = origin;
+  if (token) headers.authorization = token;
+  return new Request('https://x.supabase.co/functions/v1/notify', { method, headers, body: method === 'POST' ? (body ?? JSON.stringify({ job })) : undefined });
+}
+
+const verifyAdmin = async (authorization) => {
+  if (authorization === 'Bearer admin') return { userId: ANNA, admin: true };
+  if (authorization === 'Bearer membro') return { userId: BRUNO, admin: false };
+  return null;
+};
+
+test('from the site only an admin from an allowed origin can ask for the weekly report, and never the cron jobs', async () => {
+  const { handle, calls, sent } = setup({ deps: { verifyAdmin }, week: busyWeek() });
+  const pre = await handle(fromSite({ method: 'OPTIONS' }));
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get('access-control-allow-origin'), ORIGIN);
+  assert.equal((await handle(fromSite({ method: 'OPTIONS', origin: 'https://evil.example' }))).status, 403);
+  assert.equal((await handle(fromSite({ origin: 'https://evil.example' }))).status, 403);
+  assert.equal((await handle(fromSite({ origin: null }))).status, 403);
+  assert.equal((await handle(fromSite({ token: null }))).status, 401);
+  assert.equal((await handle(fromSite({ token: 'Bearer falso' }))).status, 401);
+  const member = await handle(fromSite({ token: 'Bearer membro' }));
+  assert.equal(member.status, 403);
+  assert.match((await member.json()).error, /Solo l'admin/);
+  for (const job of ['weekly', 'mentions', 'tutto']) assert.equal((await handle(fromSite({ job }))).status, 400, job);
+  assert.equal((await handle(fromSite({ body: '{"job":"weekly-now","to":"x"}' }))).status, 400);
+  assert.equal(calls.recipients + calls.pending + calls.weekly, 0);
+  assert.equal(sent.length, 0);
+});
+
+test('the admin preview is their own report as text and links, with how many would receive it, and sends nothing', async () => {
+  const { handle, calls, sent } = setup({ deps: { verifyAdmin }, week: busyWeek() });
+  const res = await handle(fromSite());
+  assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
+  const body = await res.json();
+  assert.deepEqual([body.recipients, body.empty, body.optedOut], [2, 0, 1]);
+  assert.equal(body.preview.subject, 'La tua settimana su ai-deep-endenti');
+  assert.equal(body.preview.hello, 'Ciao Anna,');
+  assert.equal(body.preview.intro, 'ecco il riepilogo della settimana.');
+  assert.deepEqual(body.preview.sections.map((x) => x.title), ['Da fare questa settimana', 'Nel team negli ultimi 7 giorni', 'Da leggere']);
+  const chat = body.preview.sections[2].lines[1].parts[0];
+  assert.deepEqual(chat, { text: '5 messaggi non letti in chat', href: `${SITE}/#/chat` });
+  assert.equal(sent.length, 0);
+  assert.deepEqual(calls.claimedWeekly, []);
+
+  const quiet = setup({ deps: { verifyAdmin }, week: emptyWeek() });
+  const empty = await (await quiet.handle(fromSite())).json();
+  assert.equal(empty.preview, null);
+  assert.equal(empty.recipients, 0);
+});
+
+test('sending now from the site marks today, not Monday: a second click the same day sends nothing', async () => {
+  const thursday = new Date('2026-10-29T15:00:00Z');
+  const { handle, calls, sent, logs } = setup({ deps: { verifyAdmin, now: () => thursday }, week: busyWeek() });
+  const body = await (await handle(fromSite({ job: 'weekly-now' }))).json();
+  assert.equal(body.sent, 2);
+  assert.deepEqual(calls.claimedWeekly, [[ANNA, '2026-10-29'], [BRUNO, '2026-10-29']]);
+  assert.match(sent[0].body.textContent, /ecco il riepilogo della settimana\./);
+  assert.doesNotMatch(sent[0].body.textContent, /del lunedì/);
+  assert.ok(logs.some((l) => l.event === 'notify_done' && l.job === 'weekly-now' && l.sent === 2));
+
+  const again = setup({ deps: { verifyAdmin, now: () => thursday }, week: busyWeek(), alreadySent: [ANNA, BRUNO] });
+  const second = await (await again.handle(fromSite({ job: 'weekly-now' }))).json();
+  assert.deepEqual([second.sent, second.already], [0, 2]);
+  assert.equal(again.sent.length, 0);
+
+  const noBrevo = setup({ deps: { verifyAdmin }, env: { ...ENV, BREVO_API_KEY: '' }, week: busyWeek() });
+  const off = await (await noBrevo.handle(fromSite({ job: 'weekly-now' }))).json();
+  assert.equal(off.configured, false);
+  assert.equal(noBrevo.sent.length, 0);
 });

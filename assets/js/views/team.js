@@ -1,6 +1,6 @@
 import { h, mount, busy, confirmDialog, toast } from '../lib/dom.js';
 import { api } from '../lib/api.js';
-import { fmtDateTime } from '../lib/format.js';
+import { fmtDateTime, plural } from '../lib/format.js';
 import { LIMITS, cleanLine, isEmail } from '../lib/validate.js';
 import { exportBackup } from '../export.js';
 import { isAdmin, memberName, on, reloadMembers, state } from '../store.js';
@@ -60,6 +60,100 @@ function addMemberForm() {
     }
   }));
   return form;
+}
+
+const textOf = (value) => (typeof value === 'string' ? value : '');
+
+// Link dell'email verso il sito: dentro il sito diventano link interni, gli altri restano testo.
+function siteHash(href) {
+  try {
+    const url = new URL(href);
+    return url.origin === location.origin && url.hash.startsWith('#/') ? url.hash : null;
+  } catch {
+    return null;
+  }
+}
+
+export function weeklyPreviewNode(info) {
+  const extra = [
+    info.empty ? `${plural(info.empty, 'persona non ha', 'persone non hanno')} nulla da leggere` : '',
+    info.optedOut ? `${plural(info.optedOut, 'persona l\'ha spento', 'persone l\'hanno spento')}` : '',
+  ].filter(Boolean);
+  const counts = h('p', { class: 'small' }, `Adesso lo riceverebbero ${plural(info.recipients || 0, 'persona', 'persone')}${extra.length ? ` (${extra.join(', ')})` : ''}.`);
+  const preview = info.preview;
+  if (!preview) return [counts, h('p', { class: 'muted' }, 'Il tuo riepilogo sarebbe vuoto: questa settimana non c\'è nulla da segnalarti.')];
+  const part = (p) => {
+    const hash = siteHash(p?.href);
+    return hash ? h('a', { href: hash }, textOf(p.text)) : textOf(p?.text);
+  };
+  const sections = (Array.isArray(preview.sections) ? preview.sections : []).map((sec) => [
+    h('h3', null, textOf(sec?.title)),
+    h('ul', null, (Array.isArray(sec?.lines) ? sec.lines : []).map((line) => h('li', null, (Array.isArray(line?.parts) ? line.parts : []).map(part)))),
+  ]);
+  return [
+    counts,
+    h(
+      'div',
+      { class: 'email-preview' },
+      h('p', { class: 'muted small' }, `Oggetto: ${textOf(preview.subject)}`),
+      h('p', null, `${textOf(preview.hello)} ${textOf(preview.intro)}`),
+      sections,
+    ),
+  ];
+}
+
+// Solo per l'admin: il riepilogo del lunedì si può vedere e mandare subito a tutti.
+function weeklyCard() {
+  const host = h('div', { class: 'stack' });
+  let last = null;
+  const load = async () => {
+    last = await api.weeklyPreview();
+    mount(host, weeklyPreviewNode(last));
+    return last;
+  };
+  const show = button('Anteprima', { iconName: 'eye' });
+  show.addEventListener('click', busy(show, async () => {
+    try {
+      await load();
+    } catch (error) {
+      mount(host, errorBox(error));
+    }
+  }));
+  const send = button('Manda a tutti ora', { kind: 'primary', iconName: 'bell' });
+  send.addEventListener('click', busy(send, async () => {
+    try {
+      const info = last || (await load());
+      if (!info.recipients) {
+        toast('Adesso non partirebbe a nessuno: non c\'è nulla da segnalare.', { type: 'info' });
+        return;
+      }
+      const ok = await confirmDialog(
+        `Il riepilogo parte adesso per ${plural(info.recipients, 'persona', 'persone')}. Chi l'ha spento dal profilo non lo riceve, e lunedì parte comunque quello automatico.`,
+        { title: 'Mandare il riepilogo a tutti?', okLabel: 'Manda' },
+      );
+      if (!ok) return;
+      const result = await api.sendWeeklyNow();
+      if (result?.configured === false) {
+        toast('Le email non sono configurate: mancano le impostazioni di Brevo nella funzione.', { type: 'error' });
+        return;
+      }
+      const notes = [
+        result.already ? `${plural(result.already, 'persona l\'aveva', 'persone l\'avevano')} già ricevuto oggi` : '',
+        result.failed ? `${plural(result.failed, 'invio non riuscito', 'invii non riusciti')}` : '',
+      ].filter(Boolean);
+      toast(`Riepilogo mandato a ${plural(result.sent || 0, 'persona', 'persone')}${notes.length ? ` (${notes.join(', ')})` : ''}.`, { type: result.failed ? 'error' : 'success' });
+    } catch (error) {
+      toast(error.message, { type: 'error' });
+    }
+  }));
+  return h(
+    'section',
+    { class: 'card stack' },
+    h('h2', null, 'Riepilogo settimanale via email'),
+    h('p', { class: 'muted small' }, 'Parte da solo ogni lunedì mattina per chi non l\'ha spento dal profilo. Qui vedi la tua versione e puoi mandarlo subito a tutti; un secondo invio nello stesso giorno non parte.'),
+    h('div', { class: 'row' }, show, send),
+    host,
+  );
 }
 
 export function teamView(outlet) {
@@ -142,6 +236,7 @@ export function teamView(outlet) {
         ),
       ),
       admin ? addMemberForm() : null,
+      admin ? weeklyCard() : null,
       admin ? h('section', { class: 'card' }, h('h2', null, 'Registro di sicurezza'), auditHost) : null,
     );
   };
