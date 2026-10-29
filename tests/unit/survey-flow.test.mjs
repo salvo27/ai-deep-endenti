@@ -7,6 +7,7 @@ import {
   LIMITS,
   MESSAGES,
   OTHER,
+  accentTokens,
   buildMeta,
   buildScreens,
   collectAnswers,
@@ -349,6 +350,28 @@ test('the public page never imports the app, the store, the router or anything t
   const importsOf = (file) =>
     [...readFileSync(new URL(`assets/js/public/${file}`, ROOT), 'utf8').matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
   assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js']);
-  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js']);
+  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js']);
   assert.deepEqual(importsOf('survey-time.js'), []);
+  assert.deepEqual(importsOf('survey-colors.js'), []);
+});
+
+test('the accent adapts to every theme only as much as needed to stay readable', () => {
+  const backgrounds = { l: ['#f4f3ef', '#ffffff', '#faf9f6'], s: ['#ede3cf', '#f8f1e3', '#f3ead8'], d: ['#141518', '#1c1d21', '#222328'] };
+  for (const accent of ['#3b4bc8', '#1d6fb8', '#0f766e', '#15803d', '#b45309', '#c2372f', '#be185d', '#7c3aed', '#ffcc00', '#f5e663', '#111111', '#ffffff']) {
+    const tokens = accentTokens(accent);
+    for (const [key, list] of Object.entries(backgrounds)) {
+      const ui = tokens[`--ui-${key}`];
+      for (const bg of list) assert.ok(contrastRatio(ui, bg) >= 3, `${accent} ${key}: ${ui} su ${bg}`);
+      assert.ok(contrastRatio(tokens[`--on-${key}`], ui) >= 4.5, `${accent} ${key}: testo sul colore`);
+      assert.ok(contrastRatio(tokens[`--text-${key}`], list[1]) >= 4.5, `${accent} ${key}: testo colorato`);
+      assert.ok(contrastRatio(tokens[`--text-${key}`], tokens[`--tint-${key}`]) >= 4.5, `${accent} ${key}: testo sulla tinta`);
+    }
+    assert.ok(contrastRatio(tokens['--ui-h'], '#ffffff') >= 7, `${accent}: contrasto elevato`);
+  }
+  const indaco = accentTokens('#3b4bc8');
+  assert.equal(indaco['--ui-l'], '#3b4bc8', 'sul chiaro resta com\'è');
+  assert.notEqual(indaco['--ui-d'], '#3b4bc8', 'sul tema scuro si schiarisce');
+  assert.equal(accentTokens('#ffcc00')['--ui-d'], '#ffcc00');
+  assert.equal(accentTokens('#ffcc00')['--on-d'], '#000000');
+  assert.equal(indaco['--ui-h'], '#000000', 'sotto 7:1 sul bianco diventa nero');
 });

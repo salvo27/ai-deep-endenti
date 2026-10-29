@@ -133,6 +133,8 @@ export const SURVEY_THEMES = [
   ['automatico', 'Come il dispositivo'],
   ['chiaro', 'Chiaro'],
   ['scuro', 'Scuro'],
+  ['seppia', 'Seppia'],
+  ['contrasto', 'Contrasto elevato'],
 ];
 
 export const SURVEY_ACCENT = '#3b4bc8';

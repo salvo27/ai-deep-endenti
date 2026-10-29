@@ -3,9 +3,10 @@ import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
 import { LIMITS } from '../lib/validate.js';
 import { truncate } from '../lib/format.js';
-import { QUESTION_ROLES, QUESTION_TYPES, SURVEY_LAYOUTS, SURVEY_LIMITS, SURVEY_PROGRESS, SURVEY_THEMES, sanitizeSnapshot } from '../schema.js';
+import { QUESTION_ROLES, QUESTION_TYPES, SURVEY_ACCENT, SURVEY_LAYOUTS, SURVEY_LIMITS, SURVEY_PROGRESS, SURVEY_THEMES, sanitizeSnapshot } from '../schema.js';
 import { itemsOf, memberName } from '../store.js';
 import { estimateMinutes, minutesLabel } from '../public/survey-time.js';
+import { accentTokens } from '../public/survey-colors.js';
 import { ACCENT_PALETTE, accentCheck, countByRole, fmtRatio, hasBrackets, questionWarnings, surveyWarnings } from '../survey-checks.js';
 import { SCALE_PRESETS, convertQuestion, duplicateQuestion, newQuestion, newRowId, presetLabels, scaleFromLabels } from '../survey-template.js';
 import { saveWithMerge } from './merge.js';
@@ -502,10 +503,18 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
   return { el, session };
 }
 
+// Colori dei temi come in survey.css; il colore del questionario arriva già adattato al tema, come nella pagina pubblica.
+const PREVIEW_THEMES = {
+  chiaro: { key: 'l', bg: '#ffffff', text: '#1d1c1a', muted: '#5e5b55', line: '#d9d6ce' },
+  seppia: { key: 's', bg: '#f8f1e3', text: '#33281c', muted: '#6a5843', line: '#d9c8a8' },
+  scuro: { key: 'd', bg: '#1c1d21', text: '#ececee', muted: '#a6a8ae', line: '#3a3c43' },
+  contrasto: { key: 'h', bg: '#ffffff', text: '#000000', muted: '#262626', line: '#000000' },
+};
+
 // Anteprima di una domanda con tema e colore scelti; il tema automatico mostra chiaro e scuro.
 function previewCard(data, mode) {
-  const accent = data.appearance?.accent;
-  const { onAccent } = accentCheck(accent);
+  const look = PREVIEW_THEMES[mode] || PREVIEW_THEMES.chiaro;
+  const tokens = accentTokens(data.appearance?.accent || SURVEY_ACCENT);
   const asked = (data.questions || []).filter((q) => q.type !== 'sezione');
   const sample = asked.find((q) => q.type === 'scelta' && q.options?.length >= 2);
   const options = sample ? sample.options.slice(0, 3).map((o) => o.label) : ['Prima opzione', 'Seconda opzione'];
@@ -513,8 +522,19 @@ function previewCard(data, mode) {
   const position = sample ? asked.indexOf(sample) + 1 : 1;
   return h(
     'div',
-    { class: ['sv-preview', mode === 'scuro' ? 'is-dark' : 'is-light'], style: { '--sv-accent': accent, '--sv-on-accent': onAccent } },
-    h('span', { class: 'sv-preview-mode' }, mode === 'scuro' ? 'Scuro' : 'Chiaro'),
+    {
+      class: 'sv-preview',
+      dataset: { mode },
+      style: {
+        '--sv-bg': look.bg,
+        '--sv-text': look.text,
+        '--sv-muted': look.muted,
+        '--sv-line': look.line,
+        '--sv-accent': tokens[`--ui-${look.key}`],
+        '--sv-on-accent': tokens[`--on-${look.key}`],
+      },
+    },
+    h('span', { class: 'sv-preview-mode' }, SURVEY_THEMES.find(([v]) => v === mode)?.[1] || 'Chiaro'),
     data.progress === 'barra' ? h('div', { class: 'sv-preview-bar' }, h('span', { style: { width: `${Math.round((position / total) * 100)}%` } })) : null,
     data.progress === 'contatore' ? h('p', { class: 'sv-preview-count' }, `Domanda ${position} di ${total}`) : null,
     h('p', { class: 'sv-preview-q' }, sample?.label || 'Quale di queste descrive meglio la tua situazione?'),
@@ -527,6 +547,7 @@ const REASONS = {
   layout: 'Sul telefono si saltano meno domande, e chi abbandona lascia comunque le risposte date (Mavletova e Couper 2016).',
   progress: 'Dice onestamente quante domande mancano; in media non cambia gli abbandoni, una barra ingannevole li aumenta (Villar e altri 2013).',
   time: 'Dire quanto dura, senza sottostimarlo, fa iniziare e finire più persone (Galesic e Bosnjak 2009).',
+  theme: 'Chiaro o scuro come il telefono di chi risponde; il testo scuro su chiaro si legge meglio (Piepenbrock e altri 2013). Chi ha chiesto più contrasto al telefono lo riceve con ogni tema.',
 };
 
 function choiceGroup(legend, name, entries, value, onPick, { recommended, reason } = {}) {
@@ -668,7 +689,7 @@ export function settingsPanel(item, { writable, onSaved }) {
       choiceGroup('Tema', 'sv-theme', SURVEY_THEMES, data.appearance.theme, (v) => {
         data.appearance.theme = v;
         update();
-      }),
+      }, { recommended: 'automatico', reason: REASONS.theme }),
       h(
         'div',
         { class: 'field' },

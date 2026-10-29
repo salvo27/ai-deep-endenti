@@ -344,7 +344,7 @@ test('se il questionario non si carica c\'è un messaggio con Riprova', async ({
 test('tema scuro forzato e colore del questionario su pulsanti, barra e righe scelte, con testo nero su un colore chiaro', async ({ page }) => {
   await open(page, { survey: { ...SURVEY, appearance: { theme: 'scuro', accent: '#ffcc00' } } });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'scuro');
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(18, 20, 27)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(20, 21, 24)');
   const begin = page.getByRole('button', { name: 'Inizia' });
   await expect(begin).toHaveCSS('background-color', 'rgb(255, 204, 0)');
   await expect(begin).toHaveCSS('color', 'rgb(0, 0, 0)');
@@ -358,12 +358,50 @@ test('tema automatico segue il dispositivo, chiaro lo ignora; testo bianco sul c
   await page.emulateMedia({ colorScheme: 'dark' });
   await open(page);
   expect(await page.locator('html').getAttribute('data-theme')).toBeNull();
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(18, 20, 27)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(20, 21, 24)');
   await expect(page.getByRole('button', { name: 'Inizia' })).toHaveCSS('color', 'rgb(255, 255, 255)');
   const light = await page.context().newPage();
   await light.emulateMedia({ colorScheme: 'dark' });
   await open(light, { survey: { ...SURVEY, appearance: { theme: 'chiaro', accent: '#3b4bc8' } } });
-  await expect(light.locator('body')).toHaveCSS('background-color', 'rgb(245, 246, 250)');
+  await expect(light.locator('body')).toHaveCSS('background-color', 'rgb(244, 243, 239)');
+});
+
+test('seppia e contrasto elevato: sfondo caldo, poi bianco e nero con il pulsante nero', async ({ page }) => {
+  await open(page, { survey: { ...SURVEY, appearance: { theme: 'seppia', accent: '#3b4bc8' } } });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'seppia');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(237, 227, 207)');
+  const strong = await page.context().newPage();
+  await open(strong, { survey: { ...SURVEY, appearance: { theme: 'contrasto', accent: '#3b4bc8' } } });
+  await expect(strong.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  const begin = strong.getByRole('button', { name: 'Inizia' });
+  await expect(begin).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+  await expect(begin).toHaveCSS('color', 'rgb(255, 255, 255)');
+});
+
+test('sul computer una lettera sceglie la risposta e Invio va avanti, mai mentre si scrive', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'computer', 'solo sul computer');
+  await start(page);
+  await expect(page.locator('.opt-key').first()).toBeVisible();
+  await page.keyboard.press('b');
+  await expect(page.getByLabel('Da 30 a 50')).toBeChecked();
+  await page.keyboard.press('Enter');
+  await expect(counter(page)).toHaveText('Domanda 2 di 7');
+  const field = page.getByLabel('Che lavoro fai?');
+  await field.fill('ab');
+  await expect(field).toHaveValue('ab');
+  await expect(counter(page)).toHaveText('Domanda 2 di 7');
+});
+
+test('sul telefono, con una domanda corta, Indietro e Avanti stanno in fondo allo schermo', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'telefono', 'solo sul telefono');
+  await start(page);
+  await page.getByLabel('Meno di 30').check();
+  await next(page);
+  const box = await page.getByRole('button', { name: 'Avanti' }).boundingBox();
+  const height = page.viewportSize().height;
+  expect(box.y + box.height, 'Avanti in fondo').toBeGreaterThan(height - 90);
+  expect(box.y + box.height, 'Avanti dentro lo schermo').toBeLessThanOrEqual(height);
+  await expect(page.locator('.opt-key').first()).toBeHidden();
 });
 
 test('i testi del questionario restano testo e un colore non valido torna quello predefinito', async ({ page }) => {

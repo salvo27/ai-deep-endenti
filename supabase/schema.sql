@@ -328,7 +328,7 @@ begin
          when jsonb_typeof(new.data -> 'appearance') = 'object' then exists (
            select 1 from jsonb_each(new.data -> 'appearance') a
            where not (
-             (a.key = 'theme' and jsonb_typeof(a.value) = 'string' and (a.value #>> '{}') in ('automatico', 'chiaro', 'scuro'))
+             (a.key = 'theme' and jsonb_typeof(a.value) = 'string' and (a.value #>> '{}') in ('automatico', 'chiaro', 'scuro', 'seppia', 'contrasto'))
              or (a.key = 'accent' and jsonb_typeof(a.value) = 'string' and (a.value #>> '{}') ~ '^#[0-9a-f]{6}$')
            )
          )
@@ -1760,7 +1760,7 @@ begin
       where r.survey_id = s.id and r.completed and r.duration_seconds is not null
     ),
     'appearance', jsonb_build_object(
-      'theme', case when s.data -> 'appearance' ->> 'theme' in ('chiaro', 'scuro') then s.data -> 'appearance' ->> 'theme' else 'automatico' end,
+      'theme', case when s.data -> 'appearance' ->> 'theme' in ('chiaro', 'scuro', 'seppia', 'contrasto') then s.data -> 'appearance' ->> 'theme' else 'automatico' end,
       'accent', case when s.data -> 'appearance' ->> 'accent' ~ '^#[0-9a-f]{6}$' then s.data -> 'appearance' ->> 'accent' else '#3b4bc8' end
     ),
     'questions', public.survey_public_questions(s.data)

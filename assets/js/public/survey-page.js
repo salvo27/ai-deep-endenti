@@ -4,6 +4,7 @@ import {
   LIMITS,
   MESSAGES,
   OTHER,
+  accentTokens,
   buildMeta,
   buildScreens,
   collectAnswers,
@@ -32,6 +33,32 @@ const ALREADY_SENT = /già state inviate/i;
 const SEND_ERROR = 'Invio non riuscito. Riprova tra poco.';
 const THANKS = 'Le tue risposte sono arrivate. Ora puoi chiudere questa pagina.';
 const asText = (value) => (typeof value === 'string' ? value : '');
+const CHOICE_TYPES = new Set(['scelta', 'scelte', 'scala']);
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// Icone disegnate qui, a tratto: niente immagini o font esterni, la policy della pagina li bloccherebbe.
+const CIRCLE = 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0';
+const ICONS = {
+  clock: [CIRCLE, 'M12 7v5l3 2'],
+  mail: ['M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 'M3 7l9 6 9-6'],
+  saved: [CIRCLE, 'M8.5 12.5l2.5 2.5 4.5-5'],
+  lock: ['M5 13a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z', 'M8 11V8a4 4 0 1 1 8 0v3'],
+  back: ['M19 12H5', 'M11 6l-6 6 6 6'],
+  check: ['M5 12.5l4.5 4.5L19 7.5'],
+};
+
+function icon(name, size = 20) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  const attrs = { viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' };
+  for (const [key, value] of Object.entries(attrs)) svg.setAttribute(key, String(value));
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -62,6 +89,7 @@ const state = {
 
 let ui = null;
 let blocks = new Map();
+let shortcuts = [];
 let saving = null;
 let saveAgain = false;
 
@@ -94,7 +122,9 @@ function buildShell(root) {
   const fill = h('span', { class: 'progress-fill' });
   const bar = h('div', { class: 'progress-bar', role: 'progressbar', 'aria-label': 'Avanzamento', 'aria-valuemin': '0' }, fill);
   const counter = h('p', { class: 'progress-text' });
-  const progress = h('div', { class: 'progress', hidden: true }, bar, counter);
+  const progress = h('div', { class: 'progress', hidden: true }, counter, bar);
+  // Fascia colorata dell'introduzione e del grazie, sopra il resto.
+  const band = h('header', { class: 'band', hidden: true });
   const screen = h('div', { class: 'screen' }, h('p', { class: 'loading', role: 'status' }, 'Caricamento…'));
   const alert = h('p', { class: 'alert', 'aria-live': 'polite' });
   const nav = h('div', { class: 'nav' });
@@ -103,32 +133,45 @@ function buildShell(root) {
   // Campo trappola per i bot: invisibile e fuori dal giro del tasto Tab, chi risponde non lo vede mai.
   const trap = h('input', { type: 'text', id: 'website', name: 'website', tabindex: '-1', autocomplete: 'off' });
   const honeypot = h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website' }, 'Sito web'), trap);
-  const form = h('form', { class: 'card', novalidate: true }, progress, screen, alert, nav, after, honeypot);
+  const sheet = h('div', { class: 'sheet' }, progress, screen, alert, nav, after, honeypot);
+  const form = h('form', { class: 'card', novalidate: true, 'data-mode': 'loading' }, band, sheet);
   form.addEventListener('submit', onSubmit);
   form.addEventListener('input', onInput);
   form.addEventListener('change', onChange);
+  document.addEventListener('keydown', onKey);
   root.textContent = '';
   root.append(form);
-  ui = { form, progress, bar, fill, counter, screen, alert, nav, after, trap, submit: null };
+  ui = { form, band, progress, bar, fill, counter, screen, alert, nav, after, trap, submit: null };
 }
 
-function mount(nodes) {
+// Mostra una schermata; «enter» fa entrare il contenuto dal basso (avanti) o dall'alto (indietro).
+function mount(nodes, { band = null, enter = null } = {}) {
+  ui.form.dataset.mode = state.mode;
+  ui.band.textContent = '';
+  if (band) ui.band.append(...band);
+  ui.band.hidden = !band;
   ui.screen.textContent = '';
   ui.screen.append(...nodes);
   ui.after.textContent = '';
   ui.alert.textContent = '';
+  shortcuts = [];
+  ui.screen.classList.remove('is-entering', 'is-entering-back');
+  if (enter) {
+    void ui.screen.offsetWidth;
+    ui.screen.classList.add(enter === 'back' ? 'is-entering-back' : 'is-entering');
+  }
 }
 
 function setAlert(text) {
   ui.alert.textContent = text || '';
 }
 
-function applyAppearance({ theme, accent, onAccent }) {
+function applyAppearance({ theme, accent }) {
   const root = document.documentElement;
   if (theme === 'automatico') delete root.dataset.theme;
   else root.dataset.theme = theme;
   root.style.setProperty('--accent', accent);
-  root.style.setProperty('--on-accent', onAccent);
+  for (const [name, value] of Object.entries(accentTokens(accent))) root.style.setProperty(name, value);
 }
 
 // Stati senza domande: caricamento fallito, questionario chiuso o link sbagliato.
@@ -168,16 +211,18 @@ function showIntro() {
   state.mode = 'intro';
   ui.progress.hidden = true;
   const facts = [];
-  if (survey.show_time) facts.push(durationText(estimateMinutes(survey, survey.median_seconds)));
+  if (survey.show_time) facts.push(['clock', durationText(estimateMinutes(survey, survey.median_seconds))]);
   const email = emailQuestion(survey);
-  if (email) facts.push(email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.');
-  facts.push('Le risposte si salvano a ogni passaggio, anche se ti fermi prima della fine.');
-  if (survey.privacy) facts.push('Trovi l\'informativa sulla privacy qui sotto.');
-  mount([
-    h('h1', { class: 'title' }, survey.title),
-    survey.intro ? h('p', { class: 'text' }, survey.intro) : null,
-    h('ul', { class: 'facts' }, facts.map((fact) => h('li', {}, fact))),
-  ]);
+  if (email) facts.push(['mail', email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.']);
+  facts.push(['saved', 'Le risposte si salvano a ogni passaggio, anche se ti fermi prima della fine.']);
+  if (survey.privacy) facts.push(['lock', 'Trovi l\'informativa sulla privacy qui sotto.']);
+  mount(
+    [
+      survey.intro ? h('p', { class: 'text' }, survey.intro) : null,
+      h('ul', { class: 'facts' }, facts.map(([name, fact]) => h('li', {}, h('span', { class: 'fact-icon' }, icon(name, 18)), h('span', {}, fact)))),
+    ].filter(Boolean),
+    { band: [h('p', { class: 'band-eyebrow' }, 'Questionario'), h('h1', { class: 'title' }, survey.title)] },
+  );
   ui.nav.textContent = '';
   ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Inizia'));
   if (survey.privacy) ui.after.append(privacyBlock(survey.privacy));
@@ -191,7 +236,7 @@ function begin() {
   state.index = 0;
   recordSurveyEvent(state.token, 'start');
   storage.write();
-  showQuestions();
+  showQuestions({ enter: 'next' });
 }
 
 function isChecked(q, value) {
@@ -201,12 +246,14 @@ function isChecked(q, value) {
   return selectedChoices(q, current).includes(value);
 }
 
-function choiceControls(q, block) {
+// Con «keyed» ogni riga mostra la sua lettera: sul computer si sceglie anche dalla tastiera.
+function choiceControls(q, block, keyed) {
   const type = q.type === 'scelte' ? 'checkbox' : 'radio';
   const row = (value, label, extra = null) => {
     const input = h('input', { type, name: `q-${q.id}`, value, class: 'opt-input', 'data-q': q.id, checked: isChecked(q, value) });
+    const key = keyed && block.inputs.length < LETTERS.length ? h('span', { class: 'opt-key', 'data-key': LETTERS[block.inputs.length], 'aria-hidden': 'true' }) : null;
     block.inputs.push(input);
-    return h('label', { class: ['opt', extra] }, input, label);
+    return h('label', { class: ['opt', extra] }, input, key, label, h('span', { class: ['opt-mark', type === 'checkbox' && 'is-box'] }));
   };
   const rows = [];
   if (q.type === 'scala') {
@@ -266,10 +313,10 @@ function fieldControl(q, block, describedBy, last) {
   block.inputs.push(input);
   if (q.type !== 'email') return input;
   const consent = h('input', { type: 'checkbox', name: 'recontact', class: 'opt-input', 'data-q': q.id, checked: state.recontact });
-  return [input, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'))];
+  return [input, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'), h('span', { class: 'opt-mark is-box' }))];
 }
 
-function questionBlock(q, level, last) {
+function questionBlock(q, level, last, keyed) {
   const base = `q-${q.id}`;
   const block = { q, node: null, title: null, inputs: [], otherField: null, error: h('p', { class: 'q-error', id: `${base}-errore`, hidden: true }) };
   const help = q.help ? h('p', { class: 'q-help', id: `${base}-aiuto` }, q.help) : null;
@@ -279,7 +326,7 @@ function questionBlock(q, level, last) {
   block.title = h(level, { class: 'q-title', id: `${base}-titolo`, tabindex: '-1' });
   if (q.type === 'scelta' || q.type === 'scelte' || q.type === 'scala') {
     block.title.append(...label.filter(Boolean));
-    const controls = choiceControls(q, block);
+    const controls = choiceControls(q, block, keyed);
     block.node = h('fieldset', { class: 'q', 'aria-describedby': describedBy }, h('legend', { class: 'q-legend' }, block.title), help, controls, block.error);
     syncOther(block);
   } else {
@@ -309,25 +356,27 @@ function grow(area) {
   area.style.height = `${area.scrollHeight + area.offsetHeight - area.clientHeight}px`;
 }
 
-function showQuestions({ focus = true } = {}) {
+function showQuestions({ focus = true, enter = null } = {}) {
   state.mode = 'question';
   blocks = new Map();
   const screen = state.screens[state.index];
   const one = state.survey.layout === 'una';
   const last = state.index === state.screens.length - 1;
+  const keyed = screen.questions.length === 1 && CHOICE_TYPES.has(screen.questions[0].type);
   const nodes = [];
   if (screen.section) {
     const { label, help } = screen.section;
     nodes.push(h('div', { class: one ? 'section section-small' : 'section' }, h(one ? 'p' : 'h1', { class: 'section-title' }, label), help ? h('p', { class: 'section-help' }, help) : null));
   }
   const level = one || !screen.section ? 'h1' : 'h2';
-  for (const q of screen.questions) nodes.push(questionBlock(q, level, last));
-  mount(nodes);
+  for (const q of screen.questions) nodes.push(questionBlock(q, level, last, keyed));
+  mount(nodes, { enter });
+  if (keyed) shortcuts = blocks.get(screen.questions[0].id).inputs;
   updateProgress();
   ui.nav.textContent = '';
-  if (state.index > 0) ui.nav.append(h('button', { type: 'button', class: 'btn btn-secondary', onclick: goBack }, 'Indietro'));
-  ui.submit = h('button', { type: 'submit', class: 'btn btn-primary' }, last ? 'Invia' : 'Avanti');
-  ui.nav.append(ui.submit);
+  if (state.index > 0) ui.nav.append(h('button', { type: 'button', class: 'btn btn-back', 'aria-label': 'Indietro', title: 'Indietro', onclick: goBack }, icon('back')));
+  ui.submit = h('button', { type: 'submit', class: 'btn btn-primary', 'aria-keyshortcuts': 'Enter' }, last ? 'Invia' : 'Avanti');
+  ui.nav.append(h('span', { class: 'key-hint', 'aria-hidden': 'true' }, 'oppure premi Invio ↵'), ui.submit);
   for (const area of ui.screen.querySelectorAll('textarea')) grow(area);
   if (focus) {
     window.scrollTo(0, 0);
@@ -339,7 +388,7 @@ function goBack() {
   if (state.sending || state.index === 0) return;
   state.index -= 1;
   storage.write();
-  showQuestions();
+  showQuestions({ enter: 'back' });
 }
 
 function setError(id, message) {
@@ -402,8 +451,10 @@ function onChange(event) {
     state.recontact = el.checked;
   } else if (q.type === 'scala') {
     state.draft[q.id] = Number(el.value);
+    revealNext();
   } else if (q.type === 'scelta') {
     state.draft[q.id] = el.value;
+    if (el.value !== OTHER) revealNext();
   } else if (q.type === 'scelte') {
     state.draft[q.id] = toggleChoice(selectedChoices(q, state.draft[q.id]), el.value, el.checked);
     const list = selectedChoices(q, state.draft[q.id]);
@@ -411,6 +462,34 @@ function onChange(event) {
   }
   syncOther(block);
   afterChange(q.id);
+}
+
+// Niente passaggio automatico alla domanda dopo (Giroux e altri 2019): dopo una scelta singola, se «Avanti» è fuori
+// dallo schermo, lo si porta in vista.
+function revealNext() {
+  if (state.screens[state.index]?.questions.length !== 1) return;
+  const box = ui.nav.getBoundingClientRect();
+  if (box.bottom <= window.innerHeight) return;
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  ui.nav.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+}
+
+// Sul computer: una lettera sceglie la riga con quella lettera, «Invio» va avanti. Mai mentre si scrive.
+function onKey(event) {
+  if (state.mode !== 'question' || state.sending || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+  const typing = event.target.closest?.('textarea, input:not([type="radio"]):not([type="checkbox"]), button, a, summary, select');
+  if (typing) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    ui.form.requestSubmit();
+    return;
+  }
+  const index = event.key.length === 1 ? LETTERS.indexOf(event.key.toUpperCase()) : -1;
+  const input = shortcuts[index];
+  if (!input) return;
+  event.preventDefault();
+  input.click();
+  input.focus({ preventScroll: true });
 }
 
 const meta = (final, answers) =>
@@ -457,7 +536,7 @@ function showThanks() {
   document.title = 'Grazie';
   ui.progress.hidden = true;
   const title = h('h1', { class: 'title', tabindex: '-1' }, 'Grazie!');
-  mount([title, h('p', { class: 'text' }, state.survey.thanks || THANKS)]);
+  mount([title, h('p', { class: 'text' }, state.survey.thanks || THANKS)], { band: [h('span', { class: 'band-mark' }, icon('check', 40))], enter: 'next' });
   ui.nav.textContent = '';
   window.scrollTo(0, 0);
   title.focus({ preventScroll: true });
@@ -527,7 +606,7 @@ function advance() {
   state.index += 1;
   storage.write();
   saveProgress();
-  showQuestions();
+  showQuestions({ enter: 'next' });
 }
 
 function onSubmit(event) {

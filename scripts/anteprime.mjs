@@ -17,30 +17,25 @@ export function colorPage(html, image) {
   return out;
 }
 
+// Stile della pagina (fascia colorata, risposte a pillola) con tutto al centro: regge anche il ritaglio quadrato.
 export function previewHtml(accent) {
   const { onAccent } = accentCheck(accent);
-  const tint = (percent) => `color-mix(in srgb, ${accent} ${percent}%, #fff)`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:1200px;height:630px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
-body{background:${accent};color:${onAccent};display:flex;align-items:center;justify-content:space-between;padding:0 96px;box-sizing:border-box}
-.text{max-width:640px}
-h1{font-size:68px;line-height:1.08;margin:0 0 28px;font-weight:800;letter-spacing:-0.5px}
-p{font-size:32px;line-height:1.35;margin:0;opacity:.92}
-.card{width:300px;background:#fff;border-radius:28px;padding:34px 30px;box-shadow:0 20px 50px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:18px}
-.bar{height:10px;border-radius:5px;background:${tint(14)};overflow:hidden}.bar span{display:block;width:38%;height:100%;background:${accent}}
-.row{display:flex;align-items:center;gap:16px;border:2px solid #dfe3ec;border-radius:14px;padding:16px 18px}
-.row.on{border-color:${accent};background:${tint(9)}}
-.dot{width:26px;height:26px;border-radius:50%;border:3px solid #9aa1b5;box-sizing:border-box;flex:none}
-.on .dot{border-color:${accent};background:radial-gradient(circle,${accent} 45%,transparent 50%)}
-.line{height:12px;border-radius:6px;background:#cfd4e3;flex:1}.on .line{background:${tint(45)}}
-.btn{margin-top:6px;height:52px;border-radius:14px;background:${accent}}
+body{background:${accent};color:${onAccent};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:44px;text-align:center}
+h1{font-size:66px;line-height:1.08;margin:0;font-weight:800;letter-spacing:-0.5px}
+.card{width:420px;background:#fff;border-radius:32px;padding:26px;display:flex;flex-direction:column;gap:14px;box-shadow:0 18px 44px rgba(0,0,0,.22)}
+.row{height:58px;border-radius:999px;border:2px solid #d9d6ce;background:#faf9f6;display:flex;align-items:center;padding:0 22px;gap:16px}
+.line{height:12px;border-radius:6px;background:#d9d6ce;flex:1}
+.mark{margin-left:auto;width:26px;height:26px;border-radius:50%;border:3px solid #8a867e;box-sizing:border-box;flex:none}
+.on{background:${accent};border-color:${accent}}.on .line{background:${onAccent};opacity:.55}.on .mark{background:${onAccent};border-color:${onAccent}}
 </style></head><body>
-<div class="text"><h1>Ci aiuti con un questionario?</h1><p>Una domanda alla volta, risposte anonime.</p></div>
-<div class="card"><div class="bar"><span></span></div>
-<div class="row"><div class="dot"></div><div class="line"></div></div>
-<div class="row on"><div class="dot"></div><div class="line"></div></div>
-<div class="row"><div class="dot"></div><div class="line" style="flex:.7"></div></div>
-<div class="btn"></div></div>
+<h1>Ci aiuti con un<br>questionario?</h1>
+<div class="card">
+<div class="row"><div class="line" style="flex:.8"></div><div class="mark"></div></div>
+<div class="row on"><div class="line"></div><div class="mark"></div></div>
+<div class="row"><div class="line" style="flex:.6"></div><div class="mark"></div></div>
+</div>
 </body></html>`;
 }
 

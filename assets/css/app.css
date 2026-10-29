@@ -4608,12 +4608,8 @@ button.chat-quote {
   gap: 0.75rem;
 }
 
-/* Anteprima con i colori della pagina pubblica, indipendenti dal tema del sito */
+/* Anteprima con i colori della pagina pubblica, indipendenti dal tema del sito (arrivano da survey-editor.js) */
 .sv-preview {
-  --sv-bg: #ffffff;
-  --sv-text: #1b1f2a;
-  --sv-muted: #5d6474;
-  --sv-line: #dfe3ec;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -4622,13 +4618,6 @@ button.chat-quote {
   border-radius: var(--radius);
   background: var(--sv-bg);
   color: var(--sv-text);
-}
-
-.sv-preview.is-dark {
-  --sv-bg: #12141b;
-  --sv-text: #e7e9f0;
-  --sv-muted: #9aa1b2;
-  --sv-line: #2f3445;
 }
 
 .sv-preview p {
@@ -4663,37 +4652,42 @@ button.chat-quote {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.6rem;
+  padding: 0.45rem 0.8rem;
   border: 1px solid var(--sv-line);
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 0.88rem;
   overflow-wrap: anywhere;
 }
 
 .sv-preview-opt.is-on {
-  border: 2px solid var(--sv-accent);
+  border-color: var(--sv-accent);
+  background: var(--sv-accent);
+  color: var(--sv-on-accent);
 }
 
 .sv-preview-dot {
   flex: none;
+  order: 1;
   width: 14px;
   height: 14px;
+  margin-left: auto;
   border: 2px solid var(--sv-muted);
   border-radius: 50%;
 }
 
 .sv-preview-opt.is-on .sv-preview-dot {
-  border-color: var(--sv-accent);
-  background: radial-gradient(circle, var(--sv-accent) 45%, transparent 50%);
+  border-color: var(--sv-on-accent);
+  background: var(--sv-on-accent);
 }
 
 .sv-preview-btn {
-  align-self: flex-start;
-  padding: 0.4rem 1rem;
-  border-radius: 8px;
+  align-self: stretch;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
   background: var(--sv-accent);
   color: var(--sv-on-accent);
   font-weight: 600;
+  text-align: center;
 }
 
 .sv-contrast p {

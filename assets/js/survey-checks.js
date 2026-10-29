@@ -165,7 +165,7 @@ export function contrastRatio(a, b) {
 }
 
 export const LIGHT_BACKGROUND = '#ffffff';
-export const DARK_BACKGROUND = '#12141b';
+export const DARK_BACKGROUND = '#141518';
 
 // Colori con testo bianco sopra ad almeno 5:1.
 export const ACCENT_PALETTE = [
@@ -202,11 +202,12 @@ export function accentCheck(accent, theme = 'automatico') {
   }
   const light = contrastRatio(accent, LIGHT_BACKGROUND);
   const dark = contrastRatio(accent, DARK_BACKGROUND);
-  if (theme !== 'scuro' && light < 3) {
-    problems.push({ code: 'sfondo-chiaro', ratio: light, text: `Sullo sfondo chiaro il colore si vede poco (${fmtRatio(light)}): bordi, barra e risposte scelte sarebbero poco visibili.`, hint: 'Scegli un colore più scuro.' });
+  // La pagina pubblica adatta da sola il colore a ogni tema (accentTokens): qui si avvisa solo che sarà diverso.
+  if (theme !== 'scuro' && theme !== 'contrasto' && light < 3) {
+    problems.push({ code: 'sfondo-chiaro', ratio: light, text: `Sullo sfondo chiaro il colore si vede poco (${fmtRatio(light)}): la pagina lo scurisce da sola quanto basta, quindi chi risponde vedrà un colore più scuro.`, hint: 'Per avere proprio questo colore scegline uno più scuro.' });
   }
   if (theme === 'scuro' && dark < 3) {
-    problems.push({ code: 'sfondo-scuro', ratio: dark, text: `Sullo sfondo scuro il colore si vede poco (${fmtRatio(dark)}): bordi, barra e risposte scelte sarebbero poco visibili.`, hint: 'Scegli un colore più chiaro o il tema automatico.' });
+    problems.push({ code: 'sfondo-scuro', ratio: dark, text: `Sullo sfondo scuro il colore si vede poco (${fmtRatio(dark)}): la pagina lo schiarisce da sola quanto basta, quindi chi risponde vedrà un colore più chiaro.`, hint: 'Per avere proprio questo colore scegline uno più chiaro.' });
   }
   return { white, black, onAccent, light, dark, problems };
 }

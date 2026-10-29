@@ -1,5 +1,8 @@
 import { PREFER_NOT } from './survey-api.js';
 import { PRIVACY_WORDS_READ, minutesLabel } from './survey-time.js';
+import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';
+
+export { accentTokens, contrastRatio, contrastText };
 
 // Logica della pagina pubblica dei questionari senza DOM né rete: schermate, avanzamento, controlli e risposte da inviare.
 // I limiti rispecchiano quelli di submit_survey nel database, che resta l'unico controllo che conta.
@@ -20,7 +23,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INT_RE = /^[+-]?\d+$/;
 const CONTROL_RE = /[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 const TYPES = new Set(['sezione', 'scelta', 'scelte', 'scala', 'numero', 'breve', 'lunga', 'email']);
-const THEMES = new Set(['automatico', 'chiaro', 'scuro']);
+const THEMES = new Set(['automatico', 'chiaro', 'scuro', 'seppia', 'contrasto']);
 const PROGRESS = new Set(['contatore', 'barra', 'nessuno']);
 
 export const MESSAGES = Object.freeze({
@@ -52,25 +55,6 @@ export function tokenFromHash(hash) {
 }
 
 const isHexColor = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
-
-function channel(value) {
-  const c = value / 255;
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-// Luminanza relativa e contrasto come nelle WCAG.
-function luminance(hex) {
-  const n = Number.parseInt(hex.slice(1), 16);
-  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
-}
-
-export function contrastRatio(a, b) {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-// Testo sul colore del questionario: nero o bianco, quello che contrasta di più.
-export const contrastText = (hex) => (contrastRatio(hex, '#ffffff') >= contrastRatio(hex, '#000000') ? '#ffffff' : '#000000');
 
 function normalizeQuestion(q) {
   if (!q || typeof q !== 'object' || !ID_RE.test(str(q.id)) || !TYPES.has(q.type) || !str(q.label).trim()) return null;

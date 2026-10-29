@@ -371,7 +371,7 @@ test('unsaved edits ask before leaving and survive a newer version from someone 
 test('appearance and settings: recommended choices with reasons, palette, contrast warning and live preview', async () => {
   await visit(`#/questionario/${S.open}/aspetto`);
   const body = text(outlet);
-  assert.equal(outlet.querySelectorAll('.badge-ok').length, 3, 'una scelta consigliata per impaginazione, avanzamento e durata');
+  assert.equal(outlet.querySelectorAll('.badge-ok').length, 4, 'una scelta consigliata per impaginazione, avanzamento, durata e tema');
   assert.match(body, /Una domanda per schermata consigliato Sul telefono si saltano meno domande/);
   assert.match(body, /Galesic e Bosnjak 2009/);
   assert.equal(outlet.querySelector('input[name="sv-layout"][value="una"]').checked, true);
@@ -384,9 +384,9 @@ test('appearance and settings: recommended choices with reasons, palette, contra
   typeInto(outlet.querySelector('.sv-hex'), '#F5E663');
   const warning = outlet.querySelector('[data-code="contrasto-sfondo-chiaro"]');
   assert.ok(warning);
-  assert.match(text(warning), /Sullo sfondo chiaro il colore si vede poco \(1,2:1\).*Scegli un colore più scuro/);
+  assert.match(text(warning), /Sullo sfondo chiaro il colore si vede poco \(1,2:1\): la pagina lo scurisce da sola.*scegline uno più scuro/);
   const preview = outlet.querySelector('.sv-preview');
-  assert.equal(preview.style.getPropertyValue('--sv-accent'), '#f5e663');
+  assert.equal(preview.style.getPropertyValue('--sv-accent'), '#938a3b', 'scurito come nella pagina pubblica');
   assert.equal(preview.style.getPropertyValue('--sv-on-accent'), '#000000');
 
   choose(outlet.querySelector('input[name="sv-accent"][aria-label="Verde"]'));
