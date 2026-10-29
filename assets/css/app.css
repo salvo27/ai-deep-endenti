@@ -5072,3 +5072,12 @@ button.chat-quote {
 .validation-chip:hover {
   border-color: var(--primary);
 }
+
+/* Risposte date troppo in fretta (meno di 0,3 secondi per parola) */
+.sv-rushed {
+  color: var(--warn);
+}
+
+.sv-rushed-badge {
+  margin-left: 0.4rem;
+}

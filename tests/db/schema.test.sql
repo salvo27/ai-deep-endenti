@@ -493,10 +493,10 @@ begin
   assert r = '{"status":"ok"}'::jsonb, 'salvataggio a metà rifiutato: ' || r::text;
   assert public.submit_survey(t, '{"ruolo":"z"}', m) ->> 'question' = 'ruolo', 'a metà compilazione i valori non si controllano';
   assert public.submit_survey(t, jsonb_build_object('parola', repeat('x', 301)), m) ->> 'question' = 'parola', 'a metà compilazione le lunghezze non si controllano';
-  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni"}', m || '{"duration_seconds":40}') ->> 'status' = 'ok', 'secondo salvataggio rifiutato';
+  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni"}', m || '{"duration_seconds":40,"times":{"ruolo":4.26,"parola":2,"inventata":3,"fatica":-1,"ore":"tanto"}}') ->> 'status' = 'ok', 'secondo salvataggio rifiutato';
   r := public.submit_survey(t, '{"ruolo":"b","parola":"Turni"}', m || '{"final":true}');
   assert r ->> 'question' = 'fatica', 'obbligatorie non controllate all''ultimo invio: ' || r::text;
-  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni","fatica":5}', m || '{"final":true,"duration_seconds":61}') ->> 'status' = 'ok', 'ultimo invio rifiutato';
+  assert public.submit_survey(t, '{"ruolo":"b","parola":"Turni","fatica":5}', m || '{"final":true,"duration_seconds":61,"times":"non un oggetto"}') ->> 'status' = 'ok', 'tempi sbagliati non devono fermare l''invio';
   assert public.submit_survey(t, '{"ruolo":"a","fatica":1}', m || '{"final":true}') ->> 'reason' like '%già state inviate%', 'una compilazione conclusa cambia ancora';
   assert public.submit_survey(t, '{"ruolo":"a"}', m) ->> 'reason' like '%già state inviate%', 'una compilazione conclusa torna a metà';
 
@@ -517,6 +517,7 @@ begin
   select * into r from public.survey_responses where session = current_setting('test.session')::uuid;
   assert r.completed and r.saves = 3 and r.answers = '{"ruolo":"b","parola":"Turni","fatica":5}'::jsonb, 'compilazione a schermate: ' || row_to_json(r)::text;
   assert r.device = 'telefono' and r.duration_seconds = 61 and not r.recontact and r.updated_at >= r.created_at, 'dati della compilazione: ' || row_to_json(r)::text;
+  assert r.question_seconds = '{"ruolo":4.3,"parola":2}'::jsonb, 'tempi per domanda: solo domande vere e numeri validi, e senza tempi nuovi restano quelli di prima: ' || coalesce(r.question_seconds::text, 'null');
   select * into r from public.survey_responses where session = current_setting('test.session2')::uuid;
   assert not r.completed and r.answers = '{"ruolo":"a","canali":["web"]}'::jsonb, 'compilazione interrotta persa: ' || row_to_json(r)::text;
   select * into r from public.survey_responses where session = current_setting('test.session3')::uuid;

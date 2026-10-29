@@ -100,7 +100,7 @@ test('dopo ogni Avanti salva tutte le risposte date finora con final false', asy
   expect(saves).toHaveLength(1);
   expect(saves[0].p_token).toBe(TOKEN);
   expect(saves[0].p_answers).toEqual({ eta: 'meno-30' });
-  expect(saves[0].p_meta).toEqual({ session: expect.stringMatching(/^[0-9a-f-]{36}$/), final: false, website: '' });
+  expect(saves[0].p_meta).toEqual({ session: expect.stringMatching(/^[0-9a-f-]{36}$/), final: false, website: '', times: { eta: expect.any(Number) } });
   await page.getByLabel('Che lavoro fai?').fill('  Insegnante ');
   await next(page);
   await expect(counter(page)).toHaveText('Domanda 3 di 7');
@@ -219,7 +219,11 @@ test('invio finale con tutte le risposte, durata e dispositivo, poi il grazie; n
     recontact: true,
     duration_seconds: expect.any(Number),
     device: testInfo.project.name === 'telefono' ? 'telefono' : 'computer',
+    times: expect.any(Object),
   });
+  const asked = SURVEY.questions.filter((q) => q.type !== 'sezione').map((q) => q.id);
+  expect(Object.keys(final.p_meta.times).sort(), 'un tempo per ogni domanda vista').toEqual([...asked].sort());
+  expect(Object.values(final.p_meta.times).every((v) => typeof v === 'number' && v >= 0)).toBe(true);
   expect(saves.slice(0, -1).every((s) => s.p_meta.final === false && !('duration_seconds' in s.p_meta))).toBe(true);
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
   const kept = await page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])));

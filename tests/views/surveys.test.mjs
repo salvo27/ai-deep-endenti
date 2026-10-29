@@ -595,6 +595,20 @@ test('the exclude flagged toggle recomputes everything, and flags never delete a
   assert.equal(outlet.querySelector('.sv-quality input').checked, true);
 });
 
+test('answers given too fast are counted on each question and marked in each response', async () => {
+  const rows = responses();
+  rows[0].question_seconds = { ruolo: 0.4, ultima: 0.5, f1: 0.3, f2: 4, f3: 4, volte: 5, storia: 40 };
+  rows[1].question_seconds = { ruolo: 5, ultima: 6, f1: 4, f2: 4, f3: 4, volte: 5, storia: 40 };
+  api.listSurveyResponses = async () => rows;
+  await visit(`#/questionario/${S.open}/risposte`);
+  assert.match(text(outlet.querySelector('.sv-question[data-id="ruolo"]')), /troppo in fretta 1/);
+  assert.doesNotMatch(text(outlet.querySelector('.sv-question[data-id="f2"]')), /troppo in fretta/);
+  assert.match(text(outlet.querySelector('.sv-response[data-n="1"] summary')), /Diverse domande risposte troppo in fretta/);
+  assert.equal(outlet.querySelectorAll('.sv-response[data-n="1"] .sv-rushed-badge').length, 3, 'segnate le tre domande corse');
+  assert.equal(outlet.querySelectorAll('.sv-response[data-n="2"] .sv-rushed-badge').length, 0);
+  assert.match(text(outlet.querySelector('.sv-quality')), /Diverse domande risposte troppo in fretta: 1/);
+});
+
 test('the CSV export has one row per response, readable columns and emails only on request', async () => {
   const downloads = [];
   URL.createObjectURL = (blob) => {

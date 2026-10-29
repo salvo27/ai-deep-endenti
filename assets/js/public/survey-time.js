@@ -22,7 +22,8 @@ export const ANSWER_SECONDS = Object.freeze({
 
 export const countWords = (text) => String(text || '').split(/\s+/).filter(Boolean).length;
 
-function questionWords(q) {
+// Parole di una domanda come la vede chi risponde: testo, aiuto, risposte ed etichette della scala.
+export function questionWords(q) {
   let words = countWords(q.label) + countWords(q.help);
   for (const option of q.options || []) words += countWords(option.label);
   if (q.scale) {

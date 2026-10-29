@@ -1,5 +1,5 @@
 import { PREFER_NOT } from './survey-api.js';
-import { minutesLabel } from './survey-time.js';
+import { minutesLabel, questionWords } from './survey-time.js';
 import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';
 
 export { accentTokens, contrastRatio, contrastText };
@@ -299,9 +299,28 @@ export function collectAnswers(questions, draft = {}) {
   return answers;
 }
 
+// Tempo passato su una schermata, diviso tra le sue domande in base alle parole: con una domanda per schermata va tutto a lei.
+// Si somma a quello delle visite precedenti, così tornare indietro aggiunge tempo invece di cancellarlo.
+export function addScreenTime(times, questions, seconds) {
+  const asked = questions.filter((q) => q.type !== 'sezione');
+  if (!(seconds > 0) || !asked.length) return times;
+  const weights = asked.map((q) => Math.max(1, questionWords(q)));
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  asked.forEach((q, i) => {
+    times[q.id] = Math.round(((times[q.id] || 0) + (seconds * weights[i]) / total) * 10) / 10;
+  });
+  return times;
+}
+
+const cleanTimes = (times) =>
+  Object.fromEntries(Object.entries(times && typeof times === 'object' && !Array.isArray(times) ? times : {}).filter(([id, s]) => ID_RE.test(id) && Number.isFinite(s) && s >= 0));
+
 // meta di submit_survey. Il consenso al ricontatto parte solo insieme a un indirizzo; durata e dispositivo all'ultimo invio.
-export function buildMeta(survey, answers, { session, final = false, startedAt, now = Date.now(), width, recontact = false, website = '' }) {
+// times: secondi per domanda, per vedere nei risultati le risposte date troppo in fretta.
+export function buildMeta(survey, answers, { session, final = false, startedAt, now = Date.now(), width, recontact = false, website = '', times = null }) {
   const meta = { session, final, website: str(website) };
+  const seconds = cleanTimes(times);
+  if (Object.keys(seconds).length) meta.times = seconds;
   const email = emailQuestion(survey);
   if (email && typeof answers[email.id] === 'string') meta.recontact = recontact === true;
   if (final) {
@@ -351,6 +370,7 @@ export function readStored(raw, screenCount, now = Date.now()) {
     draft,
     recontact: data.recontact === true,
     startedAt: Number.isFinite(data.startedAt) ? data.startedAt : null,
+    times: cleanTimes(data.times),
   };
 }
 

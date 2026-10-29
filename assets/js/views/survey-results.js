@@ -13,6 +13,7 @@ import {
   flagCounts,
   fmtDuration,
   fmtShare,
+  isRushed,
   funnelSteps,
   numberResponses,
   qualityFlags,
@@ -78,6 +79,7 @@ function questionCard(stat, number) {
     { class: 'muted small' },
     `Hanno risposto ${stat.answered} su ${stat.reached} arrivati fin qui · senza risposta ${shareText(stat.skipped, stat.reached)}`,
     stat.breakoff ? ` · si sono fermati qui ${stat.breakoff}` : '',
+    stat.rushed ? h('span', { class: 'sv-rushed', title: 'Meno di 0,3 secondi per parola della domanda: difficile averla letta' }, ` · troppo in fretta ${stat.rushed}`) : null,
   );
   let body = null;
   if (stat.options) {
@@ -132,7 +134,7 @@ function qualityCard(flags, exclude, onToggle) {
     flags.size
       ? h('ul', { class: 'sv-flag-list' }, Object.entries(counts).filter(([, n]) => n).map(([code, n]) => h('li', null, `${FLAG_LABELS[code]}: ${n}`)))
       : h('p', { class: 'muted small' }, 'Nessuna risposta segnalata.'),
-    h('p', { class: 'muted small' }, 'Le segnalazioni non cancellano nulla: guardate le risposte e decidete voi. La velocità si confronta con la mediana solo da 20 compilazioni complete in su.'),
+    h('p', { class: 'muted small' }, 'Le segnalazioni non cancellano nulla: guardate le risposte e decidete voi. La velocità si confronta con la mediana solo da 20 compilazioni complete in su. Una domanda è «troppo in fretta» se è stata risposta in meno di 0,3 secondi per parola: i tempi per domanda ci sono solo nelle compilazioni nuove.'),
   );
 }
 
@@ -152,7 +154,8 @@ function responseDetails(survey, response, flags, { writable, onDelete }) {
       { class: 'sv-answers' },
       askedQuestions(survey).map((q) => {
         const value = answerText(q, response, { scaleWithLabel: true });
-        return [h('dt', null, q.label), h('dd', { class: value === null ? 'muted' : 'text-block' }, value === null ? '-' : String(value))];
+        const rushed = isRushed(q, response) ? h('span', { class: 'badge badge-warn sv-rushed-badge', title: 'Meno di 0,3 secondi per parola della domanda' }, 'troppo in fretta') : null;
+        return [h('dt', null, q.label), h('dd', { class: value === null ? 'muted' : 'text-block' }, value === null ? '-' : String(value), rushed)];
       }),
       response.email ? [h('dt', null, 'Da ricontattare'), h('dd', null, response.recontact ? 'sì' : 'no')] : null,
     ),

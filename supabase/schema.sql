@@ -1565,6 +1565,10 @@ create table if not exists public.survey_responses (
 
 create index if not exists survey_responses_survey_idx on public.survey_responses (survey_id, created_at);
 
+-- Secondi passati su ogni domanda, per vedere nei risultati le risposte date troppo in fretta.
+alter table public.survey_responses add column if not exists question_seconds jsonb
+  check (question_seconds is null or (jsonb_typeof(question_seconds) = 'object' and octet_length(question_seconds::text) < 8192));
+
 -- Visite della pagina e inizi della compilazione, per l'imbuto: nessun dato su chi risponde.
 create table if not exists public.survey_events (
   id bigint generated always as identity primary key,
@@ -1880,6 +1884,7 @@ declare
   v_email text;
   v_recontact boolean;
   v_duration integer;
+  v_times jsonb;
   v_client text;
 begin
   if jsonb_typeof(p_answers) is distinct from 'object' or jsonb_typeof(v_meta) <> 'object' then
@@ -2084,14 +2089,20 @@ begin
     when jsonb_typeof(v_meta -> 'duration_seconds') = 'number' and (v_meta ->> 'duration_seconds')::numeric >= 0
       then least(round((v_meta ->> 'duration_seconds')::numeric), 86400)::integer
   end;
+  -- Tempi per domanda: solo domande del questionario e numeri tra 0 e 86400; gli altri si scartano senza fermare l'invio.
+  select jsonb_object_agg(t.key, round((t.value #>> '{}')::numeric, 1)) into v_times
+  from jsonb_each(case when jsonb_typeof(v_meta -> 'times') = 'object' then v_meta -> 'times' else '{}'::jsonb end) t
+  where v_by_id ? t.key
+    and jsonb_typeof(t.value) = 'number'
+    and (t.value #>> '{}')::numeric between 0 and 86400;
 
   if r.id is null then
     -- Una compilazione appena iniziata senza risposte non lascia traccia.
     if v_clean = '{}'::jsonb and v_email is null then
       return jsonb_build_object('status', 'ok');
     end if;
-    insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed)
-    values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final);
+    insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed, question_seconds)
+    values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final, v_times);
     insert into public.survey_limits (survey_id, client, kind) values (s.id, v_client, 'session');
   else
     update public.survey_responses
@@ -2100,6 +2111,7 @@ begin
            recontact = v_recontact,
            duration_seconds = coalesce(v_duration, r.duration_seconds),
            device = coalesce(v_device, r.device),
+           question_seconds = coalesce(v_times, r.question_seconds),
            completed = v_final,
            saves = r.saves + 1,
            updated_at = now()

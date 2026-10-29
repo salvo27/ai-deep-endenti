@@ -5,6 +5,7 @@ import {
   MESSAGES,
   OTHER,
   accentTokens,
+  addScreenTime,
   buildMeta,
   buildScreens,
   collectAnswers,
@@ -92,6 +93,8 @@ const state = {
   website: '',
   sending: false,
   reminded: false,
+  times: {},
+  shownAt: null,
 };
 
 let ui = null;
@@ -113,8 +116,8 @@ function safe(action, fallback = null) {
 const storage = {
   read: () => safe(() => localStorage.getItem(storageKey(state.token))),
   write() {
-    const { session, index, draft, recontact, startedAt } = state;
-    safe(() => localStorage.setItem(storageKey(state.token), JSON.stringify({ session, index, draft, recontact, startedAt, savedAt: Date.now() })));
+    const { session, index, draft, recontact, startedAt, times } = state;
+    safe(() => localStorage.setItem(storageKey(state.token), JSON.stringify({ session, index, draft, recontact, startedAt, times, savedAt: Date.now() })));
     safe(() => sessionStorage.setItem(tabKey(state.token), '1'));
   },
   clear() {
@@ -287,6 +290,7 @@ function begin() {
   state.startedAt = Date.now();
   state.index = 0;
   state.reminded = false;
+  state.times = {};
   recordSurveyEvent(state.token, 'start');
   storage.write();
   showQuestions({ enter: 'next' });
@@ -438,10 +442,26 @@ function showQuestions({ focus = true, enter = null } = {}) {
     window.scrollTo(0, 0);
     blocks.get(screen.questions[0].id).title.focus({ preventScroll: true });
   }
+  state.shownAt = Date.now();
+}
+
+// Il tempo della schermata che si lascia passa alle sue domande.
+function closeScreen() {
+  if (state.shownAt === null) return;
+  addScreenTime(state.times, state.screens[state.index]?.questions || [], (Date.now() - state.shownAt) / 1000);
+  state.shownAt = null;
+}
+
+// I tempi fino a questo momento, compresa la schermata aperta, senza chiuderla.
+function timesNow() {
+  const times = { ...state.times };
+  if (state.shownAt !== null) addScreenTime(times, state.screens[state.index]?.questions || [], (Date.now() - state.shownAt) / 1000);
+  return times;
 }
 
 function goBack() {
   if (state.sending || state.index === 0) return;
+  closeScreen();
   state.index -= 1;
   storage.write();
   showQuestions({ enter: 'back' });
@@ -574,6 +594,7 @@ const meta = (final, answers) =>
     width: window.innerWidth,
     recontact: state.recontact,
     website: state.website,
+    times: timesNow(),
   });
 
 // Salvataggi intermedi uno alla volta, sempre con tutte le risposte: se uno fallisce, il successivo recupera.
@@ -647,6 +668,7 @@ async function finish() {
   const invalid = firstInvalidScreen(state.screens, state.draft, options);
   if (invalid) {
     if (invalid.index !== state.index) {
+      closeScreen();
       state.index = invalid.index;
       storage.write();
       showQuestions();
@@ -687,6 +709,7 @@ async function finish() {
     return;
   }
   if (target !== state.index) {
+    closeScreen();
     state.index = target;
     storage.write();
     showQuestions();
@@ -703,6 +726,7 @@ function remindSkipped() {
   const title = h('p', { class: 'reminder-title', tabindex: '-1' }, skipped.length === 1 ? 'Hai lasciato senza risposta una domanda:' : `Hai lasciato senza risposta ${skipped.length} domande:`);
   const review = h('button', { type: 'button', class: 'btn btn-quiet' }, skipped.length === 1 ? 'Rispondi' : 'Rispondi a quelle saltate');
   review.addEventListener('click', () => {
+    closeScreen();
     state.index = screenOf(state.screens, skipped[0].id);
     storage.write();
     showQuestions({ enter: 'back' });
@@ -733,6 +757,7 @@ function advance() {
     finish();
     return;
   }
+  closeScreen();
   state.index += 1;
   storage.write();
   saveProgress();

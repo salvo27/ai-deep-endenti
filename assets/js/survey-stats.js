@@ -1,7 +1,7 @@
 // Statistiche delle risposte a un questionario: funzioni pure, nessun accesso ai dati.
 // Le segnalazioni di qualità non cancellano mai nulla: servono solo a escludere, a scelta, le risposte sospette.
 import { SURVEY_PREFER_NOT } from './schema.js';
-import { countWords } from './public/survey-time.js';
+import { countWords, questionWords } from './public/survey-time.js';
 
 export const QUALITY = Object.freeze({
   speedIndex: 2, // Leiner 2019
@@ -10,6 +10,8 @@ export const QUALITY = Object.freeze({
   straightLine: 3,
   openWords: 3,
   answeredShare: 0.5, // AAPOR 2023: sotto la metà delle domande è un'interruzione
+  rushedMin: 2, // domande corse: almeno 2 e almeno un terzo di quelle con il tempo
+  rushedShare: 1 / 3,
 });
 
 export const FLAG_LABELS = {
@@ -18,6 +20,7 @@ export const FLAG_LABELS = {
   uguali: 'Stessa risposta a tutte le scale',
   aperta: 'Risposta aperta vuota o di meno di 3 parole',
   saltate: 'Più di metà delle domande saltate',
+  domande: 'Diverse domande risposte troppo in fretta',
 };
 
 export const DEVICE_LABELS = { telefono: 'Telefono', computer: 'Computer' };
@@ -92,6 +95,21 @@ export function answerText(q, response, { scaleWithLabel = false } = {}) {
 }
 
 // Base di ogni domanda: le compilazioni complete più quelle interrotte che sono arrivate almeno fin lì.
+// Secondi passati su una domanda, se la pagina li ha registrati (le compilazioni più vecchie non li hanno).
+const secondsOn = (response, q) => {
+  const value = response.question_seconds?.[q.id];
+  return Number.isFinite(value) ? value : null;
+};
+
+// Una risposta data in meno di 0,3 secondi per parola della domanda non può averla letta (Zhang e Conrad 2014, per domanda).
+export function isRushed(q, response) {
+  if (q.type === 'email' || !hasAnswer(q, response)) return false;
+  const seconds = secondsOn(response, q);
+  return seconds !== null && seconds < QUALITY.secondsPerWord * questionWords(q);
+}
+
+export const rushedQuestions = (survey, response) => askedQuestions(survey).filter((q) => isRushed(q, response)).map((q) => q.id);
+
 export function questionStats(survey, responses) {
   const questions = askedQuestions(survey);
   const last = new Map(responses.map((r) => [r, lastAnsweredIndex(questions, r)]));
@@ -104,6 +122,7 @@ export function questionStats(survey, responses) {
       answered: answered.length,
       skipped: reached.length - answered.length,
       breakoff: responses.filter((r) => !r.completed && last.get(r) === index).length,
+      rushed: answered.filter((r) => isRushed(q, r)).length,
     };
     if (q.type === 'scelta' || q.type === 'scelte') {
       const counts = new Map();
@@ -189,6 +208,9 @@ export function qualityFlags(survey, responses) {
     }
     if (questions.some((q) => q.type === 'lunga' && countWords(answersOf(r)[q.id]) < QUALITY.openWords)) list.push('aperta');
     if (countable.length && countable.filter((q) => hasAnswer(q, r)).length / countable.length < QUALITY.answeredShare) list.push('saltate');
+    const timed = countable.filter((q) => hasAnswer(q, r) && secondsOn(r, q) !== null).length;
+    const rushed = countable.filter((q) => isRushed(q, r)).length;
+    if (timed && rushed >= Math.max(QUALITY.rushedMin, Math.ceil(timed * QUALITY.rushedShare))) list.push('domande');
     if (list.length) flags.set(r.n, list);
   }
   return flags;

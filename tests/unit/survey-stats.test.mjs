@@ -15,7 +15,9 @@ import {
   median,
   numberResponses,
   personaAnswer,
+  isRushed,
   qualityFlags,
+  rushedQuestions,
   questionStats,
   responsesCsv,
   withoutFlagged,
@@ -140,8 +142,8 @@ test('excluding flagged responses and counting flags', () => {
   const rows = sample();
   const flags = qualityFlags(survey, rows);
   assert.deepEqual(withoutFlagged(rows, flags).map((r) => r.n), [3, 4, 5]);
-  assert.deepEqual(flagCounts(flags), { veloce: 0, lettura: 0, uguali: 1, aperta: 1, saltate: 0 });
-  assert.equal(Object.keys(FLAG_LABELS).length, 5);
+  assert.deepEqual(flagCounts(flags), { veloce: 0, lettura: 0, uguali: 1, aperta: 1, saltate: 0, domande: 0 });
+  assert.equal(Object.keys(FLAG_LABELS).length, 6);
   const after = questionStats(survey, withoutFlagged(rows, flags));
   assert.equal(after.find((s) => s.question.id === 'ruolo').reached, 3);
 });
@@ -192,4 +194,26 @@ test('the CSV has one row per response, readable headers, no internal ids and sa
 
   const twins = responsesCsv({ questions: [{ id: 'a', type: 'breve', label: 'Perché?' }, { id: 'b', type: 'breve', label: 'Perché?' }] }, [], { separator: ',' });
   assert.equal(twins, 'Risposta,Data,Stato,Durata (secondi),Dispositivo,Perché?,Perché? (2),Segnalazioni');
+});
+
+test('an answer given in less than 0.3 seconds per word of its question is rushed, and several rushed answers flag the response', () => {
+  const answers = { ruolo: 'b', canali: ['web'], f1: 2, f2: 3, f3: 4, volte: 2, storia: 'Ho chiamato tre negozi prima di trovarlo.' };
+  // «Che lavoro fai?» con «Infermiere» e «Medico»: 5 parole, quindi almeno 1,5 secondi.
+  const careful = response(7, { answers, question_seconds: { ruolo: 4, canali: 3, f1: 5, f2: 5, f3: 5, volte: 4, storia: 30 } });
+  const quick = response(8, { answers, question_seconds: { ruolo: 0.8, canali: 0.5, f1: 0.6, f2: 5, f3: 5, volte: 4, storia: 30 } });
+  const old = response(9, { answers });
+  const ruolo = survey.questions.find((q) => q.id === 'ruolo');
+  assert.equal(isRushed(ruolo, careful), false);
+  assert.equal(isRushed(ruolo, quick), true);
+  assert.equal(isRushed(ruolo, old), false, 'senza tempi registrati non si giudica');
+  assert.equal(isRushed(ruolo, response(10, { answers: {}, question_seconds: { ruolo: 0.1 } })), false, 'una domanda saltata non è corsa');
+  assert.deepEqual(rushedQuestions(survey, quick), ['ruolo', 'canali', 'f1']);
+  const rows = numberResponses([careful, quick, old]);
+  const flags = qualityFlags(survey, rows);
+  assert.deepEqual([...flags.entries()].filter(([, codes]) => codes.includes('domande')).map(([n]) => n), [rows.find((r) => r.id === 8).n]);
+  const one = response(11, { answers, question_seconds: { ruolo: 0.8, canali: 3, f1: 5, f2: 5, f3: 5, volte: 4, storia: 30 } });
+  assert.equal((qualityFlags(survey, numberResponses([one])).get(1) || []).includes('domande'), false, 'una sola domanda corsa non basta');
+  const stats = questionStats(survey, rows);
+  assert.equal(stats.find((x) => x.question.id === 'ruolo').rushed, 1);
+  assert.equal(stats.find((x) => x.question.id === 'f2').rushed, 0);
 });

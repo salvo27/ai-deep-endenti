@@ -67,6 +67,11 @@ export async function submitSurvey(token, answers, meta = {}) {
   if (meta?.device === 'telefono' || meta?.device === 'computer') pMeta.device = meta.device;
   if (typeof meta?.recontact === 'boolean') pMeta.recontact = meta.recontact;
   if (typeof meta?.website === 'string') pMeta.website = meta.website;
+  // Secondi per domanda: solo numeri, il database tiene quelli delle domande vere.
+  if (meta?.times && typeof meta.times === 'object' && !Array.isArray(meta.times)) {
+    const times = Object.fromEntries(Object.entries(meta.times).filter(([, s]) => Number.isFinite(s) && s >= 0));
+    if (Object.keys(times).length) pMeta.times = times;
+  }
   const fallback = 'Invio non riuscito. Riprova tra poco.';
   const data = await call('submit_survey', { p_token: token, p_answers: answers ?? {}, p_meta: pMeta }, fallback);
   return data && typeof data === 'object' ? data : { status: 'errore', reason: fallback };

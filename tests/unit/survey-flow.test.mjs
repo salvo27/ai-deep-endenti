@@ -21,6 +21,7 @@ import {
   numberHint,
   parseInteger,
   progressFor,
+  addScreenTime,
   readStored,
   seenKey,
   seenRecently,
@@ -297,9 +298,9 @@ test('meta carries the session and the trap field; recontact only with an email,
 
 test('a stored session resumes only when well formed, with the screen kept within the survey', () => {
   const stored = JSON.stringify({ session: SESSION, index: 3, draft: { eta: 'adulto' }, recontact: true, startedAt: 5 });
-  assert.deepEqual(readStored(stored, 7), { session: SESSION, index: 3, draft: { eta: 'adulto' }, recontact: true, startedAt: 5 });
+  assert.deepEqual(readStored(stored, 7), { session: SESSION, index: 3, draft: { eta: 'adulto' }, recontact: true, startedAt: 5, times: {} });
   assert.equal(readStored(stored, 2).index, 1);
-  assert.deepEqual(readStored(JSON.stringify({ session: SESSION, index: -2, draft: [1], startedAt: 'ieri' }), 7), { session: SESSION, index: 0, draft: {}, recontact: false, startedAt: null });
+  assert.deepEqual(readStored(JSON.stringify({ session: SESSION, index: -2, draft: [1], startedAt: 'ieri' }), 7), { session: SESSION, index: 0, draft: {}, recontact: false, startedAt: null, times: {} });
   for (const bad of [null, '', '{', '[]', JSON.stringify({ session: 'non-un-uuid' }), JSON.stringify({ session: '0b6f3c2e-8d1a-1c5b-9e7f-1a2b3c4d5e6f' })]) {
     assert.equal(readStored(bad, 7), null, String(bad));
   }
@@ -432,4 +433,21 @@ test('a device that opened the link counts as one visit for 30 days', () => {
   assert.equal(seenRecently(String(now - 29 * day), now), true);
   assert.equal(seenRecently(String(now - 31 * day), now), false, 'dopo 30 giorni è una nuova visita');
   for (const bad of [null, '', 'ieri', '0', String(now + day)]) assert.equal(seenRecently(bad, now), false, String(bad));
+});
+
+test('the time on a screen goes to its questions by words, adds up when coming back, and travels with the answers', () => {
+  const eta = byId('eta');
+  const dove = byId('dove');
+  const times = addScreenTime({}, [eta], 6);
+  assert.deepEqual(times, { eta: 6 });
+  addScreenTime(times, [eta], 2.25);
+  assert.equal(times.eta, 8.3, 'tornando indietro il tempo si somma');
+  const split = addScreenTime({}, [byId('uno'), eta, dove], 10);
+  assert.equal(Math.round((split.eta + split.dove) * 10) / 10, 10, 'diviso tra le domande della schermata, le sezioni no');
+  assert.ok(split.eta > split.dove, 'più parole, più tempo');
+  assert.deepEqual(addScreenTime({}, [eta], 0), {});
+  const meta = buildMeta(survey, {}, { session: SESSION, times: { eta: 3.2, 'non valido!': 5, dove: -1, voto: 'x' } });
+  assert.deepEqual(meta.times, { eta: 3.2 });
+  assert.equal('times' in buildMeta(survey, {}, { session: SESSION }), false);
+  assert.deepEqual(readStored(JSON.stringify({ session: SESSION, index: 0, times: { eta: 4, x: 'y' } }), 7).times, { eta: 4 });
 });
