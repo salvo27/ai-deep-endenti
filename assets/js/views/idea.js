@@ -1,8 +1,8 @@
 import { h, mount, busy, toast } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { icon } from '../lib/icons.js';
-import { fmtDate } from '../lib/format.js';
-import { IDEA_CHILD_KINDS, KINDS, optionLabel } from '../schema.js';
+import { fmtDate, plural } from '../lib/format.js';
+import { IDEA_CHILD_KINDS, KINDS, isHeldConversation, optionLabel } from '../schema.js';
 import { api } from '../lib/api.js';
 import {
   canWrite,
@@ -171,8 +171,26 @@ function decisionsSection(idea) {
   );
 }
 
+// Validazione a un clic dalla Panoramica: esperimenti, interviste fatte e, dei questionari, solo quelli aperti.
+function validationRow(idea) {
+  const base = `#/idea/${idea.id}`;
+  const chip = (href, iconName, text) => h('a', { class: 'validation-chip', href }, icon(iconName, 14), h('span', null, text));
+  const experiments = itemsOf('experiment', { ideaId: idea.id });
+  const running = experiments.filter((e) => e.status === 'in_corso').length;
+  const held = itemsOf('interview', { ideaId: idea.id }).filter(isHeldConversation).length;
+  const chips = [
+    chip(`${base}/esperimenti`, 'experiment', experiments.length ? `${plural(experiments.length, 'esperimento', 'esperimenti')}${running ? `, ${running} in corso` : ''}` : 'Nessun esperimento'),
+    chip(`${base}/interviste`, 'interview', held ? plural(held, 'intervista fatta', 'interviste fatte') : 'Nessuna intervista fatta'),
+  ];
+  if (!isExample(idea)) {
+    const open = itemsOf('survey', { ideaId: idea.id }).filter((s) => s.status === 'aperto');
+    chips.push(...(open.length ? open.map((s) => chip(`#/questionario/${s.id}`, 'list', `Questionario aperto: ${s.title}`)) : [chip(`${base}/questionari`, 'list', 'Nessun questionario aperto')]));
+  }
+  return h('nav', { class: 'validation-row', 'aria-label': 'Validazione' }, h('span', { class: 'validation-label' }, 'Validazione'), chips);
+}
+
 function overviewTab(idea) {
-  return h('div', { class: 'stack' }, nextStepBox(idea), originNote(idea), fieldsGrid(idea), decisionsSection(idea));
+  return h('div', { class: 'stack' }, nextStepBox(idea), validationRow(idea), originNote(idea), fieldsGrid(idea), decisionsSection(idea));
 }
 
 function boardSection(item, idea, writable) {

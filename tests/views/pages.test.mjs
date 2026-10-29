@@ -114,6 +114,23 @@ test('every idea tab renders', async () => {
   assert.match(await visit(`#/idea/${IDS.canvas}`), /Idea non trovata/);
 });
 
+test('the idea overview links to experiments, held interviews and only the open questionnaires', async () => {
+  const survey = (id, title, status) => ({ id, kind: 'survey', title, status, idea_id: IDS.idea, created_by: ME, updated_by: ME, created_at: '2026-10-20T10:00:00Z', updated_at: '2026-10-20T10:00:00Z', version: 1, deleted_at: null, data: { layout: 'una', progress: 'contatore', show_time: true, appearance: { theme: 'automatico', accent: '#3b4bc8' }, questions: [] } });
+  await visit(`#/idea/${IDS.idea}/panoramica`);
+  const row = () => outlet.querySelector('.validation-row');
+  const links = () => [...row().querySelectorAll('a')].map((a) => [text(a), a.getAttribute('href')]);
+  assert.deepEqual(links(), [
+    ['1 esperimento, 1 in corso', `#/idea/${IDS.idea}/esperimenti`],
+    ['1 intervista fatta', `#/idea/${IDS.idea}/interviste`],
+    ['Nessun questionario aperto', `#/idea/${IDS.idea}/questionari`],
+  ]);
+  store.applyItem(survey('eeeeeeee-0000-4000-8000-0000000000a1', 'Come lavorano i medici', 'aperto'));
+  store.applyItem(survey('eeeeeeee-0000-4000-8000-0000000000a2', 'Bozza da finire', 'bozza'));
+  store.applyItem(survey('eeeeeeee-0000-4000-8000-0000000000a3', 'Vecchio', 'chiuso'));
+  await visit(`#/idea/${IDS.idea}/panoramica`);
+  assert.deepEqual(links().slice(2), [['Questionario aperto: Come lavorano i medici', '#/questionario/eeeeeeee-0000-4000-8000-0000000000a1']]);
+});
+
 test('item pages render canvas, experiment, interview and decision', async () => {
   assert.match(await visit(`#/elemento/${IDS.canvas}`), /validato/);
   assert.match(await visit(`#/elemento/${IDS.experiment}`), /Assunzione più rischiosa/);

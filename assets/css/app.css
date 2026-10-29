@@ -4948,3 +4948,42 @@ button.chat-quote {
 .email-preview li {
   margin-bottom: 0.3rem;
 }
+
+/* Panoramica dell'idea: esperimenti, interviste e questionari aperti a un clic */
+.validation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.validation-label {
+  margin-right: 0.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.validation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+
+.validation-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.validation-chip:hover {
+  border-color: var(--primary);
+}
