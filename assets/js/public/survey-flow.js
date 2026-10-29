@@ -20,6 +20,7 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const COVER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
 const INT_RE = /^[+-]?\d+$/;
 const CONTROL_RE = /[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
 const TYPES = new Set(['sezione', 'scelta', 'scelte', 'scala', 'numero', 'breve', 'lunga', 'email']);
@@ -102,6 +103,7 @@ export function normalizeSurvey(data) {
     progress: PROGRESS.has(data?.progress) ? data.progress : 'contatore',
     show_time: data?.show_time !== false,
     median_seconds: Number.isFinite(data?.median_seconds) && data.median_seconds > 0 ? data.median_seconds : null,
+    cover: COVER_RE.test(str(data?.cover?.path)) ? { path: data.cover.path, alt: str(data.cover.alt).trim().slice(0, 200) } : null,
     appearance: { theme: THEMES.has(theme) ? theme : 'automatico', accent, onAccent: contrastText(accent) },
     questions,
   };
@@ -317,9 +319,21 @@ export function buildMeta(survey, answers, { session, final = false, startedAt, 
 }
 
 export const storageKey = (token) => `questionario:${token}`;
+// Segno lasciato sul dispositivo dopo l'invio, con la sola data: chi ha già risposto non ricomincia da capo.
+export const sentKey = (token) => `questionario:${token}:inviato`;
+// Segno della scheda aperta: dopo un ricaricamento si riprende subito, a una nuova visita si saluta prima.
+export const tabKey = (token) => `questionario:${token}:scheda`;
+export const KEEP_DAYS = 30;
 
-// Compilazione salvata nella scheda: valida solo se ben formata, con la schermata entro quelle del questionario.
-export function readStored(raw, screenCount) {
+// Domande senza una risposta valida, nell'ordine del questionario.
+export function unanswered(questions, draft = {}) {
+  const answers = collectAnswers(questions, draft);
+  return questions.filter((q) => q.type !== 'sezione' && !(q.id in answers) && !(otherKey(q.id) in answers));
+}
+
+// Compilazione salvata sul dispositivo: valida solo se ben formata, non più vecchia di 30 giorni,
+// con la schermata entro quelle del questionario.
+export function readStored(raw, screenCount, now = Date.now()) {
   let data;
   try {
     data = JSON.parse(raw);
@@ -327,6 +341,7 @@ export function readStored(raw, screenCount) {
     return null;
   }
   if (!data || typeof data !== 'object' || !UUID_RE.test(str(data.session)) || screenCount < 1) return null;
+  if (Number.isFinite(data.savedAt) && now - data.savedAt > KEEP_DAYS * 86_400_000) return null;
   const draft = data.draft && typeof data.draft === 'object' && !Array.isArray(data.draft) ? data.draft : {};
   const index = Number.isInteger(data.index) ? Math.min(Math.max(data.index, 0), screenCount - 1) : 0;
   return {

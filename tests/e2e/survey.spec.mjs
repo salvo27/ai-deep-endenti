@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { estimateMinutes } from '../../assets/js/public/survey-time.js';
 import { SURVEY, TOKEN } from './q-fixture.mjs';
@@ -217,6 +218,8 @@ test('invio finale con tutte le risposte, durata e dispositivo, poi il grazie; n
   });
   expect(saves.slice(0, -1).every((s) => s.p_meta.final === false && !('duration_seconds' in s.p_meta))).toBe(true);
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  const kept = await page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])));
+  expect(kept, 'sul dispositivo resta solo la data dell\'invio, senza risposte').toEqual({ [`questionario:${TOKEN}:inviato`]: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   const origin = new URL(baseURL).origin;
   expect(requests.filter((url) => new URL(url).origin !== origin)).toEqual([]);
   expect(await page.evaluate(() => window.__csp), 'la pagina rispetta la stessa policy di q.html').toEqual([]);
@@ -366,6 +369,79 @@ test('tema automatico segue il dispositivo, chiaro lo ignora; testo bianco sul c
   await expect(light.locator('body')).toHaveCSS('background-color', 'rgb(244, 243, 239)');
 });
 
+const COVER = 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg';
+const coverRoute = '**/storage/v1/object/public/questionari-immagini/**';
+
+test('copertina: l\'immagine del questionario con la sua descrizione, e la fascia leggera se manca o non si carica', async ({ page }) => {
+  const picture = readFileSync(new URL('../../assets/img/anteprima-indaco.png', import.meta.url));
+  await page.route(coverRoute, (route) => route.fulfill({ status: 200, contentType: 'image/jpeg', body: picture }));
+  await open(page, { survey: { ...SURVEY, cover: { path: COVER, alt: 'Il nostro gruppo davanti all\'università' } } });
+  await expect(page.getByText('Ciao!')).toBeVisible();
+  const image = page.getByRole('img', { name: 'Il nostro gruppo davanti all\'università' });
+  await expect(image).toHaveAttribute('src', `https://ixhnqeabctkpflwkdarj.supabase.co/storage/v1/object/public/questionari-immagini/${COVER}`);
+  await expect.poll(() => image.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__csp)).toEqual([]);
+
+  const broken = await page.context().newPage();
+  await broken.route(coverRoute, (route) => route.fulfill({ status: 404, body: '' }));
+  await open(broken, { survey: { ...SURVEY, cover: { path: COVER, alt: 'Foto' } } });
+  await expect(broken.locator('.band-cover.is-empty .cover-icon')).toBeVisible();
+  await expect(broken.locator('img')).toHaveCount(0);
+
+  const plain = await page.context().newPage();
+  await open(plain);
+  await expect(plain.locator('.band-cover.is-empty .cover-icon')).toBeVisible();
+  await expect(plain.getByRole('button', { name: 'Inizia' })).toBeVisible();
+});
+
+test('chi ha già inviato, riaprendo il link, vede «Hai già risposto» e non può ricominciare', async ({ page }) => {
+  await start(page, { survey: withQuestions(['eta']) });
+  await page.getByLabel('Meno di 30').check();
+  await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: 'Hai già risposto, grazie!' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inizia' })).toHaveCount(0);
+  expect(await rpc(page, 'survey_event'), 'non è una nuova visita').toEqual([]);
+});
+
+test('tornando dopo aver chiuso la pagina c\'è un saluto con le domande che mancano, e si riprende da lì', async ({ page }) => {
+  await start(page);
+  await page.getByLabel('Più di 50').check();
+  await next(page);
+  await page.getByLabel('Che lavoro fai?').fill('Cuoca');
+  const later = await page.context().newPage();
+  await open(later);
+  await expect(later.getByText('Rieccoci!')).toBeVisible();
+  await expect(later.getByText('Ti mancano 5 domande su 7: le risposte che avevi dato sono ancora qui, riprendi da dove eri.')).toBeVisible();
+  expect(await rpc(later, 'survey_event')).toEqual([]);
+  await later.getByRole('button', { name: 'Riprendi' }).click();
+  await expect(counter(later)).toHaveText('Domanda 2 di 7');
+  await expect(later.getByLabel('Che lavoro fai?')).toHaveValue('Cuoca');
+});
+
+test('prima dell\'invio un promemoria gentile ricorda le domande facoltative saltate, una volta sola', async ({ page }) => {
+  await start(page, { survey: withQuestions(['eta', 'lavoro', 'dove']) });
+  await page.getByLabel('Meno di 30').check();
+  await next(page);
+  await next(page);
+  await page.getByLabel('Supermercato').check();
+  await page.getByRole('button', { name: 'Invia' }).click();
+  const reminder = page.getByRole('region', { name: 'Domande senza risposta' });
+  await expect(reminder).toContainText('Hai lasciato senza risposta una domanda:');
+  await expect(reminder).toContainText('Che lavoro fai?');
+  expect((await rpc(page, 'submit_survey')).filter((c) => c.p_meta.final)).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Invia comunque' })).toBeVisible();
+  await reminder.getByRole('button', { name: 'Rispondi' }).click();
+  await expect(counter(page)).toHaveText('Domanda 2 di 3');
+  await page.getByLabel('Che lavoro fai?').fill('Fornaio');
+  await next(page);
+  await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
+  const final = (await rpc(page, 'submit_survey')).at(-1);
+  expect(final.p_answers).toEqual({ eta: 'meno-30', lavoro: 'Fornaio', dove: ['super'] });
+});
+
 test('seppia e contrasto elevato: sfondo caldo, poi bianco e nero con il pulsante nero', async ({ page }) => {
   await open(page, { survey: { ...SURVEY, appearance: { theme: 'seppia', accent: '#3b4bc8' } } });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'seppia');
@@ -466,6 +542,9 @@ test('sul telefono a 360 px niente scorre in orizzontale, ogni riga si tocca ben
     if (i < 7) await next(page);
   }
   await page.getByRole('button', { name: 'Invia' }).click();
+  await expect(page.getByRole('region', { name: 'Domande senza risposta' })).toBeVisible();
+  await check('promemoria');
+  await page.getByRole('button', { name: 'Invia comunque' }).click();
   await expect(page.getByRole('heading', { name: 'Grazie!' })).toBeVisible();
   await check('grazie');
   expect(await page.evaluate(() => window.__csp)).toEqual([]);

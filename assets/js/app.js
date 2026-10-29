@@ -7,6 +7,7 @@ import { addRedirect, addRoute, onRouteChange, startRouter, stopRouter } from '.
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
+import { sweepSurveyImages } from './survey-images.js';
 import { startChats, stopChats } from './chat.js';
 import { startMentions, stopMentions } from './mentions.js';
 import { dashboardView } from './views/dashboard.js';
@@ -141,6 +142,7 @@ export async function startApp(root) {
   startChats();
   startMentions();
   sweepNoteImages();
+  sweepSurveyImages();
   stopIdle = startIdleLogout();
   stopActivity = startActivityPing();
   on('removed', () => {

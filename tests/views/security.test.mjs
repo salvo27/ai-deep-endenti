@@ -173,7 +173,8 @@ test('the public survey module loads only the configuration and the same pinned 
   const imports = [...source.matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
   const cdn = site.match(/from '(https:[^']+)'/)[1];
   assert.deepEqual(imports, [cdn, '../config.js'], 'niente login, stato o dati del sito nella pagina pubblica');
-  assert.doesNotMatch(source, /\.from\(|storage|functions\.invoke|signIn/, 'solo chiamate alle funzioni pubbliche');
+  assert.doesNotMatch(source, /\.from\(|\.storage|functions\.invoke|signIn/, 'solo chiamate alle funzioni pubbliche');
+  assert.match(source, /\$\{CONFIG\.supabaseUrl\}\/storage\/v1\/object\/public\/questionari-immagini\/\$\{path\}/, 'immagini solo dallo spazio pubblico dei questionari');
 });
 
 test('GitHub Actions are pinned to full commit SHAs and the workflow starts read-only', () => {

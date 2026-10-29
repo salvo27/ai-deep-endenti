@@ -21,6 +21,9 @@ import {
   parseInteger,
   progressFor,
   readStored,
+  sentKey,
+  tabKey,
+  unanswered,
   screenOf,
   selectedChoices,
   toggleChoice,
@@ -313,6 +316,12 @@ test('a stored session resumes only when well formed, with the screen kept withi
     assert.equal(readStored(bad, 7), null, String(bad));
   }
   assert.equal(readStored(stored, 0), null);
+  const day = 86_400_000;
+  const dated = (savedAt) => JSON.stringify({ session: SESSION, index: 1, draft: {}, savedAt });
+  assert.ok(readStored(dated(1000), 7, 1000 + 29 * day), 'entro 30 giorni si riprende');
+  assert.equal(readStored(dated(1000), 7, 1000 + 31 * day), null, 'dopo 30 giorni si ricomincia');
+  assert.equal(sentKey('Qx7pL2mN9vR4tY6wZ1bC3d'), 'questionario:Qx7pL2mN9vR4tY6wZ1bC3d:inviato');
+  assert.equal(tabKey('Qx7pL2mN9vR4tY6wZ1bC3d'), 'questionario:Qx7pL2mN9vR4tY6wZ1bC3d:scheda');
 });
 
 test('q.html is a separate page with a strict policy that loads only the public survey modules', () => {
@@ -325,6 +334,7 @@ test('q.html is a separate page with a strict policy that loads only the public 
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net;/);
   assert.match(csp, /style-src 'self';/);
+  assert.match(csp, /img-src 'self' https:\/\/ixhnqeabctkpflwkdarj\.supabase\.co;/, 'immagini solo dal sito e dallo spazio file del progetto');
   assert.match(csp, /connect-src https:\/\/ixhnqeabctkpflwkdarj\.supabase\.co;/);
   assert.match(csp, /form-action 'none'/);
   assert.match(csp, /base-uri 'none'/);
@@ -374,4 +384,21 @@ test('the accent adapts to every theme only as much as needed to stay readable',
   assert.equal(accentTokens('#ffcc00')['--ui-d'], '#ffcc00');
   assert.equal(accentTokens('#ffcc00')['--on-d'], '#000000');
   assert.equal(indaco['--ui-h'], '#000000', 'sotto 7:1 sul bianco diventa nero');
+});
+
+test('unanswered lists the questions without a valid answer, counting «Altro» and «Preferisco non rispondere» as answers', () => {
+  const ids = (draft) => unanswered(survey.questions, draft).map((q) => q.id);
+  const all = survey.questions.filter((q) => q.type !== 'sezione').map((q) => q.id);
+  assert.deepEqual(ids({}), all);
+  assert.deepEqual(ids({ eta: 'adulto', dove: [OTHER], 'dove:altro': 'Al parco', voto: 3 }), ['volte', 'nome', 'storia', 'mail']);
+  assert.ok(!ids({ eta: 'non-rispondo' }).includes('eta'), '«Preferisco non rispondere» è una risposta');
+  assert.ok(ids({ eta: 'non-esiste' }).includes('eta'), 'una risposta non valida non conta');
+});
+
+test('the cover image path comes only from the survey images space, with a short description', () => {
+  const path = '11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg';
+  assert.deepEqual(normalizeSurvey({ ...raw, cover: { path, alt: ' Il gruppo ' } }).cover, { path, alt: 'Il gruppo' });
+  assert.equal(normalizeSurvey({ ...raw, cover: { path: 'https://altro.example/x.jpg', alt: 'x' } }).cover, null);
+  assert.equal(normalizeSurvey({ ...raw, cover: { path: `${path}#x` } }).cover, null);
+  assert.equal(normalizeSurvey(raw).cover, null);
 });

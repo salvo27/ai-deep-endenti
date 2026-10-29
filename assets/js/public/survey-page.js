@@ -1,4 +1,4 @@
-import { PREFER_NOT, PublicSurveyError, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
+import { PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
 import { estimateMinutes } from './survey-time.js';
 import {
   LIMITS,
@@ -19,15 +19,19 @@ import {
   readStored,
   screenOf,
   selectedChoices,
+  sentKey,
   storageKey,
+  tabKey,
   toggleChoice,
   tokenFromHash,
+  unanswered,
   validateQuestion,
   validateScreen,
 } from './survey-flow.js';
 
 // Pagina pubblica dei questionari (q.html#<codice>): chi risponde non ha account e non carica nulla del sito.
-// Tutti i testi del questionario entrano come testo, mai come HTML; dell'aspetto si usano solo tema e colore già controllati.
+// Tutti i testi del questionario entrano come testo, mai come HTML; dell'aspetto si usano solo tema, colore e l'immagine
+// dello spazio dei questionari, già controllati.
 
 const ALREADY_SENT = /già state inviate/i;
 const SEND_ERROR = 'Invio non riuscito. Riprova tra poco.';
@@ -44,6 +48,7 @@ const ICONS = {
   saved: [CIRCLE, 'M8.5 12.5l2.5 2.5 4.5-5'],
   lock: ['M5 13a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z', 'M8 11V8a4 4 0 1 1 8 0v3'],
   back: ['M19 12H5', 'M11 6l-6 6 6 6'],
+  hello: ['M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M12 14l-2.6-2.5a1.6 1.6 0 0 1 2.6-2a1.6 1.6 0 0 1 2.6 2z'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
 };
 
@@ -85,6 +90,7 @@ const state = {
   startedAt: null,
   website: '',
   sending: false,
+  reminded: false,
 };
 
 let ui = null;
@@ -93,29 +99,30 @@ let shortcuts = [];
 let saving = null;
 let saveAgain = false;
 
+// Sul dispositivo restano la compilazione in corso (30 giorni al massimo, cancellata all'invio) e, dopo l'invio, solo la data.
+// Senza spazio o con i dati del sito bloccati si perde solo la ripresa: il questionario funziona lo stesso.
+function safe(action, fallback = null) {
+  try {
+    return action();
+  } catch {
+    return fallback;
+  }
+}
+
 const storage = {
-  read() {
-    try {
-      return sessionStorage.getItem(storageKey(state.token));
-    } catch {
-      return null;
-    }
-  },
+  read: () => safe(() => localStorage.getItem(storageKey(state.token))),
   write() {
     const { session, index, draft, recontact, startedAt } = state;
-    try {
-      sessionStorage.setItem(storageKey(state.token), JSON.stringify({ session, index, draft, recontact, startedAt }));
-    } catch {
-      // senza spazio nella scheda si perde solo la ripresa dopo un ricaricamento
-    }
+    safe(() => localStorage.setItem(storageKey(state.token), JSON.stringify({ session, index, draft, recontact, startedAt, savedAt: Date.now() })));
+    safe(() => sessionStorage.setItem(tabKey(state.token), '1'));
   },
   clear() {
-    try {
-      sessionStorage.removeItem(storageKey(state.token));
-    } catch {
-      // ignorato
-    }
+    safe(() => localStorage.removeItem(storageKey(state.token)));
+    safe(() => sessionStorage.removeItem(tabKey(state.token)));
   },
+  inThisTab: () => safe(() => sessionStorage.getItem(tabKey(state.token)) === '1', false),
+  markSent: () => safe(() => localStorage.setItem(sentKey(state.token), new Date().toISOString().slice(0, 10))),
+  sentOn: () => safe(() => localStorage.getItem(sentKey(state.token))),
 };
 
 function buildShell(root) {
@@ -145,11 +152,12 @@ function buildShell(root) {
 }
 
 // Mostra una schermata; «enter» fa entrare il contenuto dal basso (avanti) o dall'alto (indietro).
-function mount(nodes, { band = null, enter = null } = {}) {
+function mount(nodes, { band = null, bandClass = null, enter = null } = {}) {
   ui.form.dataset.mode = state.mode;
   ui.band.textContent = '';
   if (band) ui.band.append(...band);
   ui.band.hidden = !band;
+  ui.band.className = ['band', bandClass].filter(Boolean).join(' ');
   ui.screen.textContent = '';
   ui.screen.append(...nodes);
   ui.after.textContent = '';
@@ -206,6 +214,19 @@ function privacyBlock(text) {
   return h('section', { class: 'privacy', 'aria-labelledby': 'privacy-titolo' }, nodes);
 }
 
+// Copertina: l'immagine scelta dal team o, senza immagine (o se non si carica), una fascia leggera con un'icona.
+function cover() {
+  const empty = () => h('span', { class: 'cover-icon' }, icon('hello', 44));
+  const data = state.survey.cover;
+  if (!data) return { band: [empty()], bandClass: 'band-cover is-empty' };
+  const img = h('img', { src: coverUrl(data.path), alt: data.alt, decoding: 'async', fetchpriority: 'high' });
+  img.addEventListener('error', () => {
+    img.replaceWith(empty());
+    ui.band.classList.add('is-empty');
+  });
+  return { band: [img], bandClass: 'band-cover' };
+}
+
 function showIntro() {
   const survey = state.survey;
   state.mode = 'intro';
@@ -214,18 +235,54 @@ function showIntro() {
   if (survey.show_time) facts.push(['clock', durationText(estimateMinutes(survey, survey.median_seconds))]);
   const email = emailQuestion(survey);
   if (email) facts.push(['mail', email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.']);
-  facts.push(['saved', 'Le risposte si salvano a ogni passaggio, anche se ti fermi prima della fine.']);
+  facts.push(['saved', 'Le risposte si salvano a ogni passaggio: se ti fermi, riprendi da dove eri.']);
   if (survey.privacy) facts.push(['lock', 'Trovi l\'informativa sulla privacy qui sotto.']);
   mount(
     [
+      h('p', { class: 'hello' }, 'Ciao!'),
+      h('h1', { class: 'title' }, survey.title),
       survey.intro ? h('p', { class: 'text' }, survey.intro) : null,
       h('ul', { class: 'facts' }, facts.map(([name, fact]) => h('li', {}, h('span', { class: 'fact-icon' }, icon(name, 18)), h('span', {}, fact)))),
     ].filter(Boolean),
-    { band: [h('p', { class: 'band-eyebrow' }, 'Questionario'), h('h1', { class: 'title' }, survey.title)] },
+    cover(),
   );
   ui.nav.textContent = '';
   ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Inizia'));
   if (survey.privacy) ui.after.append(privacyBlock(survey.privacy));
+}
+
+// Chi torna dopo aver chiuso la pagina: saluto, quante domande mancano e si riprende dalla stessa schermata.
+function showWelcomeBack() {
+  const survey = state.survey;
+  state.mode = 'ritorno';
+  ui.progress.hidden = true;
+  const asked = survey.questions.filter((q) => q.type !== 'sezione').length;
+  const missing = unanswered(survey.questions, state.draft).length;
+  const left = missing === 1 ? 'Ti manca una domanda' : `Ti mancano ${missing} domande`;
+  mount(
+    [
+      h('p', { class: 'hello' }, 'Rieccoci!'),
+      h('h1', { class: 'title' }, survey.title),
+      h('p', { class: 'text' }, `${left} su ${asked}: le risposte che avevi dato sono ancora qui, riprendi da dove eri.`),
+    ],
+    cover(),
+  );
+  ui.nav.textContent = '';
+  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Riprendi'));
+}
+
+// Chi ha già inviato da questo dispositivo non ricomincia: niente compilazioni doppie per sbaglio.
+function showAlreadySent(day) {
+  state.mode = 'done';
+  document.title = 'Hai già risposto';
+  ui.progress.hidden = true;
+  const [y, m, d] = String(day).split('-');
+  const when = y && m && d ? ` il ${d}/${m}/${y}` : '';
+  mount(
+    [h('h1', { class: 'title', tabindex: '-1' }, 'Hai già risposto, grazie!'), h('p', { class: 'text' }, `Le tue risposte sono arrivate${when}: non serve compilarlo di nuovo. Ora puoi chiudere questa pagina.`)],
+    { band: [h('span', { class: 'band-mark' }, icon('check', 40))] },
+  );
+  ui.nav.textContent = '';
 }
 
 function begin() {
@@ -234,6 +291,7 @@ function begin() {
   state.recontact = false;
   state.startedAt = Date.now();
   state.index = 0;
+  state.reminded = false;
   recordSurveyEvent(state.token, 'start');
   storage.write();
   showQuestions({ enter: 'next' });
@@ -532,6 +590,7 @@ function setBusy(busy, label) {
 
 function showThanks() {
   storage.clear();
+  storage.markSent();
   state.mode = 'done';
   document.title = 'Grazie';
   ui.progress.hidden = true;
@@ -559,6 +618,7 @@ async function finish() {
     setAlert(MESSAGES.empty);
     return;
   }
+  if (remindSkipped()) return;
   state.sending = true;
   setBusy(true, 'Invio in corso…');
   setAlert('');
@@ -593,6 +653,35 @@ async function finish() {
   showErrors([{ id: result.question, message: reason }]);
 }
 
+// Una volta sola, prima dell'invio: le domande facoltative saltate, con il modo di tornarci. Non blocca nulla.
+function remindSkipped() {
+  if (state.reminded) return false;
+  state.reminded = true;
+  const skipped = unanswered(state.survey.questions, state.draft).filter((q) => q.type !== 'email');
+  if (!skipped.length) return false;
+  const title = h('p', { class: 'reminder-title', tabindex: '-1' }, skipped.length === 1 ? 'Hai lasciato senza risposta una domanda:' : `Hai lasciato senza risposta ${skipped.length} domande:`);
+  const review = h('button', { type: 'button', class: 'btn btn-quiet' }, skipped.length === 1 ? 'Rispondi' : 'Rispondi a quelle saltate');
+  review.addEventListener('click', () => {
+    state.index = screenOf(state.screens, skipped[0].id);
+    storage.write();
+    showQuestions({ enter: 'back' });
+  });
+  const box = h(
+    'section',
+    { class: 'reminder', 'aria-label': 'Domande senza risposta' },
+    title,
+    h('ul', { class: 'reminder-list' }, skipped.slice(0, 5).map((q) => h('li', {}, q.label))),
+    skipped.length > 5 ? h('p', { class: 'reminder-more' }, `e altre ${skipped.length - 5}.`) : null,
+    h('p', { class: 'reminder-text' }, 'Non sono obbligatorie: se preferisci, invia pure così.'),
+    review,
+  );
+  ui.screen.append(box);
+  if (ui.submit) ui.submit.textContent = 'Invia comunque';
+  title.focus({ preventScroll: true });
+  ui.nav.scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
 function advance() {
   const errors = validateScreen(state.screens[state.index], state.draft, { recontact: state.recontact });
   if (errors.length) {
@@ -613,7 +702,10 @@ function onSubmit(event) {
   event.preventDefault();
   if (state.sending) return;
   if (state.mode === 'intro') begin();
-  else if (state.mode === 'question') advance();
+  else if (state.mode === 'ritorno') {
+    storage.write();
+    showQuestions({ enter: 'next' });
+  } else if (state.mode === 'question') advance();
 }
 
 async function load() {
@@ -650,11 +742,18 @@ async function load() {
     return;
   }
   document.title = state.survey.title;
-  // Dopo un ricaricamento si riprende dalla stessa schermata, con la stessa compilazione: non è una nuova visita.
+  const sent = storage.sentOn();
+  if (sent) {
+    showAlreadySent(sent);
+    return;
+  }
+  // Con una compilazione salvata non è una nuova visita: dopo un ricaricamento si riprende subito dalla stessa schermata,
+  // tornando più tardi si passa prima dal saluto con le domande che mancano.
   const saved = readStored(storage.read(), state.screens.length);
   if (saved) {
     Object.assign(state, saved, { startedAt: saved.startedAt ?? Date.now() });
-    showQuestions({ focus: false });
+    if (storage.inThisTab()) showQuestions({ focus: false });
+    else showWelcomeBack();
     return;
   }
   recordSurveyEvent(state.token, 'view');

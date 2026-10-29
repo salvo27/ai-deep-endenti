@@ -214,6 +214,18 @@ test('the survey appearance is only a theme and a lowercase accent color', () =>
   assert.deepEqual(look('scuro'), { theme: 'automatico', accent: SURVEY_ACCENT });
 });
 
+test('the survey cover is only a JPEG of the survey images space and a one-line description', () => {
+  const path = '11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg';
+  const cover = (value) => sanitizeSnapshot('survey', { data: { cover: value } }).data.cover;
+  assert.deepEqual(cover({ path, alt: '  Il gruppo\n davanti all\'università ', url: 'https://altro.example/x.jpg' }), { path, alt: 'Il gruppo davanti all\'università' });
+  assert.deepEqual(cover({ path }), { path, alt: '' });
+  assert.equal(cover({ path, alt: 'x'.repeat(500) }).alt.length, 200);
+  for (const bad of [null, 'x.jpg', { path: 'https://altro.example/x.jpg' }, { path: path.replace('.jpg', '.png') }, { path: `../${path}` }, { path: `${path}?x=1` }]) {
+    assert.equal(cover(bad), undefined, JSON.stringify(bad));
+  }
+  assert.equal(formatValue('survey', 'data.cover.path', path), 'immagine caricata');
+});
+
 test('survey questions are validated by type, with unique ids and one email question at most', () => {
   const { questions } = sanitizeSnapshot('survey', {
     data: {

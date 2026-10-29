@@ -139,6 +139,10 @@ export const SURVEY_THEMES = [
 
 export const SURVEY_ACCENT = '#3b4bc8';
 
+// Immagine della schermata iniziale: un JPEG nello spazio pubblico «questionari-immagini», percorso <questionario>/<uuid>.jpg.
+export const SURVEY_IMAGE_BUCKET = 'questionari-immagini';
+export const SURVEY_COVER_PATH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
+
 // Id riservato della risposta «Preferisco non rispondere» (domande a scelta con prefer_not).
 export const SURVEY_PREFER_NOT = 'non-rispondo';
 
@@ -149,6 +153,7 @@ export const SURVEY_LIMITS = Object.freeze({
   intro: 2000,
   privacy: 3000,
   thanks: 1000,
+  coverAlt: 200,
   label: 300,
   help: 500,
   option: 120,
@@ -530,7 +535,7 @@ export const KINDS = {
       field('progress', 'Avanzamento', 'select', { options: SURVEY_PROGRESS }),
       field('experiment_id', 'Esperimento collegato', 'experiment'),
     ],
-    extraKeys: ['show_time', 'appearance', 'token', 'questions'],
+    extraKeys: ['show_time', 'appearance', 'cover', 'token', 'questions'],
   },
   note: {
     label: 'Nota',
@@ -954,6 +959,11 @@ function sanitizeAppearance(raw) {
   };
 }
 
+function sanitizeCover(raw) {
+  if (typeof raw?.path !== 'string' || !SURVEY_COVER_PATH_RE.test(raw.path)) return null;
+  return { path: raw.path, alt: cleanLine(raw.alt, SURVEY_LIMITS.coverAlt) };
+}
+
 function sanitizeSurvey(raw) {
   const data = {};
   const intro = cleanText(raw.intro, SURVEY_LIMITS.intro);
@@ -966,6 +976,8 @@ function sanitizeSurvey(raw) {
   data.progress = pick(SURVEY_PROGRESS, raw.progress, 'contatore');
   data.show_time = typeof raw.show_time === 'boolean' ? raw.show_time : true;
   data.appearance = sanitizeAppearance(raw.appearance);
+  const cover = sanitizeCover(raw.cover);
+  if (cover) data.cover = cover;
   if (isUuid(raw.experiment_id)) data.experiment_id = raw.experiment_id;
   if (typeof raw.token === 'string' && SURVEY_TOKEN_RE.test(raw.token)) data.token = raw.token;
   data.questions = sanitizeQuestions(raw.questions);
@@ -1130,6 +1142,7 @@ export function formatValue(kind, path, value, ctx = {}) {
     return mark.state === 'skip' ? `non serve (${who})` : `fatto (${who})`;
   }
   if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
+  if (kind === 'survey' && path === 'data.cover.path') return 'immagine caricata';
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {

@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { isUuid } from './validate.js';
 
 export const NOTE_BUCKET = 'note-immagini';
+export const SURVEY_BUCKET = 'questionari-immagini';
 
 export class AppError extends Error {
   constructor(message, { code = null, status = null } = {}) {
@@ -454,6 +455,31 @@ export const api = {
     if (!paths.length) return;
     const { error } = await supabase.storage.from(NOTE_BUCKET).remove(paths);
     if (error) throw toAppError(error, 'Pulizia delle immagini non riuscita.');
+  },
+
+  // Immagine della schermata iniziale dei questionari: spazio pubblico, la vede chi ha il link del questionario.
+  async uploadSurveyImage(path, blob) {
+    const { error } = await supabase.storage.from(SURVEY_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw toAppError(error, 'Caricamento dell\'immagine non riuscito.');
+  },
+
+  // Senza regole di lettura sullo spazio si scarica dall'indirizzo pubblico; il sito la mostra come blob.
+  async downloadSurveyImage(path) {
+    const { data } = supabase.storage.from(SURVEY_BUCKET).getPublicUrl(path);
+    const response = await fetch(data.publicUrl);
+    if (!response.ok) throw new AppError('Immagine non disponibile.');
+    return response.blob();
+  },
+
+  async removeSurveyImages(paths) {
+    if (!paths.length) return;
+    const { error } = await supabase.storage.from(SURVEY_BUCKET).remove(paths);
+    if (error) throw toAppError(error, 'Pulizia delle immagini non riuscita.');
+  },
+
+  async surveyImageOrphans(paths = null) {
+    const rows = await unwrap(supabase.rpc('survey_image_orphans', { p_paths: paths }), 'Controllo delle immagini non riuscito.');
+    return (rows || []).map((row) => (typeof row === 'string' ? row : row.survey_image_orphans)).filter(Boolean);
   },
 
   async noteImageOrphans(paths = null) {

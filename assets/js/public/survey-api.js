@@ -46,6 +46,9 @@ export const newSurveySession = () => crypto.randomUUID();
 
 // { status: 'aperto', title, intro, privacy, thanks, layout, progress, show_time, median_seconds, appearance, questions }
 // oppure { status: 'chiuso' } o { status: 'non_trovato' }.
+// Indirizzo pubblico dell'immagine della schermata iniziale: solo dallo spazio dei questionari del nostro progetto.
+export const coverUrl = (path) => `${CONFIG.supabaseUrl}/storage/v1/object/public/questionari-immagini/${path}`;
+
 export async function loadPublicSurvey(token) {
   if (!isToken(token)) return { status: 'non_trovato' };
   const data = await call('public_survey', { p_token: token }, 'Questionario non disponibile. Riprova più tardi.');

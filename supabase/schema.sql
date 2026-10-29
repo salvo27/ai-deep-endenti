@@ -336,6 +336,17 @@ begin
        end) then
       raise exception 'Aspetto del questionario non valido';
     end if;
+    -- Immagine della schermata iniziale: solo un file dello spazio «questionari-immagini» e la sua descrizione.
+    if new.data ? 'cover' and (case
+         when jsonb_typeof(new.data -> 'cover') = 'object' then
+           jsonb_typeof(new.data -> 'cover' -> 'path') is distinct from 'string'
+           or (new.data -> 'cover' ->> 'path') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+           or (new.data -> 'cover' ? 'alt' and (jsonb_typeof(new.data -> 'cover' -> 'alt') <> 'string' or char_length(new.data -> 'cover' ->> 'alt') > 200))
+           or exists (select 1 from jsonb_object_keys(new.data -> 'cover') k where k not in ('path', 'alt'))
+         else true
+       end) then
+      raise exception 'Immagine del questionario non valida';
+    end if;
     if new.data ? 'experiment_id' then
       if jsonb_typeof(new.data -> 'experiment_id') <> 'string'
          or (new.data ->> 'experiment_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
@@ -1060,6 +1071,51 @@ as $$
 $$;
 
 -- =========================================================================
+-- Immagini dei questionari
+-- =========================================================================
+
+-- Spazio pubblico per l'immagine della schermata iniziale: la vede chiunque abbia il link del questionario, senza account.
+-- Solo JPEG già ridotti nel browser, caricati e cancellati da chi può modificare; nessuna regola di lettura, così nessuno
+-- può elencare i file: si apre solo quello di cui si conosce il percorso.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('questionari-immagini', 'questionari-immagini', true, 1048576, array['image/jpeg'])
+on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists survey_images_insert on storage.objects;
+create policy survey_images_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'questionari-immagini'
+    and (select public.can_write())
+    and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+  );
+
+drop policy if exists survey_images_delete on storage.objects;
+create policy survey_images_delete on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'questionari-immagini' and (select public.can_write()));
+
+-- Immagini che nessun questionario usa più (cestino compreso). Senza elenco: quelle caricate da più di 24 ore
+-- (le altre possono essere in un questionario non ancora salvato). Il sito poi le cancella con le API di Storage.
+create or replace function public.survey_image_orphans(p_paths text[] default null)
+returns setof text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select o.name
+  from storage.objects o
+  where o.bucket_id = 'questionari-immagini'
+    and public.can_write()
+    and (case when p_paths is null then o.created_at < now() - interval '24 hours' else o.name = any (p_paths) end)
+    and not exists (
+      select 1 from public.items i
+      where i.kind = 'survey' and i.data -> 'cover' ->> 'path' = o.name
+    )
+$$;
+
+-- =========================================================================
 -- Immagini delle note
 -- =========================================================================
 
@@ -1759,6 +1815,10 @@ begin
       from public.survey_responses r
       where r.survey_id = s.id and r.completed and r.duration_seconds is not null
     ),
+    'cover', case when s.data -> 'cover' ->> 'path' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$' then jsonb_build_object(
+      'path', s.data -> 'cover' ->> 'path',
+      'alt', coalesce(left(s.data -> 'cover' ->> 'alt', 200), '')
+    ) end,
     'appearance', jsonb_build_object(
       'theme', case when s.data -> 'appearance' ->> 'theme' in ('chiaro', 'scuro', 'seppia', 'contrasto') then s.data -> 'appearance' ->> 'theme' else 'automatico' end,
       'accent', case when s.data -> 'appearance' ->> 'accent' ~ '^#[0-9a-f]{6}$' then s.data -> 'appearance' ->> 'accent' else '#3b4bc8' end
@@ -2194,6 +2254,7 @@ revoke execute on function public.delete_item(uuid, integer, text) from public, 
 revoke execute on function public.restore_item(uuid, text) from public, anon;
 revoke execute on function public.revert_item(uuid, integer, integer, text) from public, anon;
 revoke execute on function public.note_image_orphans(text[]) from public, anon;
+revoke execute on function public.survey_image_orphans(text[]) from public, anon;
 revoke execute on function public.chat_overview() from public, anon;
 revoke execute on function public.mark_chat_read(uuid) from public, anon;
 revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
@@ -2216,6 +2277,7 @@ grant execute on function public.delete_item(uuid, integer, text) to authenticat
 grant execute on function public.restore_item(uuid, text) to authenticated;
 grant execute on function public.revert_item(uuid, integer, integer, text) to authenticated;
 grant execute on function public.note_image_orphans(text[]) to authenticated;
+grant execute on function public.survey_image_orphans(text[]) to authenticated;
 grant execute on function public.chat_overview() to authenticated;
 grant execute on function public.mark_chat_read(uuid) to authenticated;
 grant execute on function public.mark_mentions_read(bigint[]) to authenticated;

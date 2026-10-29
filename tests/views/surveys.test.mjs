@@ -413,6 +413,45 @@ test('appearance and settings: recommended choices with reasons, palette, contra
   assert.equal(snapshot.data.questions.length, QUESTIONS.length);
 });
 
+test('the start screen image is reduced in the browser, uploaded to the survey space, described and saved', async () => {
+  const proto = window.HTMLCanvasElement.prototype;
+  const saved = { bitmap: globalThis.createImageBitmap, ctx: proto.getContext, blob: proto.toBlob, url: URL.createObjectURL };
+  globalThis.createImageBitmap = async () => ({ width: 4000, height: 3000, close() {} });
+  proto.getContext = () => ({ drawImage() {} });
+  proto.toBlob = function toBlob(callback) {
+    callback(new Blob([`jpeg ${this.width}x${this.height}`], { type: 'image/jpeg' }));
+  };
+  URL.createObjectURL = () => 'blob:copertina';
+  const uploads = [];
+  api.uploadSurveyImage = async (path, blob) => uploads.push([path, blob]);
+  try {
+    await visit(`#/questionario/${S.open}/aspetto`);
+    assert.match(text(outlet), /Senza immagine in alto c'è una fascia leggera/);
+    assert.match(text(outlet), /Couper, Tourangeau e Kenyon 2004/);
+    const input = outlet.querySelector('input[type="file"]');
+    Object.defineProperty(input, 'files', { value: [new window.File(['x'], 'gruppo.png', { type: 'image/png' })], configurable: true });
+    input.dispatchEvent(new window.Event('change'));
+    await flush(10);
+    assert.equal(uploads.length, 1);
+    const [path, blob] = uploads[0];
+    assert.match(path, new RegExp(`^${S.open}/[0-9a-f-]{36}\\.jpg$`));
+    assert.equal(blob.type, 'image/jpeg');
+    assert.equal(await blob.text(), 'jpeg 1600x1200', 'ridotta a 1600 pixel sul lato lungo');
+    assert.equal(outlet.querySelector('.sv-cover-thumb img').getAttribute('src'), 'blob:copertina');
+    typeInto(byText(outlet, 'label.field', 'Descrizione dell\'immagine').querySelector('input'), 'Il gruppo davanti all\'università');
+    byText(outlet, '.save-bar button', 'Salva').click();
+    await flush(5);
+    assert.deepEqual(saves[0].snapshot.data.cover, { path, alt: 'Il gruppo davanti all\'università' });
+    byText(outlet, 'button', 'Togli').click();
+    assert.ok(outlet.querySelector('.sv-cover-thumb.is-empty'));
+    assert.ok(byText(outlet, 'button', 'Scegli un\'immagine'));
+  } finally {
+    Object.assign(globalThis, { createImageBitmap: saved.bitmap });
+    Object.assign(proto, { getContext: saved.ctx, toBlob: saved.blob });
+    URL.createObjectURL = saved.url;
+  }
+});
+
 test('sharing: opening creates the link, the link is copied, closed and changed with a confirmation', async () => {
   await visit(`#/questionario/${S.draft}/condividi`);
   assert.match(text(outlet), /Il link si crea quando aprite il questionario/);

@@ -244,6 +244,7 @@ as $$
     "progress": "barra",
     "show_time": false,
     "appearance": {"theme": "scuro", "accent": "#aa3300"},
+    "cover": {"path": "aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg", "alt": "Il gruppo di ricerca"},
     "questions": [
       {"id": "s-1", "type": "sezione", "label": "Chi sei", "help": "Due domande veloci"},
       {"id": "ruolo", "type": "scelta", "label": "Che lavoro fai?", "required": true, "role": "persona",
@@ -301,6 +302,14 @@ begin
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"#aa3300; background: url(x)"}}', %L)$q$, v_idea), 'Aspetto');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"font":"Comic Sans"}}', %L)$q$, v_idea), 'Aspetto');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":"scuro"}', %L)$q$, v_idea), 'Aspetto');
+  perform public.create_item('survey', 'Seppia', 'bozza', '{"appearance":{"theme":"seppia"}}', v_idea::uuid, null);
+  perform public.create_item('survey', 'Contrasto', 'bozza', '{"appearance":{"theme":"contrasto"}}', v_idea::uuid, null);
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":"x.jpg"}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"%1$s"}}', %2$L)$q$, replace('aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', '.jpg', '.png'), v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","url":"https://altro.example"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","alt":12}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', %L, %L)$q$, jsonb_build_object('cover', jsonb_build_object('path', 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', 'alt', repeat('x', 201))), v_idea), 'Immagine');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":"x"}', %L)$q$, v_idea), 'esperimento collegato non è valido');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_other_exp::text), v_idea), 'stessa idea');
   perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_idea::text), v_idea), 'stessa idea');
@@ -346,7 +355,8 @@ declare
 begin
   assert r ->> 'status' = 'aperto', 'questionario aperto non visibile: ' || r::text;
   assert (select array_agg(k order by k) from jsonb_object_keys(r) k)
-    = array['appearance', 'intro', 'layout', 'median_seconds', 'privacy', 'progress', 'questions', 'show_time', 'status', 'thanks', 'title'], 'campi inattesi: ' || r::text;
+    = array['appearance', 'cover', 'intro', 'layout', 'median_seconds', 'privacy', 'progress', 'questions', 'show_time', 'status', 'thanks', 'title'], 'campi inattesi: ' || r::text;
+  assert r -> 'cover' = '{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","alt":"Il gruppo di ricerca"}'::jsonb, 'immagine: ' || (r -> 'cover')::text;
   assert r -> 'median_seconds' = 'null'::jsonb, 'durata mediana senza risposte';
   assert r ->> 'title' = 'Turni in reparto' and r ->> 'intro' = 'Ci aiuti a capire come organizzi i turni.' and r ->> 'thanks' = 'Grazie del tempo.', 'testi';
   assert r ->> 'layout' = 'sezioni' and r ->> 'progress' = 'barra' and r -> 'show_time' = 'false'::jsonb, 'impostazioni';
@@ -1068,6 +1078,35 @@ select test.login('a', 'aal1');
 do $$
 begin
   assert (select count(*) from storage.objects) = 0, 'immagini visibili senza 2FA';
+end
+$$;
+
+\echo 'ok - questionari: immagine della copertina nello spazio pubblico, caricata solo da chi modifica, orfane trovate dal database'
+reset role;
+do $$
+begin
+  assert (select public and file_size_limit = 1048576 and allowed_mime_types = array['image/jpeg'] from storage.buckets where id = 'questionari-immagini'), 'spazio delle immagini dei questionari';
+  assert not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and cmd = 'SELECT' and qual like '%questionari-immagini%'), 'regola di lettura: si potrebbero elencare i file';
+end
+$$;
+set role authenticated;
+select test.login('a');
+do $$
+declare
+  v_used text := 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg';
+  v_orphan text := 'aaaaaaaa-0000-4000-8000-000000000001/cccccccc-0000-4000-8000-000000000003.jpg';
+begin
+  insert into storage.objects (bucket_id, name) values ('questionari-immagini', v_used), ('questionari-immagini', v_orphan);
+  perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', 'cartella/foto.png')$q$, 'row-level security');
+  assert (select array_agg(x) from public.survey_image_orphans(array[v_used, v_orphan]) x) = array[v_orphan], 'immagine in uso considerata orfana';
+  assert (select count(*) from public.survey_image_orphans()) = 0, 'immagini appena caricate considerate orfane';
+end
+$$;
+select test.login('c');
+do $$
+begin
+  perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', 'aaaaaaaa-0000-4000-8000-000000000001/dddddddd-0000-4000-8000-000000000004.jpg')$q$, 'row-level security');
+  assert (select count(*) from public.survey_image_orphans(array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
 end
 $$;
 

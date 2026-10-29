@@ -10,6 +10,7 @@ import { accentTokens } from '../public/survey-colors.js';
 import { ACCENT_PALETTE, accentCheck, countByRole, fmtRatio, hasBrackets, questionWarnings, surveyWarnings } from '../survey-checks.js';
 import { SCALE_PRESETS, convertQuestion, duplicateQuestion, newQuestion, newRowId, presetLabels, scaleFromLabels } from '../survey-template.js';
 import { saveWithMerge } from './merge.js';
+import { surveyCoverUrl, uploadSurveyCover } from '../survey-images.js';
 
 const TYPE_LABELS = Object.fromEntries(QUESTION_TYPES);
 const ROLE_SHORT = { persona: 'Chi risponde', problema: 'Problema', contatto: 'Contatto', altro: 'Altro' };
@@ -576,6 +577,74 @@ export function settingsPanel(item, { writable, onSaved }) {
   const hex = h('input', { class: 'input input-small sv-hex', type: 'text', maxlength: 7, 'aria-label': 'Codice del colore', value: data.appearance.accent });
   const picker = h('input', { class: 'input input-color', type: 'color', 'aria-label': 'Colore personalizzato', value: data.appearance.accent });
   const swatches = h('div', { class: 'sv-swatches', role: 'radiogroup', 'aria-label': 'Colori consigliati' });
+  const coverHost = h('div', { class: 'sv-cover' });
+  const coverStatus = h('span', { class: 'muted small', role: 'status' });
+  const coverInput = h('input', {
+    type: 'file',
+    class: 'file-input',
+    accept: 'image/jpeg,image/png,image/webp',
+    onChange: async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      coverStatus.textContent = 'Carico l\'immagine…';
+      try {
+        const path = await uploadSurveyCover(item.id, file);
+        data.cover = { path, alt: data.cover?.alt || '' };
+        coverStatus.textContent = 'Immagine caricata: salva per usarla.';
+        session.changed();
+        renderCover();
+      } catch (error) {
+        coverStatus.textContent = '';
+        toast(error.message, { type: 'error' });
+      }
+    },
+  });
+
+  // Immagine della copertina: anteprima, scelta, descrizione per chi non la vede e rimozione.
+  const renderCover = () => {
+    const cover = data.cover;
+    const thumb = h('div', { class: ['sv-cover-thumb', !cover && 'is-empty'] }, cover ? null : h('span', { class: 'muted small' }, 'Senza immagine in alto c\'è una fascia leggera nel colore scelto, con un\'icona.'));
+    if (cover) {
+      surveyCoverUrl(cover.path).then((url) => {
+        if (data.cover?.path !== cover.path) return;
+        mount(thumb, url ? h('img', { src: url, alt: '' }) : h('span', { class: 'muted small' }, 'Anteprima non disponibile.'));
+      });
+    }
+    const alt = cover
+      ? h(
+          'label',
+          { class: 'field' },
+          h('span', { class: 'field-label' }, 'Descrizione dell\'immagine'),
+          h('input', {
+            class: 'input',
+            type: 'text',
+            maxlength: SURVEY_LIMITS.coverAlt,
+            value: cover.alt,
+            placeholder: 'Per esempio: il nostro gruppo davanti all\'università',
+            onInput: (e) => {
+              data.cover.alt = e.target.value;
+              session.changed();
+            },
+          }),
+          h('span', { class: 'muted small' }, 'La legge chi usa un lettore di schermo. Lasciala vuota solo se l\'immagine è decorativa.'),
+        )
+      : null;
+    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => coverInput.click() }, icon('image', 14), h('span', null, cover ? 'Cambia immagine' : 'Scegli un\'immagine'));
+    const drop = cover
+      ? h('button', {
+          type: 'button',
+          class: 'btn btn-small btn-ghost',
+          onClick: () => {
+            delete data.cover;
+            coverStatus.textContent = '';
+            session.changed();
+            renderCover();
+          },
+        }, icon('trash', 14), h('span', null, 'Togli'))
+      : null;
+    mount(coverHost, thumb, h('div', { class: 'row' }, pick, drop, coverStatus), alt);
+  };
 
   const renderSwatches = () =>
     mount(
@@ -700,10 +769,23 @@ export function settingsPanel(item, { writable, onSaved }) {
       contrastHost,
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Anteprima'), previewHost),
     ),
+    h(
+      'section',
+      { class: 'card stack' },
+      h('h2', null, 'Immagine della schermata iniziale'),
+      h(
+        'p',
+        { class: 'sv-reason' },
+        'Facoltativa, in alto sopra il titolo. Meglio un\'immagine neutra: il gruppo, il posto, un logo. Una foto vicino alle domande può spostare le risposte (Couper, Tourangeau e Kenyon 2004), per questo compare solo all\'inizio. La vede chiunque abbia il link; viene ridotta e ripulita dai dati della foto (posizione, telefono).',
+      ),
+      coverHost,
+      coverInput,
+    ),
   );
 
   renderSwatches();
   renderLook();
+  renderCover();
   const el = h(
     'div',
     { class: 'stack survey-settings' },
