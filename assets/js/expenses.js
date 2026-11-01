@@ -5,6 +5,7 @@ import { cleanLine, cleanText, isIsoDate, isUuid } from './lib/validate.js';
 export const EXPENSE_LIMITS = Object.freeze({
   people: 50,
   name: 60,
+  pay: 120,
   note: 500,
   groupNotes: 1000,
   amount: 100_000_000_000,
@@ -131,6 +132,8 @@ export function sanitizeExpenseGroup(raw = {}) {
       members.add(p.member);
       person.member = p.member;
     }
+    const pay = cleanLine(p.pay, EXPENSE_LIMITS.pay);
+    if (pay) person.pay = pay;
     people.push(person);
   }
   const data = { currency: isCurrency(raw.currency) ? raw.currency : 'EUR', people };
@@ -166,6 +169,74 @@ export function sanitizeExpense(raw = {}) {
   if (note) data.note = note;
   if (typeof raw.receipt === 'string' && RECEIPT_PATH_RE.test(raw.receipt)) data.receipt = raw.receipt;
   return data;
+}
+
+// Come pagare una persona: IBAN (raggruppato a quattro cifre), link https o testo libero.
+const compact = (text) => String(text || '').replace(/\s+/g, '').toUpperCase();
+export const looksLikeIban = (text) => /^[A-Z]{2}\d{2}[A-Z0-9]{4,}$/.test(compact(text));
+
+export function ibanValid(text) {
+  const iban = compact(text);
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) return false;
+  const digits = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let rest = 0;
+  for (const digit of digits) rest = (rest * 10 + Number(digit)) % 97;
+  return rest === 1;
+}
+
+// Banca dal codice ABI di un IBAN italiano, senza servizi esterni. Solo codici confermati da due fonti
+// (la libreria MIT iban-bank-identifier e altri riscontri; PostePay dai documenti di trasparenza di Poste).
+const ITALIAN_BANKS = {
+  '01005': 'BNL',
+  '01030': 'Monte dei Paschi di Siena',
+  '02008': 'UniCredit',
+  '03015': 'Fineco',
+  '03032': 'Credem',
+  '03069': 'Intesa Sanpaolo',
+  '03268': 'Banca Sella',
+  '03332': 'Banca Passadore',
+  '05034': 'Banco BPM',
+  '05387': 'BPER Banca',
+  '05856': 'Volksbank',
+  '06230': 'Crédit Agricole Italia',
+  '07601': 'BancoPosta',
+  '36081': 'Postepay, carta con IBAN',
+};
+
+const IBAN_COUNTRIES = {
+  AT: 'austriaco',
+  BE: 'belga',
+  CH: 'svizzero',
+  DE: 'tedesco',
+  ES: 'spagnolo',
+  FR: 'francese',
+  GB: 'britannico',
+  IE: 'irlandese',
+  LT: 'lituano',
+  LU: 'lussemburghese',
+  MT: 'maltese',
+  NL: 'olandese',
+  PT: 'portoghese',
+  SM: 'sammarinese',
+};
+
+export function ibanBank(text) {
+  const iban = compact(text);
+  if (!ibanValid(iban)) return null;
+  const country = iban.slice(0, 2);
+  if (country !== 'IT') return `IBAN ${IBAN_COUNTRIES[country] || `del paese ${country}`}`;
+  const abi = iban.slice(5, 10);
+  if (ITALIAN_BANKS[abi]) return ITALIAN_BANKS[abi];
+  return abi.startsWith('08') ? 'Credito Cooperativo (BCC)' : `codice ABI ${abi}`;
+}
+
+export function payInfo(text) {
+  const value = cleanLine(text, EXPENSE_LIMITS.pay);
+  if (!value) return null;
+  const link = /^paypal\.me\//i.test(value) ? `https://${value}` : value;
+  if (/^https:\/\/[^\s/]+\.[^\s]+$/i.test(link)) return { kind: 'link', text: value, copy: link, href: link };
+  if (looksLikeIban(value)) return { kind: 'iban', text: compact(value).replace(/(.{4})(?=.)/g, '$1 '), copy: compact(value), bank: ibanBank(value) };
+  return { kind: 'text', text: value, copy: value };
 }
 
 export const groupPeople = (group) => group?.data?.people || [];

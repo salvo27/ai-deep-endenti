@@ -9,10 +9,14 @@ import {
   fmtAmount,
   groupBalances,
   groupStats,
+  ibanBank,
+  ibanValid,
   inGroupCurrency,
+  looksLikeIban,
   movementEffects,
   movementsCsv,
   parseAmount,
+  payInfo,
   sanitizeExpense,
   sanitizeExpenseGroup,
   settleUp,
@@ -140,7 +144,7 @@ test('group data keeps only valid people, unique ids and accounts, and a known c
   const data = sanitizeExpenseGroup({
     currency: 'XYZ',
     people: [
-      { id: 'a', name: '  Anna  ', member: MEMBER },
+      { id: 'a', name: '  Anna  ', member: MEMBER, pay: '  IT60 X054 2811 1010 0000 0123 456  ' },
       { id: 'a', name: 'Doppione' },
       { id: 'b', name: 'Bruno', member: MEMBER },
       { id: 'C!', name: 'Id non valido' },
@@ -150,7 +154,8 @@ test('group data keeps only valid people, unique ids and accounts, and a known c
     notes: '  Note  ',
     extra: 'via',
   });
-  assert.deepEqual(data, { currency: 'EUR', people: [{ id: 'a', name: 'Anna', member: MEMBER }, { id: 'b', name: 'Bruno' }], notes: 'Note' });
+  assert.deepEqual(data, { currency: 'EUR', people: [{ id: 'a', name: 'Anna', member: MEMBER, pay: 'IT60 X054 2811 1010 0000 0123 456' }, { id: 'b', name: 'Bruno' }], notes: 'Note' });
+  assert.equal(sanitizeExpenseGroup({ people: [{ id: 'a', name: 'A', pay: 'x'.repeat(300) }] }).people[0].pay.length, 120);
   assert.equal(sanitizeExpenseGroup({ people: Array.from({ length: 60 }, (_, i) => ({ id: `p${i}`, name: `P${i}` })) }).people.length, 50);
 });
 
@@ -248,4 +253,38 @@ test('the rate comes from the ECB through Frankfurter, sending only currencies a
   await assert.rejects(fetchRate('USD', 'XYZ', null, { fetchImpl }), /Valuta non supportata/);
   await assert.rejects(fetchRate('USD', 'EUR', null, { fetchImpl: async () => ({ ok: false }) }), /Cambio non disponibile/);
   await assert.rejects(fetchRate('USD', 'EUR', null, { fetchImpl: async () => ({ ok: true, json: async () => ({ rates: { EUR: 'x' } }) }) }), /Cambio non disponibile/);
+});
+
+test('how to pay someone: IBANs are checked and grouped, only https links are clickable, the rest is plain text', () => {
+  assert.equal(ibanValid('IT60 X054 2811 1010 0000 0123 456'), true);
+  assert.equal(ibanValid('it60x0542811101000000123456'), true);
+  assert.equal(ibanValid('GB82 WEST 1234 5698 7654 32'), true);
+  assert.equal(ibanValid('IT60 X054 2811 1010 0000 0123 457'), false, 'una cifra sbagliata non passa');
+  assert.equal(looksLikeIban('IT60 X054'), true);
+  assert.equal(looksLikeIban('Satispay 333 1234567'), false);
+  assert.deepEqual(payInfo('it60x0542811101000000123456'), { kind: 'iban', text: 'IT60 X054 2811 1010 0000 0123 456', copy: 'IT60X0542811101000000123456', bank: 'codice ABI 05428' });
+  assert.deepEqual(payInfo('paypal.me/anna'), { kind: 'link', text: 'paypal.me/anna', copy: 'https://paypal.me/anna', href: 'https://paypal.me/anna' });
+  assert.equal(payInfo('https://paypal.me/anna').kind, 'link');
+  assert.equal(payInfo('http://paypal.me/anna').kind, 'text', 'solo https');
+  assert.equal(payInfo('javascript:alert(1)').kind, 'text');
+  assert.deepEqual(payInfo('Satispay al 333 1234567'), { kind: 'text', text: 'Satispay al 333 1234567', copy: 'Satispay al 333 1234567' });
+  assert.equal(payInfo('   '), null);
+});
+
+test('the bank comes from the IBAN itself, with known Italian codes, cooperative banks and the country for foreign accounts', () => {
+  const italian = (abi) => {
+    const bban = `X${abi}01600000000123456`;
+    for (let check = 2; check < 99; check += 1) {
+      const iban = `IT${String(check).padStart(2, '0')}${bban}`;
+      if (ibanValid(iban)) return iban;
+    }
+    return null;
+  };
+  assert.equal(ibanBank(italian('36081')), 'Postepay, carta con IBAN');
+  assert.equal(ibanBank(italian('03069')), 'Intesa Sanpaolo');
+  assert.equal(ibanBank(italian('08327')), 'Credito Cooperativo (BCC)');
+  assert.equal(ibanBank(italian('05428')), 'codice ABI 05428');
+  assert.equal(ibanBank('GB82 WEST 1234 5698 7654 32'), 'IBAN britannico');
+  assert.equal(ibanBank('IT60 X054 2811 1010 0000 0123 457'), null, 'un IBAN sbagliato non dice nulla');
+  assert.equal(ibanBank('Satispay'), null);
 });

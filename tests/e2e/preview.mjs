@@ -53,7 +53,7 @@ store.state.user = { id: ME };
 store.setMembers(members());
 // Spese di fantasia: un gruppo con una persona senza account e movimenti in due valute.
 const EXPENSES = 'ffffffff-0000-4000-8000-000000000001';
-const expensePeople = [{ id: 'a', name: 'Anna', member: ME }, { id: 'b', name: 'Bruno', member: OTHER }, { id: 'e', name: 'Elena Rossi Bianchi' }];
+const expensePeople = [{ id: 'a', name: 'Anna', member: ME }, { id: 'b', name: 'Bruno', member: OTHER, pay: 'IT60X0542811101000000123456' }, { id: 'e', name: 'Elena Rossi Bianchi', pay: 'paypal.me/elena-rossi-bianchi' }];
 const day = (offset) => new Date(Date.now() - offset * 86400e3).toISOString().slice(0, 10);
 const movement = (n, title, data) =>
   item({ id: `ffffffff-1111-4000-8000-00000000000${n}`, kind: 'expense', title, data: { group: EXPENSES, currency: 'EUR', rate: 1, ...data } });

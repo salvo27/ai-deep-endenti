@@ -23,7 +23,7 @@ const NEW_ID = 'eeeeeeee-2222-4000-8000-000000000001';
 
 const people = [
   { id: 'a', name: 'Anna', member: ME },
-  { id: 'b', name: 'Bruno', member: OTHER },
+  { id: 'b', name: 'Bruno', member: OTHER, pay: 'IT60X0542811101000000123456' },
   { id: 'e', name: 'Elena' },
 ];
 
@@ -111,7 +111,7 @@ test('a new group starts with the team members except advisors and opens after c
   fakeCreate(calls);
   await visit('#/spese');
   byText(outlet, 'button', 'Nuovo gruppo').click();
-  const rows = [...dialog().querySelectorAll('.exp-person-row input')].map((i) => i.value);
+  const rows = [...dialog().querySelectorAll('.exp-person-name-input')].map((i) => i.value);
   assert.deepEqual(rows, ['Anna', 'Bruno']);
   footerButton('Crea il gruppo').click();
   await flush();
@@ -122,7 +122,7 @@ test('a new group starts with the team members except advisors and opens after c
   footerButton('Crea il gruppo').click();
   await flush();
   assert.match(text(dialog().querySelector('.form-error')), /Ogni persona ha bisogno di un nome/);
-  typeInto([...dialog().querySelectorAll('.exp-person-row input')].at(-1), 'Franco');
+  typeInto([...dialog().querySelectorAll('.exp-person-name-input')].at(-1), 'Franco');
   footerButton('Crea il gruppo').click();
   await flush();
   assert.equal(calls.length, 1);
@@ -177,6 +177,15 @@ test('balances say who receives and who owes, and a transfer can be marked as pa
   const transfers = [...outlet.querySelectorAll('.exp-transfer')].map((li) => text(li));
   assert.match(transfers[0], /^Anna dà 12,00 € a Bruno/);
   assert.match(transfers[1], /^Elena dà 5,00 € a Bruno/);
+  const pay = outlet.querySelector('.exp-transfer .exp-pay');
+  assert.equal(text(pay.querySelector('.muted')), 'Come pagare Bruno:');
+  assert.equal(text(pay.querySelector('.exp-iban')), 'IT60 X054 2811 1010 0000 0123 456');
+  assert.equal(text(pay.querySelector('.exp-bank')), 'codice ABI 05428');
+  const copied = [];
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (value) => copied.push(value) }, configurable: true });
+  byText(pay, 'button', 'Copia').click();
+  await flush();
+  assert.deepEqual(copied, ['IT60X0542811101000000123456']);
   byText(outlet.querySelector('.exp-transfer'), 'button', 'Segna come pagato').click();
   await flush();
   assert.match(text(dialog()), /Registro un rimborso di 12,00 € da Anna a Bruno/);
@@ -304,10 +313,18 @@ test('people in some movement cannot be removed and the currency is fixed after 
   assert.match(removes[0].title, /è in 3 movimenti/);
   assert.ok(outlet.querySelector('.exp-settings select:not([aria-label])').disabled);
   byText(outlet, 'button', 'Aggiungi una persona').click();
-  typeInto([...outlet.querySelectorAll('.exp-person-row input')].at(-1), 'Franco');
+  typeInto([...outlet.querySelectorAll('.exp-person-name-input')].at(-1), 'Franco');
+  const franco = [...outlet.querySelectorAll('.exp-person-pay-input')].at(-1);
+  typeInto(franco, 'IT60 X054 2811 1010 0000 0123 457');
+  byText(outlet, 'button', 'Salva').click();
+  await flush();
+  assert.match(text(outlet.querySelector('.exp-settings .form-error')), /L'IBAN di Franco non torna: controlla le cifre/);
+  assert.equal(saves.length, 0);
+  typeInto(franco, 'paypal.me/franco');
   byText(outlet, 'button', 'Salva').click();
   await flush();
   assert.equal(saves.length, 1);
+  assert.equal(saves[0].snapshot.data.people.at(-1).pay, 'paypal.me/franco');
   assert.deepEqual(saves[0].snapshot.data.people.map((p) => p.name), ['Anna', 'Bruno', 'Elena', 'Franco']);
   assert.equal(saves[0].snapshot.data.currency, 'EUR');
 });

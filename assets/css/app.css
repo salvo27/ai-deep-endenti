@@ -5275,6 +5275,24 @@ button.chat-quote {
   color: var(--muted);
 }
 
+.exp-pay {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+}
+
+.exp-pay a,
+.exp-pay span:not(.muted) {
+  overflow-wrap: anywhere;
+}
+
+.exp-iban {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+
 .exp-donut {
   display: flex;
   flex-wrap: wrap;
@@ -5496,7 +5514,7 @@ button.chat-quote {
 
 .exp-person-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.4rem;
@@ -5531,10 +5549,17 @@ button.chat-quote {
 
   .exp-person-row {
     grid-template-columns: minmax(0, 1fr) auto;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
   }
 
-  .exp-person-row select {
+  .exp-person-row select,
+  .exp-person-row .exp-person-pay-input {
     grid-column: 1 / -1;
-    grid-row: 2;
+  }
+
+  .exp-person-row .icon-btn {
+    grid-column: 2;
+    grid-row: 1;
   }
 }

@@ -18,12 +18,15 @@ import {
   groupBalances,
   groupPeople,
   groupStats,
+  ibanValid,
   inGroupCurrency,
   involves,
+  looksLikeIban,
   movementEffects,
   movementShares,
   movementsCsv,
   parseAmount,
+  payInfo,
   personName,
   personOfMember,
   sanitizeExpense,
@@ -121,7 +124,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
         'div',
         { class: 'exp-person-row' },
         h('input', {
-          class: 'input',
+          class: 'input exp-person-name-input',
           type: 'text',
           value: p.name,
           maxlength: EXPENSE_LIMITS.name,
@@ -145,6 +148,17 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
           h('option', { value: '' }, 'Senza account'),
           memberOptions(p).map((m) => h('option', { value: m.user_id, selected: m.user_id === p.member }, m.display_name)),
         ),
+        h('input', {
+          class: 'input exp-person-pay-input',
+          type: 'text',
+          value: p.pay || '',
+          maxlength: EXPENSE_LIMITS.pay,
+          placeholder: 'Come pagarmi: IBAN o link PayPal',
+          'aria-label': `Come pagare ${p.name || `persona ${index + 1}`}`,
+          onInput: (e) => {
+            p.pay = e.target.value;
+          },
+        }),
         h(
           'button',
           {
@@ -170,7 +184,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
         'div',
         { class: 'toolbar toolbar-wrap' },
         people.length < EXPENSE_LIMITS.people
-          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push({ id: shortId(), name: '' }); render(); host.querySelector('.exp-person-row:last-of-type input')?.focus(); } }, icon('plus', 14), h('span', null, 'Aggiungi una persona'))
+          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push({ id: shortId(), name: '' }); render(); [...host.querySelectorAll('.exp-person-name-input')].at(-1)?.focus(); } }, icon('plus', 14), h('span', null, 'Aggiungi una persona'))
           : null,
         missing.length
           ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push(...missing.map((m) => ({ id: shortId(), name: m.display_name, member: m.user_id }))); render(); } }, icon('users', 14), h('span', null, `Aggiungi i membri del team (${missing.length})`))
@@ -179,7 +193,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
     );
   };
   render();
-  return { node: host, read: () => people.map((p) => ({ id: p.id, name: p.name, member: p.member })) };
+  return { node: host, read: () => people.map((p) => ({ id: p.id, name: p.name, member: p.member, pay: p.pay })) };
 }
 
 function groupFields(group, { movements = [] } = {}) {
@@ -203,7 +217,13 @@ function groupFields(group, { movements = [] } = {}) {
       currency,
       movements.length ? h('span', { class: 'field-help' }, 'Non si cambia dopo il primo movimento: i cambi salvati sono verso questa valuta.') : h('span', { class: 'field-help' }, 'Saldi e statistiche sono in questa valuta. Le spese possono essere anche in altre.'),
     ),
-    h('div', { class: 'field is-wide' }, h('span', { class: 'field-label' }, 'Persone'), h('span', { class: 'field-help' }, 'Chi paga e chi divide le spese. Chi non ha un account si aggiunge solo con il nome.'), people.node),
+    h(
+      'div',
+      { class: 'field is-wide' },
+      h('span', { class: 'field-label' }, 'Persone'),
+      h('span', { class: 'field-help' }, 'Chi paga e chi divide le spese. Chi non ha un account si aggiunge solo con il nome. «Come pagarmi» compare nei Saldi a chi deve dare dei soldi.'),
+      people.node,
+    ),
     h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, 'Note'), notes),
   );
   const read = () => ({
@@ -215,6 +235,8 @@ function groupFields(group, { movements = [] } = {}) {
     const raw = people.read();
     if (raw.some((p) => !p.name.trim())) return 'Ogni persona ha bisogno di un nome.';
     if (!raw.length) return 'Aggiungi almeno una persona.';
+    const badIban = raw.find((p) => looksLikeIban(p.pay) && !ibanValid(p.pay));
+    if (badIban) return `L'IBAN di ${badIban.name.trim()} non torna: controlla le cifre.`;
     const kept = new Set(raw.map((p) => p.id));
     const lost = group ? groupPeople(group).filter((p) => !kept.has(p.id) && used(p.id)) : [];
     return lost.length ? `${lost.map((p) => p.name).join(', ')} è nei movimenti: non si può togliere.` : null;
@@ -845,6 +867,32 @@ function movementsTab(group, movements, me, filters, { writable }) {
   );
 }
 
+async function copyPay(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copiato.', { type: 'success' });
+  } catch {
+    toast('Copia non riuscita: selezionalo e copialo a mano.', { type: 'error' });
+  }
+}
+
+function payLine(group, personId) {
+  const pay = payInfo(groupPeople(group).find((p) => p.id === personId)?.pay);
+  if (!pay) return null;
+  const value =
+    pay.kind === 'link'
+      ? h('a', { href: pay.href, target: '_blank', rel: 'noopener noreferrer' }, pay.text)
+      : h('span', { class: pay.kind === 'iban' ? 'exp-iban' : null }, pay.text);
+  return h(
+    'div',
+    { class: 'exp-pay' },
+    h('span', { class: 'muted small' }, `Come pagare ${personName(group, personId)}:`),
+    value,
+    pay.bank ? h('span', { class: 'muted small exp-bank' }, pay.bank) : null,
+    h('button', { type: 'button', class: 'btn btn-small', onClick: () => copyPay(pay.copy) }, icon('copy', 14), h('span', null, 'Copia')),
+  );
+}
+
 function balancesTab(group, movements, me, { writable }) {
   const cur = group.data.currency;
   const balances = groupBalances(group, movements);
@@ -905,9 +953,13 @@ function balancesTab(group, movements, me, { writable }) {
                   { class: 'exp-transfer' },
                   h('span', null, h('strong', null, personName(group, t.from)), ' dà ', h('strong', null, fmtAmount(t.amount, cur)), ' a ', h('strong', null, personName(group, t.to))),
                   writable ? h('button', { type: 'button', class: 'btn btn-small', onClick: settle(t) }, icon('check', 14), h('span', null, 'Segna come pagato')) : null,
+                  payLine(group, t.to),
                 ),
               ),
             ),
+            writable && transfers.some((t) => !payInfo(groupPeople(group).find((p) => p.id === t.to)?.pay))
+              ? h('p', { class: 'muted small' }, 'Per chi non ha indicato come pagarlo, si aggiunge IBAN o link nella scheda ', h('a', { href: `#/spese/${group.id}/gruppo` }, 'Gruppo'), '.')
+              : null,
           ]
         : h('p', { class: 'exp-even' }, 'Tutti in pari.'),
     ),
@@ -1048,7 +1100,7 @@ function settingsTab(group, movements, { writable }) {
       'section',
       { class: 'card' },
       h('h2', null, 'Persone'),
-      h('ul', null, groupPeople(group).map((p) => h('li', null, p.name, p.member ? h('span', { class: 'muted small' }, ' · ha un account') : null))),
+      h('ul', null, groupPeople(group).map((p) => h('li', null, p.name, p.member ? h('span', { class: 'muted small' }, ' · ha un account') : null, p.pay ? h('div', { class: 'muted small' }, `Come pagarmi: ${payInfo(p.pay).text}`) : null))),
       group.data.notes ? h('p', null, group.data.notes) : null,
     );
   }
