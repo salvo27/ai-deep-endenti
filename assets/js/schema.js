@@ -12,6 +12,7 @@ import {
   uniqueUuids,
 } from './lib/validate.js';
 import { fmtMoney } from './lib/format.js';
+import { CURRENCIES, EXPENSE_CATEGORIES, MOVEMENT_TYPES, SPLIT_MODES, sanitizeExpense, sanitizeExpenseGroup } from './expenses.js';
 
 export const TECH_SUGGESTIONS = [
   'Inverse design',
@@ -578,11 +579,44 @@ export const KINDS = {
   score: { label: 'Voti', plural: 'Voti', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   scoresnap: { label: 'Fotografia della valutazione', plural: 'Fotografie della valutazione', icon: 'image', titleLabel: 'Nome', statuses: null, fields: [] },
   generator: { label: 'Generatore', plural: 'Generatore', icon: 'generator', titleLabel: 'Titolo', statuses: null, fields: [] },
+  // Spese condivise: solo per etichette e storico, i dati li validano sanitizeExpenseGroup e sanitizeExpense.
+  expensegroup: {
+    label: 'Gruppo di spese',
+    plural: 'Spese',
+    icon: 'wallet',
+    titleLabel: 'Nome del gruppo',
+    statuses: null,
+    fields: [
+      field('currency', 'Valuta', 'select', { options: CURRENCIES.map(([code, label]) => [code, `${code}, ${label}`]) }),
+      field('notes', 'Note'),
+    ],
+    extraKeys: ['people'],
+  },
+  expense: {
+    label: 'Movimento',
+    plural: 'Movimenti',
+    icon: 'wallet',
+    titleLabel: 'Descrizione',
+    statuses: null,
+    fields: [
+      field('type', 'Tipo', 'select', { options: MOVEMENT_TYPES }),
+      field('amount', 'Importo', 'text'),
+      field('currency', 'Valuta', 'select', { options: CURRENCIES.map(([code, label]) => [code, `${code}, ${label}`]) }),
+      field('rate', 'Cambio', 'text'),
+      field('date', 'Data', 'date'),
+      field('paid_by', 'Pagato da', 'text'),
+      field('category', 'Categoria', 'select', { options: EXPENSE_CATEGORIES }),
+      field('note', 'Nota'),
+      field('receipt', 'Scontrino', 'image'),
+    ],
+    extraKeys: ['group', 'split'],
+  },
 };
 
 export const BOARD_KINDS = ['idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey', 'note'];
 export const IDEA_CHILD_KINDS = ['canvas', 'experiment', 'interview', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey', 'note'];
 export const TEAM_KINDS = ['teamcanvas', 'equity'];
+export const EXPENSE_KINDS = ['expensegroup', 'expense'];
 export const EDITABLE_KINDS = [...BOARD_KINDS, ...TEAM_KINDS];
 
 export function kindOf(kind) {
@@ -1007,6 +1041,8 @@ export function sanitizeSnapshot(kind, snapshot) {
   else if (kind === 'scoresnap') data = sanitizeScoreSnap(raw);
   else if (kind === 'generator') data = sanitizeGenerator(raw);
   else if (kind === 'survey') data = sanitizeSurvey(raw);
+  else if (kind === 'expensegroup') data = sanitizeExpenseGroup(raw);
+  else if (kind === 'expense') data = sanitizeExpense(raw);
   else {
     for (const f of def.fields) {
       const value = sanitizeField(f, raw[f.key]);
@@ -1048,7 +1084,9 @@ export function sanitizeSnapshot(kind, snapshot) {
 
 export function snapshotProblem(kind, snapshot) {
   const def = KINDS[kind];
-  if (BOARD_KINDS.includes(kind) && !snapshot.title) return `Manca il campo "${def.titleLabel}".`;
+  if ((BOARD_KINDS.includes(kind) || EXPENSE_KINDS.includes(kind)) && !snapshot.title) return `Manca il campo "${def.titleLabel}".`;
+  if (kind === 'expense' && !snapshot.data.group) return 'Manca il gruppo di spese.';
+  if (kind === 'expense' && !snapshot.data.amount) return 'Scrivi un importo maggiore di zero.';
   if (def.needsIdea && !snapshot.idea_id) return 'Scegli l\'idea a cui appartiene.';
   if (kind === 'scoresnap' && !snapshot.title) return 'Dai un nome alla fotografia.';
   return null;
@@ -1136,6 +1174,15 @@ export function describePath(kind, path, ctx = {}) {
     if (head === 'show_time') return 'Durata stimata visibile';
     if (head === 'token') return 'Link pubblico';
   }
+  if (kind === 'expensegroup' && head.startsWith('people')) return 'Persone';
+  if (kind === 'expense') {
+    if (head === 'group') return 'Gruppo';
+    if (head === 'split') {
+      if (tail[0] === 'mode') return 'Divisione › modo';
+      const person = tail[0] === 'shares' && tail[1] ? ctx.personName?.(tail[1]) : null;
+      return person ? `Divisione › ${person}` : 'Divisione';
+    }
+  }
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -1156,6 +1203,10 @@ export function formatValue(kind, path, value, ctx = {}) {
   }
   if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
   if (kind === 'survey' && (path === 'data.cover.path' || path === 'data.thanks_image.path')) return 'immagine caricata';
+  if (kind === 'expense' && path === 'data.amount' && Number.isFinite(value)) return (value / 100).toLocaleString('it-IT', { minimumFractionDigits: 2 });
+  if (kind === 'expense' && path === 'data.paid_by') return ctx.personName?.(value) || 'Persona';
+  if (kind === 'expense' && path === 'data.split.mode') return SPLIT_MODES.find(([v]) => v === value)?.[1] ?? value;
+  if (kind === 'expense' && path === 'data.group') return ctx.itemTitle?.(value) || 'Gruppo';
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {
@@ -1182,6 +1233,8 @@ export function routeFor(item) {
   if (item.kind === 'teamcanvas') return '#/squadra';
   if (item.kind === 'equity') return '#/squadra/quote';
   if (item.kind === 'survey') return `#/questionario/${item.id}`;
+  if (item.kind === 'expensegroup') return `#/spese/${item.id}`;
+  if (item.kind === 'expense') return isUuid(item.data?.group) ? `#/spese/${item.data.group}?movimento=${item.id}` : '#/spese';
   return `#/elemento/${item.id}`;
 }
 

@@ -27,6 +27,7 @@ import { chatView } from './views/chat.js';
 import { profileView } from './views/profile.js';
 import { squadView } from './views/squad.js';
 import { guideView } from './views/guide.js';
+import { expenseGroupView, expensesView } from './views/expenses.js';
 import { emptyState } from './views/components.js';
 
 export function registerRoutes() {
@@ -53,6 +54,8 @@ export function registerRoutes() {
   addRoute('/diff/:id/:to/:from?', diffView);
   addRoute('/cestino', trashView);
   addRoute('/membri', teamView);
+  addRoute('/spese', expensesView);
+  addRoute('/spese/:id/:tab?', expenseGroupView);
   addRedirect('/team', '/membri');
   addRoute('/profilo', profileView);
 }

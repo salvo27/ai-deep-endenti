@@ -51,7 +51,22 @@ const surveyResponses = Array.from({ length: 12 }, (_, i) => ({
 
 store.state.user = { id: ME };
 store.setMembers(members());
-[...boardItems(), ...extraIdeas, ...surveys].forEach((i) => store.applyItem(i));
+// Spese di fantasia: un gruppo con una persona senza account e movimenti in due valute.
+const EXPENSES = 'ffffffff-0000-4000-8000-000000000001';
+const expensePeople = [{ id: 'a', name: 'Anna', member: ME }, { id: 'b', name: 'Bruno', member: OTHER }, { id: 'e', name: 'Elena Rossi Bianchi' }];
+const day = (offset) => new Date(Date.now() - offset * 86400e3).toISOString().slice(0, 10);
+const movement = (n, title, data) =>
+  item({ id: `ffffffff-1111-4000-8000-00000000000${n}`, kind: 'expense', title, data: { group: EXPENSES, currency: 'EUR', rate: 1, ...data } });
+const expenses = [
+  item({ id: EXPENSES, kind: 'expensegroup', title: 'Costi della startup', data: { currency: 'EUR', people: expensePeople } }),
+  movement(1, 'Dominio e hosting per un anno', { type: 'spesa', amount: 14990, date: day(40), paid_by: 'a', split: { mode: 'parti', shares: { a: 1, b: 1, e: 1 } }, category: 'software' }),
+  movement(2, 'Cena con il mentor', { type: 'spesa', amount: 9600, currency: 'USD', rate: 0.9, date: day(12), paid_by: 'b', split: { mode: 'quote', shares: { a: 1, b: 2 } }, category: 'pasti', note: 'Pagata con la carta di Bruno' }),
+  movement(3, 'Biglietti per la fiera', { type: 'spesa', amount: 12000, date: day(5), paid_by: 'e', split: { mode: 'importi', shares: { a: 4000, b: 4000, e: 4000 } }, category: 'eventi' }),
+  movement(4, 'Rimborso', { type: 'rimborso', amount: 2500, date: day(3), paid_by: 'b', split: { mode: 'parti', shares: { a: 1 } } }),
+  movement(5, 'Premio del bando', { type: 'entrata', amount: 30000, date: day(1), paid_by: 'a', split: { mode: 'parti', shares: { a: 1, b: 1, e: 1 } } }),
+];
+
+[...boardItems(), ...extraIdeas, ...surveys, ...expenses].forEach((i) => store.applyItem(i));
 store.state.commentCounts = new Map([[IDS.idea, 2]]);
 
 const history = [

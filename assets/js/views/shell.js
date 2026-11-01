@@ -36,6 +36,7 @@ export const NAV_GROUPS = [
     [
       ['/squadra', 'Squadra', 'heart'],
       ['/membri', 'Membri', 'users'],
+      ['/spese', 'Spese', 'wallet'],
     ],
   ],
   [

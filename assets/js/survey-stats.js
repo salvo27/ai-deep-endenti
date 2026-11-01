@@ -2,6 +2,7 @@
 // Le segnalazioni di qualità non cancellano mai nulla: servono solo a escludere, a scelta, le risposte sospette.
 import { SURVEY_PREFER_NOT } from './schema.js';
 import { countWords, questionWords } from './public/survey-time.js';
+import { csvCell } from './lib/format.js';
 
 export const QUALITY = Object.freeze({
   speedIndex: 2, // Leiner 2019
@@ -270,15 +271,6 @@ export function contactCandidates(survey, responses, contacts = []) {
     else fresh.push(entry);
   }
   return { fresh, already };
-}
-
-function csvCell(value, separator) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'number') return String(value);
-  let text = String(value);
-  // Un testo che inizia con = + - @ diventerebbe una formula nei fogli di calcolo.
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return text.includes(separator) || /["\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function uniqueHeaders(labels) {

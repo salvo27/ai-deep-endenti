@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
 const SURVEY = 'eeeeeeee-0000-4000-8000-000000000001';
+const EXPENSES = 'ffffffff-0000-4000-8000-000000000001';
 const IDEA_TABS = ['roadmap', 'analisi', 'validazione', 'discussione', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste', 'questionari', 'appunti', 'voti', 'commenti', 'storico'];
 
 const PAGES = [
@@ -31,6 +32,11 @@ const PAGES = [
   '#/storico',
   '#/cestino',
   '#/membri',
+  '#/spese',
+  `#/spese/${EXPENSES}`,
+  `#/spese/${EXPENSES}/saldi`,
+  `#/spese/${EXPENSES}/statistiche`,
+  `#/spese/${EXPENSES}/gruppo`,
   '#/team',
   '#/profilo',
 ];

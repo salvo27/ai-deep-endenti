@@ -231,7 +231,7 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey', 'expensegroup', 'expense'
   )
 );
 
@@ -287,20 +287,22 @@ begin
     or (new.kind = 'decision' and new.status in ('proposta', 'presa', 'rivista'))
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
     or (new.kind = 'survey' and new.status in ('bozza', 'aperto', 'chiuso'))
-    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap')
+    or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap',
+                     'expensegroup', 'expense')
         and new.status is null),
     false
   ) then
     raise exception 'Stato non valido per questo tipo di elemento';
   end if;
-  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap', 'survey')
+  if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap', 'survey',
+                  'expensegroup', 'expense')
      and btrim(new.title) = '' then
     raise exception 'Il titolo è obbligatorio';
   end if;
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
-  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap') and new.idea_id is not null then
+  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense') and new.idea_id is not null then
     raise exception 'Questo elemento non può appartenere a un''idea';
   end if;
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)
@@ -371,6 +373,49 @@ begin
           raise exception 'L''esperimento collegato deve essere della stessa idea';
         end if;
       end if;
+    end if;
+  end if;
+
+  -- Spese condivise: qui si controlla la forma dei dati, i conti li fa il sito.
+  if new.kind = 'expensegroup' and not coalesce(
+       jsonb_typeof(new.data -> 'currency') = 'string' and (new.data ->> 'currency') ~ '^[A-Z]{3}$'
+       and case when jsonb_typeof(new.data -> 'people') = 'array' then
+         jsonb_array_length(new.data -> 'people') <= 50
+         and not exists (
+           select 1 from jsonb_array_elements(new.data -> 'people') p
+           where case when jsonb_typeof(p) = 'object' then
+               coalesce(p ->> 'id', '') !~ '^[a-z0-9-]{1,40}$'
+               or char_length(btrim(coalesce(p ->> 'name', ''))) not between 1 and 60
+               or (p ? 'member' and coalesce(p ->> 'member', '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+             else true end
+         )
+       else false end,
+       false) then
+    raise exception 'Gruppo di spese non valido';
+  end if;
+  if new.kind = 'expense' then
+    if not coalesce(
+         (new.data ->> 'type') in ('spesa', 'rimborso', 'entrata')
+         and jsonb_typeof(new.data -> 'amount') = 'number' and (new.data ->> 'amount') ~ '^[1-9][0-9]{0,11}$'
+         and jsonb_typeof(new.data -> 'currency') = 'string' and (new.data ->> 'currency') ~ '^[A-Z]{3}$'
+         and case when jsonb_typeof(new.data -> 'rate') = 'number' then (new.data -> 'rate')::numeric > 0 and (new.data -> 'rate')::numeric < 1000000 else false end
+         and jsonb_typeof(new.data -> 'date') = 'string' and (new.data ->> 'date') ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+         and jsonb_typeof(new.data -> 'paid_by') = 'string' and (new.data ->> 'paid_by') ~ '^[a-z0-9-]{1,40}$'
+         and jsonb_typeof(new.data -> 'split') = 'object'
+         and (new.data -> 'split' ->> 'mode') in ('parti', 'quote', 'importi')
+         and jsonb_typeof(new.data -> 'split' -> 'shares') = 'object'
+         and (not new.data ? 'receipt'
+              or (new.data ->> 'receipt') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'),
+         false
+       ) then
+      raise exception 'Movimento non valido';
+    end if;
+    if (tg_op = 'INSERT' or (new.data -> 'group') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'group' end))
+       and not exists (
+         select 1 from public.items g
+         where g.id::text = new.data ->> 'group' and g.kind = 'expensegroup' and g.deleted_at is null
+       ) then
+      raise exception 'Il gruppo di spese non esiste';
     end if;
   end if;
 
@@ -1129,7 +1174,7 @@ $$;
 -- Immagini delle note
 -- =========================================================================
 
--- Spazio privato per le immagini di note e chat: solo JPEG già ridotti nel browser, letti e caricati dai membri con 2FA,
+-- Spazio privato per le immagini di note e chat e per gli scontrini delle spese: solo JPEG già ridotti nel browser, letti e caricati dai membri con 2FA,
 -- cancellati da chi può modificare.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('note-immagini', 'note-immagini', false, 1048576, array['image/jpeg'])
@@ -1154,7 +1199,7 @@ create policy note_images_delete on storage.objects
   for delete to authenticated
   using (bucket_id = 'note-immagini' and (select public.can_write()));
 
--- Immagini senza puntatore in nessuna nota (cestino compreso) e in nessun messaggio. Senza elenco: quelle caricate da più di 24 ore
+-- Immagini senza puntatore in nessuna nota (cestino compreso), in nessun messaggio e in nessuna spesa. Senza elenco: quelle caricate da più di 24 ore
 -- (le altre possono essere in una nota non ancora salvata). Il sito poi le cancella con le API di Storage.
 create or replace function public.note_image_orphans(p_paths text[] default null)
 returns setof text
@@ -1175,6 +1220,10 @@ as $$
     and not exists (
       select 1 from public.chat_messages m
       where m.deleted_at is null and strpos(m.body, '(immagine:' || o.name || ')') > 0
+    )
+    and not exists (
+      select 1 from public.items i
+      where i.kind = 'expense' and i.data ->> 'receipt' = o.name
     )
 $$;
 

@@ -27,11 +27,20 @@ let readIds = new Set();
 const routeOf = (kind, id) => routeFor({ kind, id });
 const quoted = (title) => `«${title || 'senza titolo'}»`;
 
+function expenseText(rev, who, title) {
+  const item = getItem(rev.item_id);
+  const group = getItem(item?.data?.group);
+  const where = group ? ` in ${quoted(group.title)}` : '';
+  if (item?.data?.type === 'rimborso') return `${who} ha registrato un rimborso${where}`;
+  if (item?.data?.type === 'entrata') return `${who} ha registrato l'entrata ${title}${where}`;
+  return `${who} ha aggiunto la spesa ${title}${where}`;
+}
+
 export function describeRevision(rev) {
   const who = memberName(rev.author_id);
   const title = quoted(rev.title);
   const changedStatus = rev.op === 'update' && Array.isArray(rev.changed) && rev.changed.includes('status');
-  const href = routeOf(rev.kind, rev.item_id);
+  const href = rev.kind === 'expense' ? routeFor(getItem(rev.item_id) || { kind: rev.kind, id: rev.item_id }) : routeOf(rev.kind, rev.item_id);
   let text = null;
   switch (rev.kind) {
     case 'idea':
@@ -66,6 +75,12 @@ export function describeRevision(rev) {
       break;
     case 'criteria':
       if (rev.op === 'update') text = `${who} ha cambiato i criteri di valutazione`;
+      break;
+    case 'expensegroup':
+      if (rev.op === 'create') text = `${who} ha creato il gruppo di spese ${title}`;
+      break;
+    case 'expense':
+      if (rev.op === 'create') text = expenseText(rev, who, title);
       break;
     default:
       if (BOARD_LABELS[rev.kind] && rev.op === 'create') text = `${who} ha creato ${BOARD_LABELS[rev.kind]}: ${title}`;

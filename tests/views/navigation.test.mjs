@@ -72,7 +72,7 @@ test('the menu is split into Lavoro, Strumenti, Team and Sistema, with Membri in
   assert.deepEqual(groups, [
     ['Lavoro', ['Dashboard', 'Idee', 'Valutazione', 'Esperimenti', 'Interviste', 'Questionari', 'Contatti', 'Decisioni', 'Chat']],
     ['Strumenti', ['Generatore', 'Guida']],
-    ['Team', ['Squadra', 'Membri']],
+    ['Team', ['Squadra', 'Membri', 'Spese']],
     ['Sistema', ['Storico', 'Cestino']],
   ]);
   const group = root.querySelector('.nav-group');

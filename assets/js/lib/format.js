@@ -129,6 +129,15 @@ export function slugFile(text) {
     .slice(0, 60) || 'documento';
 }
 
+export function csvCell(value, separator = ';') {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return String(value);
+  let text = String(value);
+  // Un testo che inizia con = + - @ diventerebbe una formula nei fogli di calcolo.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return text.includes(separator) || /["\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 export function downloadFile(filename, content, type = 'application/json') {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);

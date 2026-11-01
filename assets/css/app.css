@@ -26,6 +26,16 @@
   --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 12px rgb(16 24 40 / 6%);
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Grafici: tre colori distinguibili anche da chi è daltonico, grigio per il resto, blu e rosso per crediti e debiti */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-other: #98a2b3;
+  --chart-neutral: #d0d5dd;
+  --credit: #2a78d6;
+  --credit-text: #1f5fae;
+  --debit: #e34948;
+  --debit-text: #b42a2a;
   color-scheme: light;
 }
 
@@ -55,6 +65,15 @@
     --del-bg: #3d1d1b;
     --del-text: #ff9a92;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 6px 16px rgb(0 0 0 / 25%);
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #199e70;
+    --chart-other: #6b7280;
+    --chart-neutral: #3a4052;
+    --credit: #3987e5;
+    --credit-text: #8db8f2;
+    --debit: #e66767;
+    --debit-text: #ff9a92;
     color-scheme: dark;
   }
 }
@@ -5080,4 +5099,442 @@ button.chat-quote {
 
 .sv-rushed-badge {
   margin-left: 0.4rem;
+}
+
+/* Spese condivise */
+.exp-group-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.exp-group-card:hover {
+  border-color: var(--primary);
+  text-decoration: none;
+}
+
+.exp-group-card h2,
+.exp-group-card p {
+  margin: 0;
+}
+
+.exp-balance.is-credit {
+  color: var(--credit-text);
+  font-weight: 600;
+}
+
+.exp-balance.is-debit {
+  color: var(--debit-text);
+  font-weight: 600;
+}
+
+.exp-balance.is-even {
+  color: var(--muted);
+}
+
+.exp-summary {
+  margin: 0 0 1rem;
+}
+
+.exp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.exp-day {
+  margin-bottom: 1rem;
+}
+
+.exp-day-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.exp-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-row:last-child {
+  border-bottom: 0;
+}
+
+.exp-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.exp-entrata .exp-icon {
+  color: var(--credit-text);
+}
+
+.exp-title {
+  font-weight: 600;
+  text-align: left;
+}
+
+.exp-amounts {
+  text-align: right;
+}
+
+.exp-mine {
+  color: var(--muted);
+}
+
+.exp-count {
+  margin: 0 0 0.75rem;
+}
+
+.exp-balance-list,
+.exp-transfer-list,
+.exp-paid-list,
+.exp-legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exp-balance-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr) minmax(7rem, auto);
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-balance-row:last-child {
+  border-bottom: 0;
+}
+
+.exp-balance-detail {
+  grid-column: 1 / -1;
+}
+
+.exp-diverging {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 14px;
+}
+
+.exp-half {
+  display: flex;
+}
+
+.exp-half-neg {
+  justify-content: flex-end;
+  border-right: 1px solid var(--muted);
+}
+
+.exp-bar {
+  display: block;
+  height: 100%;
+}
+
+.exp-bar-neg {
+  background: var(--debit);
+  border-radius: 4px 0 0 4px;
+}
+
+.exp-bar-pos {
+  background: var(--credit);
+  border-radius: 0 4px 4px 0;
+}
+
+.exp-transfer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-transfer:last-child {
+  border-bottom: 0;
+}
+
+.exp-even {
+  color: var(--muted);
+}
+
+.exp-donut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.exp-donut-svg {
+  width: 150px;
+  height: 150px;
+  flex: 0 0 auto;
+}
+
+.exp-slice {
+  fill: none;
+  stroke-width: 22;
+}
+
+.exp-track {
+  stroke: var(--surface-2);
+}
+
+.exp-c1 {
+  stroke: var(--chart-1);
+  background: var(--chart-1);
+}
+
+.exp-c2 {
+  stroke: var(--chart-2);
+  background: var(--chart-2);
+}
+
+.exp-c3 {
+  stroke: var(--chart-3);
+  background: var(--chart-3);
+}
+
+.exp-cother {
+  stroke: var(--chart-other);
+  background: var(--chart-other);
+}
+
+.exp-legend {
+  flex: 1 1 10rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.exp-legend li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.exp-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.exp-paid-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 9rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+}
+
+.exp-paid-row .exp-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.exp-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary);
+}
+
+.exp-month-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.exp-hit {
+  fill: transparent;
+}
+
+.exp-col {
+  fill: var(--chart-neutral);
+}
+
+.exp-col-now {
+  fill: var(--primary);
+}
+
+.exp-baseline {
+  stroke: var(--border);
+}
+
+.exp-axis,
+.exp-value {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.exp-axis-now,
+.exp-value {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.exp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.exp-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.exp-amount {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.exp-amount .exp-amount-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-amount select {
+  width: auto;
+}
+
+.exp-rate:not(:empty) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.exp-rate .input-small {
+  width: 7rem;
+}
+
+.exp-split-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.exp-split-head .input-small {
+  width: auto;
+}
+
+.exp-split-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-split-input {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.exp-split-input .input-small {
+  width: 6.5rem;
+}
+
+.exp-split-preview {
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-left {
+  margin: 0.4rem 0 0;
+  color: var(--ok);
+}
+
+.exp-left.is-off {
+  color: var(--danger);
+}
+
+.exp-receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.exp-receipt-img {
+  max-width: min(100%, 320px);
+  max-height: 320px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.exp-receipt-img.is-loading {
+  min-height: 120px;
+  background: var(--surface-2);
+}
+
+.exp-person-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.exp-settings-actions {
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.exp-details .field-view {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .exp-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .exp-icon {
+    display: none;
+  }
+
+  .exp-balance-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .exp-diverging {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .exp-person-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .exp-person-row select {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }

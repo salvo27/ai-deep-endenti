@@ -26,13 +26,14 @@ Board condivise per generare, validare e confrontare idee di startup. È un sito
 | Generatore | Griglia capacità del team × settori, con chi ha ogni competenza e chi conosce ogni settore; ogni cella è uno spunto da cui nasce un'idea |
 | Decisioni | Registro di cosa si è deciso, con alternative e motivazioni |
 | Squadra | Team Canvas e divisione delle quote con il metodo Demmler |
+| Spese | Spese condivise del team, a gruppi (i costi della startup, una trasferta, un evento), con persone del team o anche solo un nome per chi non ha l'account. Ogni movimento è una spesa, un rimborso o un'entrata da dividere: importo, data, chi ha pagato, divisione in parti uguali, per quote o per importi, categoria, nota e foto dello scontrino (privata). Le spese in altre valute prendono il cambio della BCE del giorno, modificabile. Quattro schede: **Movimenti** (per giorno, con quanto tocca a te, ricerca e filtri per tipo, persona e categoria), **Saldi** (chi riceve e chi deve, chi dà quanto a chi con pochi bonifici e «Segna come pagato» che registra il rimborso), **Statistiche** (totale, la tua parte, media a persona, torta per categoria con la tabella, chi ha pagato, ultimi 12 mesi) e **Gruppo** (nome, valuta, persone). Esportazione in CSV, storico e cestino come il resto |
 | Roadmap e Guida | Ogni idea ha una roadmap interattiva di 8 fasi e 45 passi in ordine, dalla squadra alla società: per ogni passo cosa fare, come, quando è fatto ed errore da evitare; si spuntano a mano, con autore e data, e si possono togliere; quando i dati della board fanno pensare che un passo sia fatto, la roadmap lo suggerisce. La Guida ha due schede: Roadmap, con la roadmap completa e a che punto è ogni idea, e Concetti (`#/guida/concetti`), che spiega circa novanta voci del manuale, collegate ai campi con il pulsante «?». Il vecchio indirizzo `#/concetti` porta ancora lì |
 | Storico | Ogni salvataggio è una versione con autore, messaggio e differenze; confronto tra versioni, "chi ha scritto cosa", ripristino |
 | Cestino | Niente si cancella davvero |
 | Membri e Profilo | Membri (`#/membri`, prima Team, il vecchio indirizzo funziona ancora): ruoli, stato della 2FA, registro di sicurezza, backup. Profilo: dispositivi, password, avvisi del browser |
-| Notifiche | Campanella con le novità degli altri (nuove idee, cambi di fase, decisioni, esperimenti conclusi, nuove schede, persone, commenti), avviso a comparsa in tempo reale e, se attivati, avvisi del browser. Per email: menzioni non lette dopo una decina di minuti e un riepilogo il lunedì mattina, spegnibili dal Profilo |
+| Notifiche | Campanella con le novità degli altri (nuove idee, cambi di fase, decisioni, esperimenti conclusi, nuove schede, persone, commenti, spese), avviso a comparsa in tempo reale e, se attivati, avvisi del browser. Per email: menzioni non lette dopo una decina di minuti e un riepilogo il lunedì mattina, spegnibili dal Profilo |
 
-Il menu laterale raggruppa le pagine in **Lavoro** (Dashboard, Idee, Valutazione, Esperimenti, Interviste, Questionari, Contatti, Decisioni, Chat), **Strumenti** (Generatore, Guida), **Team** (Squadra, Membri) e **Sistema** (Storico, Cestino); in fondo ci sono Profilo ed Esci, che chiede conferma perché per rientrare servono password e codice di verifica. Sul telefono la ricerca è un pulsante con la lente che apre una riga larga quanto lo schermo; da tastiera si apre con «/».
+Il menu laterale raggruppa le pagine in **Lavoro** (Dashboard, Idee, Valutazione, Esperimenti, Interviste, Questionari, Contatti, Decisioni, Chat), **Strumenti** (Generatore, Guida), **Team** (Squadra, Membri, Spese) e **Sistema** (Storico, Cestino); in fondo ci sono Profilo ed Esci, che chiede conferma perché per rientrare servono password e codice di verifica. Sul telefono la ricerca è un pulsante con la lente che apre una riga larga quanto lo schermo; da tastiera si apre con «/».
 
 Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore. Le risposte sono formattate (titoli, elenchi, tabelle) senza mai interpretare HTML.
 
@@ -55,6 +56,7 @@ assets/js/
   roadmap.js, concepts.js   fasi e passi della roadmap, concetti del manuale
   scoring.js, ai.js, export.js
   survey-*.js               modello, controlli mentre si scrive e statistiche dei questionari
+  expenses.js               conti delle spese condivise: divisioni, saldi, chi deve a chi, cambi
   lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
   views/                    una pagina per file
 supabase/

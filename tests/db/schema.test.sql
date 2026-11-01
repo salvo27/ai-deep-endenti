@@ -1089,6 +1089,86 @@ begin
 end
 $$;
 
+\echo 'ok - spese: forma di gruppi e movimenti controllata dal database, scontrini privati e mai considerati orfani'
+set role authenticated;
+select test.login('a');
+do $$
+declare
+  v_people jsonb := '[{"id":"a","name":"Anna","member":"00000000-0000-0000-0000-00000000000a"},{"id":"b","name":"Bruno"}]';
+  v_group uuid;
+  v_move jsonb;
+  v_receipt text;
+  m public.items;
+begin
+  perform test.expect_error($q$select public.create_item('expensegroup', '  ', null, '{"currency":"EUR","people":[]}')$q$, 'titolo');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', 'aperto', '{"currency":"EUR","people":[]}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[]}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"euro","people":[]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR"}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":"Anna"}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"A B","name":"Anna"}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"  "}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"Anna","member":"x"}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":["Anna"]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error(
+    format($q$select public.create_item('expensegroup', 'G', null, %L)$q$, jsonb_build_object('currency', 'EUR', 'people', (select jsonb_agg(jsonb_build_object('id', 'p' || g, 'name', 'P')) from generate_series(1, 51) g))),
+    'Gruppo di spese non valido'
+  );
+  v_group := (public.create_item('expensegroup', 'Costi', null, jsonb_build_object('currency', 'EUR', 'people', v_people))).id;
+  perform set_config('test.egroup', v_group::text, false);
+
+  v_move := jsonb_build_object('group', v_group, 'type', 'spesa', 'amount', 1250, 'currency', 'USD', 'rate', 0.912346, 'date', '2026-10-31', 'paid_by', 'a',
+    'split', jsonb_build_object('mode', 'parti', 'shares', jsonb_build_object('a', 1, 'b', 1)), 'category', 'software');
+  m := public.create_item('expense', 'Dominio', null, v_move);
+  assert m.version = 1 and m.idea_id is null, 'movimento non creato';
+  perform test.expect_error(format($q$select public.create_item('expense', '', null, %L)$q$, v_move), 'titolo');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"type":"regalo"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":0}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":12.5}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":"1250"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"currency":"usd"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"rate":0}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"rate":"uno"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"date":"2026-13-01"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"paid_by":"A B"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"tutti","shares":{}}}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"parti","shares":[]}}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"receipt":"https://altro.example/x.jpg"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || jsonb_build_object('group', current_setting('test.idea'))), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move - 'group'), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"group":"non-un-uuid"}'), 'gruppo di spese non esiste');
+
+  v_receipt := v_group || '/44444444-4444-4444-8444-444444444444.jpg';
+  insert into storage.objects (bucket_id, name) values ('note-immagini', v_receipt);
+  perform public.save_item(m.id, 1, 'Dominio', null, v_move || jsonb_build_object('receipt', v_receipt), null, 'scontrino');
+  assert (select count(*) from public.note_image_orphans(array[v_receipt])) = 0, 'scontrino di una spesa considerato orfano';
+  perform public.delete_item(m.id, 2, 'nel cestino');
+  assert (select count(*) from public.note_image_orphans(array[v_receipt])) = 0, 'scontrino di una spesa nel cestino considerato orfano';
+  perform public.restore_item(m.id, 'ripristino');
+  perform public.delete_item(v_group, 1, 'gruppo nel cestino');
+  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move), 'gruppo di spese non esiste');
+  perform public.save_item(m.id, 4, 'Dominio .it', null, v_move || jsonb_build_object('receipt', v_receipt), null, 'stesso gruppo');
+  perform public.restore_item(v_group, 'ripristino');
+end
+$$;
+select test.login('c');
+do $$
+begin
+  perform test.expect_error(
+    format($q$select public.create_item('expense', 'X', null, %L)$q$, jsonb_build_object('group', current_setting('test.egroup'), 'type', 'spesa', 'amount', 100, 'currency', 'EUR', 'rate', 1, 'date', '2026-10-31', 'paid_by', 'a', 'split', '{"mode":"parti","shares":{"a":1}}'::jsonb)),
+    'row-level security'
+  );
+  assert (select count(*) from public.items where kind in ('expensegroup', 'expense')) = 2, 'l''advisor non vede le spese';
+end
+$$;
+select test.login('a', 'aal1');
+do $$
+begin
+  assert (select count(*) from public.items where kind = 'expense') = 0, 'spese visibili senza 2FA';
+end
+$$;
+reset role;
+
 \echo 'ok - questionari: immagine della copertina nello spazio pubblico, caricata solo da chi modifica, orfane trovate dal database'
 reset role;
 do $$
