@@ -231,7 +231,7 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey', 'expensegroup', 'expense'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey', 'expensegroup', 'expense', 'availability'
   )
 );
 
@@ -244,6 +244,8 @@ create unique index items_singleton_idx on public.items (kind)
   where kind in ('criteria', 'generator', 'teamcanvas', 'equity');
 create unique index if not exists items_one_score_per_member_idx on public.items (created_by)
   where kind = 'score';
+create unique index if not exists items_one_availability_per_member_idx on public.items (created_by)
+  where kind = 'availability';
 
 create table if not exists public.revisions (
   id bigint generated always as identity primary key,
@@ -265,6 +267,26 @@ create table if not exists public.revisions (
 create index if not exists revisions_created_idx on public.revisions (created_at desc);
 create index if not exists revisions_idea_idx on public.revisions (idea_id, created_at desc);
 create index if not exists revisions_author_idx on public.revisions (author_id, created_at desc);
+
+-- Impegni di un giorno per chiave (lun ... dom): solo ore intere da 0 a 23. I case evitano di leggere come oggetto ciò che non lo è.
+create or replace function public.availability_busy_ok(p_busy jsonb)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case when jsonb_typeof(p_busy) = 'object' then not exists (
+    select 1 from jsonb_each(p_busy) d
+    where d.key not in ('lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom')
+       or case when jsonb_typeof(d.value) = 'array' then
+            jsonb_array_length(d.value) > 24
+            or exists (
+              select 1 from jsonb_array_elements(d.value) h
+              where jsonb_typeof(h) <> 'number' or h::text !~ '^([0-9]|1[0-9]|2[0-3])$'
+            )
+          else true end
+  ) else false end
+$$;
 
 create or replace function public.items_before_write()
 returns trigger
@@ -288,7 +310,7 @@ begin
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
     or (new.kind = 'survey' and new.status in ('bozza', 'aperto', 'chiuso'))
     or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap',
-                     'expensegroup', 'expense')
+                     'expensegroup', 'expense', 'availability')
         and new.status is null),
     false
   ) then
@@ -302,7 +324,8 @@ begin
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
-  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense') and new.idea_id is not null then
+  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense', 'availability')
+     and new.idea_id is not null then
     raise exception 'Questo elemento non può appartenere a un''idea';
   end if;
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)
@@ -419,6 +442,47 @@ begin
     end if;
   end if;
 
+  -- Impegni: solo ore impegnate, scadenza dell'orario tipo e settimane che partono di lunedì. Nessun altro campo.
+  -- Il titolo è fisso: il nome si ricava da chi l'ha creato, così nessuno sembra modificare gli impegni di un altro.
+  if new.kind = 'availability' then
+    new.title := 'Impegni';
+    if new.deleted_at is not null then
+      raise exception 'Gli impegni non si possono mettere nel cestino';
+    end if;
+    if not coalesce(case when jsonb_typeof(new.data) = 'object' then
+         not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('busy', 'until', 'weeks'))
+         and public.availability_busy_ok(new.data -> 'busy')
+         and (not new.data ? 'until'
+              or (jsonb_typeof(new.data -> 'until') = 'string' and (new.data ->> 'until') ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'))
+         and (not new.data ? 'weeks' or case when jsonb_typeof(new.data -> 'weeks') = 'array' then
+               jsonb_array_length(new.data -> 'weeks') <= 26
+               and not exists (
+                 select 1 from jsonb_array_elements(new.data -> 'weeks') w
+                 where case when jsonb_typeof(w) = 'object' then
+                     coalesce(w ->> 'key', '') !~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+                     or not public.availability_busy_ok(w -> 'busy')
+                     or exists (select 1 from jsonb_object_keys(w) k where k not in ('key', 'busy'))
+                   else true end
+               )
+               and (select count(distinct w ->> 'key') from jsonb_array_elements(new.data -> 'weeks') w) = jsonb_array_length(new.data -> 'weeks')
+             else false end)
+       else false end, false) then
+      raise exception 'Impegni non validi';
+    end if;
+    -- Date vere e lunedì: una data impossibile come il 31 febbraio fa fallire la conversione, e anche quella è rifiutata.
+    begin
+      if new.data ? 'until' then
+        perform (new.data ->> 'until')::date;
+      end if;
+      if jsonb_typeof(new.data -> 'weeks') = 'array'
+         and exists (select 1 from jsonb_array_elements(new.data -> 'weeks') w where extract(isodow from (w ->> 'key')::date) <> 1) then
+        raise exception 'Impegni non validi';
+      end if;
+    exception when others then
+      raise exception 'Impegni non validi';
+    end;
+  end if;
+
   if tg_op = 'INSERT' then
     new.version := 1;
     new.created_by := auth.uid();
@@ -517,13 +581,13 @@ create policy items_select on public.items
   for select to authenticated
   using ((select public.can_read()));
 
--- Gli advisor possono gestire solo i propri voti.
+-- Gli advisor possono gestire solo i propri voti e i propri impegni.
 drop policy if exists items_insert on public.items;
 create policy items_insert on public.items
   for insert to authenticated
   with check (
     (select public.can_read())
-    and ((select public.can_write()) or kind = 'score')
+    and ((select public.can_write()) or kind in ('score', 'availability'))
   );
 
 drop policy if exists items_update on public.items;
@@ -532,15 +596,15 @@ create policy items_update on public.items
   using (
     (select public.can_read())
     and (
-      (kind = 'score' and created_by = (select auth.uid()))
-      or (kind <> 'score' and (select public.can_write()))
+      (kind in ('score', 'availability') and created_by = (select auth.uid()))
+      or (kind not in ('score', 'availability') and (select public.can_write()))
     )
   )
   with check (
     (select public.can_read())
     and (
-      (kind = 'score' and created_by = (select auth.uid()))
-      or (kind <> 'score' and (select public.can_write()))
+      (kind in ('score', 'availability') and created_by = (select auth.uid()))
+      or (kind not in ('score', 'availability') and (select public.can_write()))
     )
   );
 
@@ -642,7 +706,7 @@ begin
    where id = p_id
      and version = p_base_version
      and deleted_at is null
-     and kind not in ('criteria', 'generator', 'score', 'teamcanvas', 'equity')
+     and kind not in ('criteria', 'generator', 'score', 'teamcanvas', 'equity', 'availability')
   returning * into r;
   if found then
     return jsonb_build_object('status', 'ok', 'item', to_jsonb(r));
@@ -2343,11 +2407,14 @@ revoke execute on function public.mark_chat_read(uuid) from public, anon;
 revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
 revoke execute on function public.set_email_prefs(boolean, boolean) from public, anon;
 revoke execute on function public.survey_funnel(uuid) from public, anon;
+revoke execute on function public.availability_busy_ok(jsonb) from public, anon;
 revoke execute on function public.delete_survey_responses(uuid, uuid[]) from public, anon;
 
 grant execute on function public.my_role() to authenticated;
 grant execute on function public.has_mfa() to authenticated;
 grant execute on function public.can_read() to authenticated;
+-- Serve a items_before_write, che gira con i permessi di chi scrive.
+grant execute on function public.availability_busy_ok(jsonb) to authenticated;
 grant execute on function public.can_write() to authenticated;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.add_member(text, text, text) to authenticated;

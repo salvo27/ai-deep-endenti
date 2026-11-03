@@ -5,7 +5,8 @@ import { buildShell } from '../../assets/js/views/shell.js';
 import { notFoundView, registerRoutes } from '../../assets/js/app.js';
 import { startRouter } from '../../assets/js/router.js';
 import { surveyTemplate } from '../../assets/js/survey-template.js';
-import { IDS, ME, OTHER, boardItems, item, members, revision } from '../setup/fixtures.mjs';
+import { addDays, thisMonday } from '../../assets/js/availability.js';
+import { ADVISOR, IDS, ME, OTHER, boardItems, item, members, revision } from '../setup/fixtures.mjs';
 
 const extraIdeas = [
   ['Idea gamma con un titolo piuttosto lungo per vedere come va a capo', 'esplorazione'],
@@ -66,7 +67,24 @@ const expenses = [
   movement(5, 'Premio del bando', { type: 'entrata', amount: 30000, date: day(1), paid_by: 'a', split: { mode: 'parti', shares: { a: 1, b: 1, e: 1 } } }),
 ];
 
-[...boardItems(), ...extraIdeas, ...surveys, ...expenses].forEach((i) => store.applyItem(i));
+// Impegni di fantasia: Anna senza scadenza, Bruno con l'orario tipo che scade venerdì, Chiara con l'orario già scaduto.
+const monday = thisMonday();
+const availability = (n, author, data) =>
+  item({ id: `dddddddd-0000-4000-8000-00000000000${n}`, kind: 'availability', title: 'Impegni', created_by: author, updated_by: author, updated_at: new Date(Date.now() - n * 86400e3).toISOString(), data });
+const availabilities = [
+  availability(1, ME, {
+    busy: { lun: [7, 9, 10, 11, 14, 15], mar: [8, 9, 10, 11, 12], mer: [9, 10, 11], gio: [14, 15, 16, 17], ven: [9, 10, 22] },
+    weeks: [{ key: addDays(monday, 7), busy: { lun: [9, 10], gio: [18, 19, 20, 21] } }],
+  }),
+  availability(2, OTHER, {
+    busy: { lun: [8, 9, 10, 11, 12, 13], mar: [14, 15, 16, 17, 18], mer: [9, 10, 11, 12], gio: [8, 9, 10], ven: [15, 16, 17, 18, 19, 20, 21], sab: [10, 11, 12] },
+    until: addDays(monday, 4),
+    weeks: [{ key: addDays(monday, 7), busy: { lun: [9, 10, 11], mer: [18, 19] } }],
+  }),
+  availability(3, ADVISOR, { busy: { lun: [9, 10, 11, 12, 13, 14, 15, 16, 17] }, until: addDays(monday, -3) }),
+];
+
+[...boardItems(), ...extraIdeas, ...surveys, ...expenses, ...availabilities].forEach((i) => store.applyItem(i));
 store.state.commentCounts = new Map([[IDS.idea, 2]]);
 
 const history = [

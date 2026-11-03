@@ -60,7 +60,7 @@ export const ROADMAP = [
         title: 'Decidete come lavorate e come decidete',
         what: 'Poche regole su riunioni, canali e decisioni, così i disaccordi non bloccano il lavoro.',
         how: [
-          'Una riunione breve a settimana, con le decisioni importanti scritte nella sezione Decisioni del sito.',
+          'Una riunione breve a settimana, con le decisioni importanti scritte nella sezione Decisioni del sito. Per trovare l\'orario, ognuno segna i suoi impegni in Squadra › Disponibilità.',
           'Decisioni di area: le prende il responsabile. Decisioni importanti (cambio di direzione, soldi, nuovi soci): decidete ora se all\'unanimità o a maggioranza.',
           'Un solo canale per le cose urgenti, il sito per tutto ciò che va ricordato.',
         ],

@@ -5563,3 +5563,277 @@ button.chat-quote {
     grid-row: 1;
   }
 }
+
+/* Disponibilità: chi segna i suoi impegni e gli orari liberi in comune */
+
+.av-scope,
+.av-note,
+.av-legend,
+.av-legend-scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Il titolo va a capo tra le due frecce, che restano ai lati */
+.av-week {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 32rem;
+}
+
+.av-week-title {
+  display: grid;
+  text-align: center;
+}
+
+.av-touch-hint {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .av-touch-hint {
+    display: inline;
+  }
+
+  .av-grid .av-hour {
+    width: 3.6rem;
+  }
+}
+
+.av-note p {
+  margin: 0;
+}
+
+.av-until {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 32rem;
+}
+
+.av-until p {
+  margin: 0;
+}
+
+.av-warn {
+  color: var(--warn);
+}
+
+.av-scroll {
+  overflow-x: auto;
+}
+
+.av-grid {
+  width: 100%;
+  min-width: 18rem;
+  border-collapse: separate;
+  border-spacing: 2px;
+  table-layout: fixed;
+}
+
+.av-grid th {
+  padding: 0.15rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.av-grid .av-corner,
+.av-grid .av-hour {
+  width: 3rem;
+  padding-right: 0.4rem;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.av-day {
+  display: block;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.av-date {
+  display: block;
+  font-weight: 400;
+}
+
+.av-grid td {
+  padding: 0;
+}
+
+.av-cell {
+  display: block;
+  width: 100%;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* Anello doppio: il focus si vede sia sulle ore blu sia su quelle verdi, in chiaro e in scuro */
+.av-cell:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+/* Si segna trascinando anche col dito: sulle celle la pagina non scorre */
+.av-edit .av-cell {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.av-edit .av-cell.av-taken {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+/* Giorni dopo la scadenza dell'orario tipo: non si sa */
+.av-edit .av-cell.av-unknown {
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 4px, var(--surface) 4px 8px);
+}
+
+.av-l1 {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.av-l2 {
+  background: color-mix(in srgb, var(--ok) 25%, var(--surface));
+}
+
+.av-l3 {
+  background: color-mix(in srgb, var(--ok) 45%, var(--surface));
+}
+
+.av-l4 {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+/* Ore passate: senza colore ma con il numero leggibile, si possono ancora aprire */
+.av-cell.is-past {
+  border-style: dashed;
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.av-cell.is-picked {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+.av-swatch {
+  width: 1.4rem;
+  height: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.av-best-card h2 {
+  margin-top: 0;
+}
+
+.av-best {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.av-best li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+}
+
+.av-all {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.av-detail {
+  min-height: 2.5rem;
+}
+
+.av-detail p {
+  margin: 0.15rem 0;
+}
+
+.av-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.av-person {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.av-person > :first-child {
+  grid-row: span 2;
+}
+
+.av-person.is-on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.av-person-name {
+  font-weight: 600;
+}
+
+.av-person-mark {
+  color: var(--muted);
+}
+
+.av-person.is-on .av-person-mark {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.av-person-state {
+  grid-column: 2 / -1;
+  color: var(--muted);
+}
+
+.av-person-state.av-warn {
+  color: var(--warn);
+}
+
+.av-person.is-on .av-person-state.av-warn {
+  color: var(--text);
+}

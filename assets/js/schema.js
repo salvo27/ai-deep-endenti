@@ -11,8 +11,9 @@ import {
   uniqueStrings,
   uniqueUuids,
 } from './lib/validate.js';
-import { fmtMoney } from './lib/format.js';
+import { fmtDate, fmtMoney } from './lib/format.js';
 import { CURRENCIES, EXPENSE_CATEGORIES, MOVEMENT_TYPES, SPLIT_MODES, sanitizeExpense, sanitizeExpenseGroup } from './expenses.js';
+import { dayName, hoursText, sanitizeAvailability, sanitizeBusy, shortDate, withDay } from './availability.js';
 
 export const TECH_SUGGESTIONS = [
   'Inverse design',
@@ -575,6 +576,8 @@ export const KINDS = {
     ],
     extraKeys: ['factors', 'founders', 'scores'],
   },
+  // Uno per persona, lo modifica solo chi l'ha creato: i dati li valida sanitizeAvailability.
+  availability: { label: 'Impegni', plural: 'Impegni', icon: 'calendar', titleLabel: 'Titolo', statuses: null, fields: [] },
   criteria: { label: 'Criteri di valutazione', plural: 'Criteri', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   score: { label: 'Voti', plural: 'Voti', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   scoresnap: { label: 'Fotografia della valutazione', plural: 'Fotografie della valutazione', icon: 'image', titleLabel: 'Nome', statuses: null, fields: [] },
@@ -1043,6 +1046,7 @@ export function sanitizeSnapshot(kind, snapshot) {
   else if (kind === 'survey') data = sanitizeSurvey(raw);
   else if (kind === 'expensegroup') data = sanitizeExpenseGroup(raw);
   else if (kind === 'expense') data = sanitizeExpense(raw);
+  else if (kind === 'availability') data = sanitizeAvailability(raw);
   else {
     for (const f of def.fields) {
       const value = sanitizeField(f, raw[f.key]);
@@ -1183,6 +1187,13 @@ export function describePath(kind, path, ctx = {}) {
       return person ? `Divisione › ${person}` : 'Divisione';
     }
   }
+  if (kind === 'availability') {
+    if (head === 'busy') return tail[0] ? `Orario tipo › ${dayName(tail[0])}` : 'Orario tipo';
+    if (head === 'until') return 'Scadenza dell\'orario tipo';
+    if (head === 'weeks') return 'Settimane con un orario diverso';
+    const week = head.match(/^weeks#(.+)$/);
+    if (week) return `Settimana ${withDay('del', week[1], shortDate(week[1]))}${tail[1] ? ` › ${dayName(tail[1])}` : ''}`;
+  }
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -1207,6 +1218,19 @@ export function formatValue(kind, path, value, ctx = {}) {
   if (kind === 'expense' && path === 'data.paid_by') return ctx.personName?.(value) || 'Persona';
   if (kind === 'expense' && path === 'data.split.mode') return SPLIT_MODES.find(([v]) => v === value)?.[1] ?? value;
   if (kind === 'expense' && path === 'data.group') return ctx.itemTitle?.(value) || 'Gruppo';
+  if (kind === 'availability') {
+    if (path === 'data.until') return fmtDate(value);
+    const weekName = (key) => `settimana ${withDay('del', key, shortDate(key))}`;
+    if (path === 'data.weeks.#order') return String(value).split(',').filter(Boolean).map(weekName);
+    // Un conflitto su tutte le settimane arriva come array intero.
+    if (path === 'data.weeks' && Array.isArray(value)) {
+      return value.map((week) => {
+        const days = Object.entries(sanitizeBusy(week?.busy)).map(([day, hours]) => `${dayName(day)} ${hoursText(hours)}`);
+        return `${typeof week?.key === 'string' ? weekName(week.key) : 'settimana'} (${days.join('; ') || 'nessun impegno'})`;
+      });
+    }
+    if (Array.isArray(value) && value.every(Number.isInteger)) return hoursText(value);
+  }
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {
@@ -1232,6 +1256,7 @@ export function routeFor(item) {
   if (item.kind === 'generator') return '#/generatore';
   if (item.kind === 'teamcanvas') return '#/squadra';
   if (item.kind === 'equity') return '#/squadra/quote';
+  if (item.kind === 'availability') return '#/squadra/disponibilita';
   if (item.kind === 'survey') return `#/questionario/${item.id}`;
   if (item.kind === 'expensegroup') return `#/spese/${item.id}`;
   if (item.kind === 'expense') return isUuid(item.data?.group) ? `#/spese/${item.data.group}?movimento=${item.id}` : '#/spese';

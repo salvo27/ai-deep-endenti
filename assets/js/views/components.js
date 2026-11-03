@@ -93,7 +93,7 @@ export function emptyState(text, action) {
 }
 
 export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', className } = {}) {
-  return h(
+  const nav = h(
     'nav',
     { class: ['tabs', className], 'aria-label': ariaLabel },
     entries.map(([key, label, count]) =>
@@ -105,6 +105,15 @@ export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', classNam
       ),
     ),
   );
+  // Sul telefono le schede scorrono di lato: quella aperta si porta in vista, senza muovere la pagina.
+  requestAnimationFrame(() => {
+    const current = nav.querySelector('.is-active');
+    if (!current || nav.scrollWidth <= nav.clientWidth) return;
+    const box = nav.getBoundingClientRect();
+    const tab = current.getBoundingClientRect();
+    nav.scrollLeft += tab.left - box.left - (box.width - tab.width) / 2;
+  });
+  return nav;
 }
 
 export function itemLink(item, text) {

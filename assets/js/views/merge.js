@@ -2,7 +2,7 @@ import { h, openModal, toast } from '../lib/dom.js';
 import { merge3, resolveConflicts, snapshotOf, diffWords } from '../lib/diff.js';
 import { describePath, fieldOf, formatValue } from '../schema.js';
 import { photoView } from './components.js';
-import { labelContext, memberName, saveSnapshot, statusError } from '../store.js';
+import { labelContext, memberName, saveSnapshot, state, statusError } from '../store.js';
 
 const MAX_ATTEMPTS = 4;
 
@@ -41,7 +41,7 @@ export function conflictDialog({ kind, conflicts, theirsAuthor }) {
         { class: 'conflict' },
         h('legend', null, describePath(kind, conflict.path, labelContext)),
         option('mine', 'La tua versione', renderValue(kind, conflict.path, conflict.mine, conflict.base)),
-        option('theirs', `La versione di ${theirsAuthor}`, renderValue(kind, conflict.path, conflict.theirs, conflict.base)),
+        option('theirs', theirsAuthor ? `La versione di ${theirsAuthor}` : 'La versione salvata altrove', renderValue(kind, conflict.path, conflict.theirs, conflict.base)),
       );
     });
     openModal({
@@ -50,7 +50,11 @@ export function conflictDialog({ kind, conflicts, theirsAuthor }) {
       body: h(
         'div',
         null,
-        h('p', null, `Mentre modificavi, ${theirsAuthor} ha salvato cambiando gli stessi campi. Scegli quale versione tenere per ciascuno: il resto è già stato unito.`),
+        h(
+          'p',
+          null,
+          `Mentre modificavi, ${theirsAuthor ? `${theirsAuthor} ha salvato` : 'hai salvato da un altro dispositivo'} cambiando gli stessi campi. Scegli quale versione tenere per ciascuno: il resto è già stato unito.`,
+        ),
         rows,
       ),
       onClose: (value) => resolve(value === true ? choices : null),
@@ -76,11 +80,17 @@ export async function saveWithMerge(item, base, mine, message, { resolveConflict
     const merged = merge3(baseSnapshot, result.snapshot, snapshotOf(theirs));
     let next = merged.value;
     if (merged.conflicts.length) {
-      const choices = await resolveConflict({ kind: item.kind, conflicts: merged.conflicts, theirsAuthor: memberName(theirs.updated_by) });
+      // Salvato da me su un altro dispositivo: niente nome, sembrerebbe un'altra persona.
+      const theirsAuthor = theirs.updated_by === state.user?.id ? null : memberName(theirs.updated_by);
+      const choices = await resolveConflict({ kind: item.kind, conflicts: merged.conflicts, theirsAuthor });
       if (!choices) return { cancelled: true, item: theirs };
       next = resolveConflicts(merged.value, merged.conflicts, choices);
     } else {
-      toast(`Le tue modifiche sono state unite a quelle di ${memberName(theirs.updated_by)}.`);
+      toast(
+        theirs.updated_by === state.user?.id
+          ? 'Le tue modifiche sono state unite a quelle salvate da un altro dispositivo.'
+          : `Le tue modifiche sono state unite a quelle di ${memberName(theirs.updated_by)}.`,
+      );
     }
     target = theirs;
     baseSnapshot = snapshotOf(theirs);

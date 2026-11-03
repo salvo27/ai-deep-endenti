@@ -2,13 +2,26 @@ import { h, mount } from '../lib/dom.js';
 import { KINDS, TEAM_BLOCKS } from '../schema.js';
 import { canWrite, on, singleton } from '../store.js';
 import { conceptButton } from './concept-help.js';
+import { availabilityView } from './availability.js';
 import { equityView } from './equity.js';
 import { button, emptyState, metaLine, pageHeader, tabs, textBlock } from './components.js';
 
 const TABS = [
   ['canvas', 'Team Canvas', 'teamcanvas'],
   ['quote', 'Divisione delle quote', 'equity'],
+  ['disponibilita', 'Disponibilità', 'availability'],
 ];
+
+function squadChrome(tab, actions) {
+  return [
+    pageHeader({
+      title: 'Squadra',
+      subtitle: 'Il team che costruisce l\'azienda: chi siamo, come lavoriamo, quando siamo liberi e come dividiamo le quote.',
+      actions,
+    }),
+    tabs(TABS.map(([key, text]) => [key, text]), tab, (key) => `#/squadra/${key}`),
+  ];
+}
 
 export function teamCanvasView(item) {
   return h(
@@ -25,8 +38,9 @@ export function teamCanvasView(item) {
   );
 }
 
-export function squadView(outlet, params) {
+export function squadView(outlet, params, query) {
   const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'canvas';
+  if (tab === 'disponibilita') return availabilityView(outlet, query, (actions) => squadChrome(tab, actions));
   const [, , kind] = TABS.find(([key]) => key === tab);
   const writable = canWrite();
 
@@ -47,21 +61,13 @@ export function squadView(outlet, params) {
           kind === 'teamcanvas' ? 'Il Team Canvas non è ancora stato compilato.' : 'Le quote non sono ancora state discusse.',
           writable ? button(kind === 'teamcanvas' ? 'Compila il Team Canvas' : 'Prepara la divisione delle quote', { kind: 'primary', iconName: KINDS[kind].icon, href: `#/nuovo/${kind}` }) : null,
         );
-    mount(
-      outlet,
-      pageHeader({
-        title: 'Squadra',
-        subtitle: 'Il team che costruisce l\'azienda: chi siamo, come lavoriamo e come dividiamo le quote.',
-        actions: item
-          ? [
-              writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
-              button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
-            ]
-          : [],
-      }),
-      tabs(TABS.map(([key, text]) => [key, text]), tab, (key) => `#/squadra/${key}`),
-      h('div', { class: 'tab-body stack' }, intro, body),
-    );
+    const actions = item
+      ? [
+          writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
+          button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
+        ]
+      : [];
+    mount(outlet, ...squadChrome(tab, actions), h('div', { class: 'tab-body stack' }, intro, body));
   };
 
   render();

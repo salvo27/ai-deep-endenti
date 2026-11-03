@@ -137,6 +137,8 @@ function onReplaceClick(event) {
   const href = link?.getAttribute('href');
   if (!href?.startsWith('#/')) return;
   event.preventDefault();
+  // La scheda già aperta non ridisegna la pagina: farebbe perdere le modifiche non salvate senza avviso.
+  if (href === location.hash) return;
   navigate(href.slice(1), { replace: true });
 }
 

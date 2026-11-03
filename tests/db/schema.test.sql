@@ -132,6 +132,19 @@ begin
 end
 $$;
 
+\echo 'ok - anon non esegue il controllo degli impegni, tolto anche a public e lasciato ad authenticated'
+do $$
+begin
+  perform test.expect_error($q$select public.availability_busy_ok('{}')$q$, 'permission denied');
+  assert not has_function_privilege('anon', 'public.availability_busy_ok(jsonb)', 'execute'), 'anon esegue availability_busy_ok';
+  assert has_function_privilege('authenticated', 'public.availability_busy_ok(jsonb)', 'execute'), 'authenticated non esegue availability_busy_ok';
+  assert (
+    select p.proacl is not null and not exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0)
+    from pg_proc p where p.oid = 'public.availability_busy_ok(jsonb)'::regprocedure
+  ), 'public esegue availability_busy_ok';
+end
+$$;
+
 reset role;
 set role authenticated;
 
@@ -871,6 +884,254 @@ begin
   assert n = 0, 'commento altrui modificato';
 end
 $$;
+
+\echo 'ok - impegni: chi scrive esegue il controllo delle ore, perché il trigger gira con i suoi permessi'
+do $$
+begin
+  assert current_user = 'authenticated', 'il test non gira come authenticated';
+  assert has_function_privilege('public.availability_busy_ok(jsonb)', 'execute'), 'authenticated non esegue availability_busy_ok';
+  assert public.availability_busy_ok('{"lun":[9,10],"dom":[0,23]}') and public.availability_busy_ok('{}'), 'ore valide rifiutate';
+  assert not public.availability_busy_ok('{"lun":[24]}') and not public.availability_busy_ok('[9]') and not public.availability_busy_ok(null), 'ore non valide accettate';
+end
+$$;
+
+-- Impegni: le date partono dal lunedì della settimana prossima, così i test non dipendono dal giorno.
+\echo 'ok - impegni: un membro crea e salva i propri, anche senza ore segnate, ne ha uno solo e il titolo resta Impegni'
+do $$
+declare
+  v_monday date := current_date - extract(isodow from current_date)::int + 8;
+  i public.items;
+  res jsonb;
+begin
+  i := public.create_item('availability', 'Impegni di Membro', null, '{"busy":{}}', null, 'Primi impegni');
+  assert i.version = 1 and i.created_by = test.uid('b') and i.status is null and i.idea_id is null and i.data = '{"busy":{}}'::jsonb,
+    'impegni non creati: ' || row_to_json(i)::text;
+  assert i.title = 'Impegni', 'titolo non forzato alla creazione: ' || i.title;
+  perform test.expect_error($q$select public.create_item('availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
+  res := public.save_item(i.id, 1, 'Impegni di Membro', null, jsonb_build_object(
+    'busy', '{"lun":[9,10],"dom":[0,23]}'::jsonb,
+    'until', (v_monday + 60)::text,
+    'weeks', jsonb_build_array(
+      jsonb_build_object('key', v_monday::text, 'busy', '{"mar":[14]}'::jsonb),
+      jsonb_build_object('key', (v_monday + 7)::text, 'busy', '{}'::jsonb)
+    )
+  ), null, 'Impegni aggiornati');
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 2, 'impegni con scadenza e settimane rifiutati: ' || res::text;
+  assert res -> 'item' ->> 'title' = 'Impegni', 'titolo non forzato al salvataggio: ' || res::text;
+  assert (select array_agg(r.title order by r.version) = array['Impegni', 'Impegni'] and bool_and(not 'title' = any(r.changed))
+          from public.revisions r where r.item_id = i.id), 'lo storico degli impegni ha un altro titolo';
+  res := public.save_item(i.id, 2, 'Un altro nome', null, res -> 'item' -> 'data');
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 2 and res -> 'item' ->> 'title' = 'Impegni',
+    'un titolo diverso cambia gli impegni: ' || res::text;
+  perform set_config('test.avail_b', i.id::text, false);
+end
+$$;
+
+\echo 'ok - impegni: un advisor crea e modifica i propri, non quelli degli altri, e non si archiviano'
+select test.login('c');
+do $$
+declare
+  v_monday date := current_date - extract(isodow from current_date)::int + 8;
+  v_other uuid := current_setting('test.avail_b')::uuid;
+  v_other_data jsonb := (select data from public.items where id = current_setting('test.avail_b')::uuid);
+  i public.items;
+  n int;
+begin
+  insert into public.items (kind, title, data, created_by)
+  values ('availability', 'Impegni di Advisor', jsonb_build_object('busy', '{"ven":[18,19]}'::jsonb, 'weeks', jsonb_build_array(jsonb_build_object('key', v_monday::text, 'busy', '{}'::jsonb))), test.uid('b'))
+  returning * into i;
+  assert i.created_by = test.uid('c'), 'impegni creati a nome di un altro';
+  assert i.title = 'Impegni', 'titolo non forzato con un insert diretto: ' || i.title;
+  perform test.expect_error($q$select public.create_item('availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
+  assert public.save_item(i.id, 1, 'Impegni di Advisor', null, '{"busy":{"ven":[18]}}') ->> 'status' = 'ok', 'l''advisor non modifica i propri impegni';
+  update public.items set title = 'Impegni di Advisor' where id = i.id;
+  assert (select title = 'Impegni' and version = 2 from public.items where id = i.id), 'titolo cambiato con un update diretto';
+  assert public.save_item(v_other, 2, 'Hack', null, '{"busy":{}}') ->> 'status' = 'forbidden', 'impegni altrui modificati da un advisor';
+  with x as (update public.items set data = '{"busy":{}}' where id = v_other returning 1) select count(*) into n from x;
+  assert n = 0, 'impegni altrui modificati da un advisor senza RPC';
+  assert public.delete_item(i.id, 2) ->> 'status' = 'forbidden', 'impegni archiviati';
+  assert (select deleted_at is null and version = 2 from public.items where id = i.id), 'impegni archiviati o cambiati';
+  assert (select data = v_other_data and version = 2 from public.items where id = v_other), 'impegni altrui cambiati';
+  perform set_config('test.avail_c', i.id::text, false);
+end
+$$;
+
+\echo 'ok - impegni: il team li vede tutti, ma nessuno modifica o archivia quelli degli altri, nemmeno l admin'
+select test.login('a');
+do $$
+declare
+  v_other uuid := current_setting('test.avail_b')::uuid;
+  n int;
+begin
+  assert (select count(*) from public.items where kind = 'availability') = 2, 'il team non vede gli impegni di tutti';
+  assert public.save_item(v_other, 2, 'Hack', null, '{"busy":{}}') ->> 'status' = 'forbidden', 'impegni altrui modificati dall''admin';
+  with x as (update public.items set data = '{"busy":{}}' where id = v_other returning 1) select count(*) into n from x;
+  assert n = 0, 'impegni altrui modificati dall''admin senza RPC';
+  assert public.delete_item(v_other, 2) ->> 'status' = 'forbidden', 'impegni altrui archiviati dall''admin';
+  with x as (update public.items set deleted_at = now() where id = v_other returning 1) select count(*) into n from x;
+  assert n = 0, 'impegni altrui archiviati dall''admin senza RPC';
+  assert (select version = 2 and deleted_at is null from public.items where id = v_other), 'impegni altrui cambiati';
+end
+$$;
+select test.login('b');
+do $$
+declare
+  v_other uuid := current_setting('test.avail_c')::uuid;
+begin
+  assert public.save_item(v_other, 2, 'Hack', null, '{"busy":{}}') ->> 'status' = 'forbidden', 'impegni altrui modificati da un membro';
+  assert public.delete_item(v_other, 2) ->> 'status' = 'forbidden', 'impegni altrui archiviati da un membro';
+  assert (select version = 2 and data = '{"busy":{"ven":[18]}}'::jsonb from public.items where id = v_other), 'impegni altrui cambiati';
+end
+$$;
+
+\echo 'ok - impegni: stato e idea rifiutati, solo giorni e ore intere da 0 a 23, scadenza e settimane di lunedì controllate dal database'
+select test.login('a');
+do $$
+declare
+  v_monday date := current_date - extract(isodow from current_date)::int + 8;
+  v_week jsonb := jsonb_build_object('key', v_monday::text, 'busy', '{"lun":[9]}'::jsonb);
+  v_all jsonb := (select jsonb_agg(g) from generate_series(0, 23) g);
+  v_bads jsonb[];
+  v_bad jsonb;
+  v_mode text;
+  i public.items;
+begin
+  assert current_user = 'authenticated', 'il test non gira come authenticated';
+  perform test.expect_error($q$select public.create_item('availability', 'X', 'nuova', '{"busy":{}}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('availability', 'X', null, '{"busy":{}}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  v_bads := array[
+    '[1,2]', '[]', '"busy"', '9', 'true', 'null',
+    '{}', '{"busy":[]}', '{"busy":null}', '{"busy":"lun 9"}',
+    '{"busy":{},"free":{}}', '{"busy":{},"note":"x"}',
+    '{"busy":{"lunedi":[9]}}', '{"busy":{"mon":[9]}}', '{"busy":{"Lun":[9]}}',
+    '{"busy":{"lun":[24]}}', '{"busy":{"lun":[-1]}}', '{"busy":{"lun":[9.5]}}', '{"busy":{"lun":["9"]}}', '{"busy":{"lun":"9"}}',
+    '{"busy":{"lun":9}}', '{"busy":{"lun":[null]}}', '{"busy":{"lun":[true]}}', '{"busy":{"lun":[[9]]}}', '{"busy":{"lun":[1e30]}}',
+    '{"busy":{},"until":"domani"}', '{"busy":{},"until":20261109}', '{"busy":{},"until":"2026-13-01"}', '{"busy":{},"until":"9/11/2026"}',
+    '{"busy":{},"until":"2026-11-09T00:00:00Z"}', '{"busy":{},"until":null}',
+    '{"busy":{},"weeks":{}}', '{"busy":{},"weeks":"2026-11-09"}', '{"busy":{},"weeks":null}', '{"busy":{},"weeks":["2026-11-09"]}'
+  ]::jsonb[] || array[
+    jsonb_build_object('busy', jsonb_build_object('lun', (select jsonb_agg(g % 24) from generate_series(0, 24) g))),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || jsonb_build_object('key', (v_monday + 1)::text))),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || jsonb_build_object('key', (v_monday - 1)::text))),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week, v_week)),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week, v_week || '{"busy":{}}')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', (select jsonb_agg(jsonb_build_object('key', (v_monday + 7 * g)::text, 'busy', '{}'::jsonb)) from generate_series(0, 26) g)),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || '{"note":"x"}')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week - 'busy')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week - 'key')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || '{"key":20261109}')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || '{"busy":{"lun":[24]}}')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || '{"busy":{"lunedi":[9]}}')),
+    jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || '{"busy":[]}'))
+  ];
+  -- Ogni controllo vale sia con il piano su misura sia con quello generico del trigger.
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    foreach v_bad in array v_bads || array[
+      '{"busy":{},"weeks":[{"key":"2026-02-31","busy":{}}]}', '{"busy":{},"until":"2026-02-31"}', '{"busy":{},"until":"2027-02-29"}'
+    ]::jsonb[] loop
+      begin
+        perform public.create_item('availability', 'X', null, v_bad);
+        raise exception 'impegni accettati: %', v_bad;
+      exception when others then
+        assert sqlerrm = 'Impegni non validi' and sqlstate = 'P0001',
+          v_mode || ', messaggio sbagliato per ' || v_bad::text || ': ' || sqlstate || ' ' || sqlerrm;
+      end;
+    end loop;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+
+  i := public.create_item('availability', null, null, jsonb_build_object(
+    'busy', (select jsonb_object_agg(d, v_all) from unnest(array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom']) d),
+    'until', v_monday::text,
+    'weeks', (select jsonb_agg(jsonb_build_object('key', (v_monday + 7 * g)::text, 'busy', jsonb_build_object('dom', v_all))) from generate_series(0, 25) g)
+  ));
+  assert i.version = 1 and jsonb_array_length(i.data -> 'weeks') = 26 and jsonb_array_length(i.data -> 'busy' -> 'lun') = 24, '24 ore al giorno e 26 settimane rifiutate';
+  assert i.title = 'Impegni', 'titolo non forzato senza titolo dal client: ' || i.title;
+  perform test.expect_error(format($q$select public.save_item(%L, 1, 'Impegni di Admin', null, '{"busy":{"lun":[24]}}')$q$, i.id), 'Impegni non validi');
+  perform test.expect_error(
+    format($q$select public.save_item(%L, 1, 'Impegni di Admin', null, %L)$q$, i.id, jsonb_build_object('busy', '{}'::jsonb, 'weeks', jsonb_build_array(v_week || jsonb_build_object('key', (v_monday + 2)::text)))),
+    'Impegni non validi'
+  );
+  assert public.save_item(i.id, 1, 'Impegni di Admin', null, '{"busy":{},"weeks":[]}') ->> 'status' = 'ok', 'impegni vuoti rifiutati';
+  assert public.delete_item(i.id, 2) ->> 'status' = 'forbidden', 'impegni archiviati dal proprietario';
+  perform set_config('test.avail_a', i.id::text, false);
+end
+$$;
+
+\echo 'ok - impegni: una scadenza impossibile come il 31 febbraio è rifiutata anche nel salvataggio'
+do $$
+declare
+  v_bad jsonb;
+begin
+  foreach v_bad in array array['{"busy":{},"until":"2026-02-31"}', '{"busy":{},"until":"2026-04-31"}', '{"busy":{},"until":"0000-01-01"}']::jsonb[] loop
+    begin
+      perform public.save_item(current_setting('test.avail_a')::uuid, 2, 'Impegni', null, v_bad);
+      raise exception 'scadenza accettata: %', v_bad;
+    exception when others then
+      assert sqlerrm = 'Impegni non validi' and sqlstate = 'P0001', 'messaggio sbagliato per ' || v_bad::text || ': ' || sqlstate || ' ' || sqlerrm;
+    end;
+  end loop;
+  assert (select version = 2 and data = '{"busy":{},"weeks":[]}'::jsonb from public.items where id = current_setting('test.avail_a')::uuid), 'impegni cambiati';
+end
+$$;
+
+\echo 'ok - impegni: nemmeno il proprietario li mette nel cestino con un update o un insert diretto'
+do $$
+begin
+  perform test.expect_error(
+    format($q$update public.items set deleted_at = now() where id = %L$q$, current_setting('test.avail_a')),
+    'Gli impegni non si possono mettere nel cestino'
+  );
+  perform test.expect_error(
+    $q$insert into public.items (kind, title, data, deleted_at) values ('availability', 'Impegni', '{"busy":{}}', now())$q$,
+    'Gli impegni non si possono mettere nel cestino'
+  );
+  assert (select deleted_at is null and version = 2 from public.items where id = current_setting('test.avail_a')::uuid), 'impegni archiviati senza RPC';
+  assert (select count(*) from public.items where kind = 'availability' and created_by = test.uid('a')) = 1, 'impegni creati già nel cestino';
+end
+$$;
+
+\echo 'ok - impegni: dati che non sono un oggetto rifiutati con un messaggio pulito nel salvataggio, anche con il piano generico'
+do $$
+declare
+  v_mode text;
+  v_bad jsonb;
+begin
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    foreach v_bad in array array['[1,2]', '[]', '"busy"', '9', 'true', 'null']::jsonb[] loop
+      begin
+        perform public.save_item(current_setting('test.avail_a')::uuid, 2, 'Impegni', null, v_bad);
+        raise exception 'dati non oggetto accettati: %', v_bad;
+      exception when others then
+        assert sqlerrm = 'Impegni non validi' and sqlstate = 'P0001',
+          v_mode || ', errore tecnico per ' || v_bad::text || ': ' || sqlstate || ' ' || sqlerrm;
+      end;
+    end loop;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+  assert (select version = 2 from public.items where id = current_setting('test.avail_a')::uuid), 'impegni cambiati';
+end
+$$;
+
+\echo 'ok - impegni: senza ruolo nel team o senza 2FA non si vedono e non si creano'
+select test.login('d');
+do $$
+begin
+  assert (select count(*) from public.items where kind = 'availability') = 0, 'un estraneo vede gli impegni';
+  perform test.expect_error($q$select public.create_item('availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
+end
+$$;
+select test.login('c', 'aal1');
+do $$
+begin
+  assert (select count(*) from public.items where kind = 'availability') = 0, 'impegni visibili senza 2FA';
+  perform test.expect_error($q$select public.create_item('availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
+  assert public.save_item(current_setting('test.avail_c')::uuid, 2, 'Impegni di Advisor', null, '{"busy":{}}') ->> 'status' = 'not_found', 'impegni modificati senza 2FA';
+end
+$$;
+select test.login('b');
 
 \echo 'ok - criteri e griglia del generatore esistono una sola volta e non si archiviano'
 do $$
