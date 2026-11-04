@@ -14,10 +14,11 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     channel: 'chrome',
     headless: true,
-    // Su Linux Chrome prende la lingua dal sistema: in inglese gli orari sono a 12 ore con AM/PM e i test da tastiera
-    // scriverebbero in un campo diverso. Il sito è in italiano, quindi anche il browser dei test.
+    // Il sito è in italiano, quindi anche il browser dei test: in inglese gli orari sono a 12 ore con AM/PM
+    // e i test da tastiera scriverebbero in un campo diverso. Su Linux Chrome sceglie la lingua da LANGUAGE e LANG,
+    // non da --lang, che vale solo su Windows.
     locale: 'it-IT',
-    launchOptions: { args: ['--lang=it-IT'] },
+    launchOptions: { args: ['--lang=it-IT'], env: { ...process.env, LANGUAGE: 'it_IT:it', LANG: 'it_IT.UTF-8' } },
   },
   webServer: {
     command: `node tests/e2e/server.mjs ${PORT}`,
