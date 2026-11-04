@@ -1090,6 +1090,9 @@ set role anon;
 select set_config('request.headers', '{"x-forwarded-for":"203.0.113.50"}', false);
 do $$
 begin
+  -- random() sceglie le visite che aggiornano il contatore: setseed rende le estrazioni ripetibili.
+  -- Seme 0.22: aggiorna solo la terza estrazione.
+  perform setseed(0.22);
   perform public.survey_event('TokenDiProvaAperto0001', 'view');
   perform public.survey_event('TokenDiProvaAperto0001', 'view');
   perform public.survey_event('TokenDiProvaAperto0001', 'start');
@@ -1108,7 +1111,7 @@ begin
   assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'view') = 2, 'visite contate male';
   assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'start') = 1, 'inizi contati male';
   assert not exists (select 1 from public.survey_events where survey_id = current_setting('test.survey3')::uuid), 'visita a un questionario chiuso';
-  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 3, 'contatore delle visite sbagliato';
+  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 20, 'contatore delle visite sbagliato';
   assert not exists (select 1 from public.survey_event_counts where survey_id = current_setting('test.survey3')::uuid), 'contatore per un questionario chiuso';
   assert not exists (select 1 from public.survey_events where survey_id = v_survey2)
      and not exists (select 1 from public.survey_event_counts where survey_id = v_survey2), 'visite del secondo questionario già presenti';
@@ -1121,6 +1124,8 @@ $$;
 set role anon;
 do $$
 begin
+  -- Seme 0.24: le prime tre estrazioni non aggiornano, la quarta sì. Le visite oltre il limite non estraggono.
+  perform setseed(0.24);
   perform public.survey_event('TokenDiProvaSecondo_02', 'start');
   perform public.survey_event('TokenDiProvaSecondo_02', 'view');
   perform public.survey_event('TokenDiProvaSecondo_02', 'view');
@@ -1137,12 +1142,12 @@ begin
   assert (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'start') = 1
      and (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'view') = 2,
     'limite di 300 visite e inizi all''ora dalla stessa rete: ' || (select count(*) from public.survey_events where survey_id = v_survey2);
-  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 3, 'contate le visite oltre il limite per rete';
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 0, 'contate le visite oltre il limite per rete';
 end
 $$;
 
 \if :has_dblink
-\echo 'ok - questionari: due visite in contemporanea senza contatore lo fanno nascere una volta sola e contano entrambe'
+\echo 'ok - questionari: due visite in contemporanea senza contatore lo fanno nascere una volta sola dal conteggio vero e si registrano entrambe'
 create extension dblink schema test;
 delete from public.survey_event_counts where survey_id = current_setting('test.survey2')::uuid;
 do $$
@@ -1155,8 +1160,11 @@ declare
 begin
   perform test.dblink_connect('a', v_conn);
   perform test.dblink_connect('b', v_conn);
+  -- Seme 0.5: le prime dodici estrazioni non aggiornano il contatore.
   perform test.dblink_exec('a', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"203.0.113.60"}'$q$);
   perform test.dblink_exec('b', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"203.0.113.61"}'$q$);
+  perform x from test.dblink('a', 'select setseed(0.5)') as d(x text);
+  perform x from test.dblink('b', 'select setseed(0.5)') as d(x text);
   select p into v_pid from test.dblink('b', 'select pg_backend_pid()') as d(p int);
   perform test.dblink_exec('a', 'begin');
   perform x from test.dblink('a', v_call) as d(x text);
@@ -1172,15 +1180,73 @@ begin
   perform test.dblink_disconnect('a');
   perform test.dblink_disconnect('b');
   assert (select count(*) from public.survey_events where survey_id = v_survey2) = 5
-     and (select events from public.survey_event_counts where survey_id = v_survey2) = 5,
+     and (select events from public.survey_event_counts where survey_id = v_survey2) = 3,
     format('visite in contemporanea: %s registrate, contatore %s', (select count(*) from public.survey_events where survey_id = v_survey2),
       (select events from public.survey_event_counts where survey_id = v_survey2));
+end
+$$;
+
+\echo 'ok - questionari: con la riga del contatore bloccata una raffica di visite non aspetta, aspetta solo la visita che lo aggiorna'
+do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  v_call text := $q$select public.survey_event('TokenDiProvaSecondo_02', 'view')$q$;
+  v_rows bigint := (select count(*) from public.survey_events where survey_id = current_setting('test.survey2')::uuid);
+  v_pid int;
+  n int;
+  i int := 0;
+begin
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  -- Seme 0.16: le prime dieci estrazioni non aggiornano il contatore, l'undicesima sì.
+  perform test.dblink_exec('b', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"203.0.113.62"}'$q$);
+  perform x from test.dblink('b', 'select setseed(0.16)') as d(x text);
+  select p into v_pid from test.dblink('b', 'select pg_backend_pid()') as d(p int);
+  perform test.dblink_exec('a', 'begin');
+  select x into n from test.dblink('a', format('select events from public.survey_event_counts where survey_id = %L for update', v_survey2)) as d(x int);
+  for j in 1..10 loop
+    perform x from test.dblink('b', v_call) as d(x text);
+  end loop;
+  assert (select count(*) from public.survey_events where survey_id = v_survey2) = v_rows + 10, 'visite non registrate con la riga del contatore bloccata';
+  perform test.dblink_send_query('b', v_call);
+  while not exists (select 1 from pg_locks where pid = v_pid and not granted) loop
+    i := i + 1;
+    assert i < 200, 'la visita che aggiorna il contatore non aspetta la riga bloccata';
+    perform pg_sleep(0.01);
+  end loop;
+  perform test.dblink_exec('a', 'commit');
+  perform x from test.dblink_get_result('b') as d(x text);
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  assert (select count(*) from public.survey_events where survey_id = v_survey2) = v_rows + 11
+     and (select events from public.survey_event_counts where survey_id = v_survey2) = n + 20,
+    format('raffica con la riga bloccata: contatore da %s a %s', n, (select events from public.survey_event_counts where survey_id = v_survey2));
 end
 $$;
 drop extension dblink;
 \else
 \echo 'saltato - manca dblink: niente prova sul contatore delle visite con due connessioni vere'
 \endif
+
+\echo 'ok - questionari: il contatore delle visite cresce di 20 su una visita ogni 20 circa'
+do $$
+declare
+  v uuid := current_setting('test.survey2')::uuid;
+  v_before int := (select events from public.survey_event_counts where survey_id = current_setting('test.survey2')::uuid);
+  v_rows bigint := (select count(*) from public.survey_events where survey_id = current_setting('test.survey2')::uuid);
+  v_step int;
+begin
+  for i in 1..1000 loop
+    perform set_config('request.headers', format('{"x-forwarded-for":"198.51.100.%s"}', i % 100), true);
+    perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  end loop;
+  v_step := (select events from public.survey_event_counts where survey_id = v) - v_before;
+  assert (select count(*) from public.survey_events where survey_id = v) = v_rows + 1000, 'visite non registrate tutte';
+  -- In media 50 aggiornamenti su 1000 visite: fuori da 20-90 capita meno di una volta su un milione.
+  assert v_step % 20 = 0 and v_step between 400 and 1800, 'contatore cresciuto di ' || v_step || ' su 1000 visite';
+end
+$$;
 
 do $$
 declare
@@ -1195,6 +1261,8 @@ $$;
 set role anon;
 do $$
 begin
+  -- Seme 0.26: la prima estrazione non aggiorna, la seconda sì. Le visite oltre il limite al minuto non estraggono.
+  perform setseed(0.26);
   perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.52"}', false);
   perform public.survey_event('TokenDiProvaSecondo_02', 'view');
   perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.53"}', false);
@@ -1210,12 +1278,12 @@ begin
   assert (select count(*) from public.survey_events where survey_id = v_survey2) = 6000
      and (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'start') = 1,
     'limite di 6000 visite e inizi al minuto: ' || (select count(*) from public.survey_events where survey_id = v_survey2);
-  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 6000,
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 5999,
     'contatore non rifatto dal conteggio vero, o cresciuto oltre il limite al minuto: ' || (select events from public.survey_event_counts where survey_id = v_survey2);
 end
 $$;
 
-\echo 'ok - questionari: il tetto di 200000 visite e inizi legge il contatore, che nasce dal conteggio vero'
+\echo 'ok - questionari: il tetto di 200000 visite e inizi legge il contatore, che nasce dal conteggio vero e dal tetto in su non cambia'
 do $$
 declare
   t text := 'TokenDiProvaSecondo_02';
@@ -1227,20 +1295,30 @@ begin
   select v, 'view', now() - interval '1 day' from generate_series(1, 199999 - 6000);
   delete from public.survey_event_counts where survey_id = v;
   perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.54"}', true);
+  -- Seme 0.5: la prima estrazione non aggiorna. Seme -0.58: la prima aggiorna.
+  perform setseed(0.5);
   perform public.survey_event(t, 'start');
   assert (select count(*) from public.survey_events where survey_id = v) = 200000
-     and (select events from public.survey_event_counts where survey_id = v) = 200000
+     and (select events from public.survey_event_counts where survey_id = v) = 199999
      and exists (select 1 from public.survey_events where survey_id = v and kind = 'start' and created_at > now() - interval '1 minute'),
     'la visita numero 200000 non è registrata, o il contatore non nasce dal conteggio vero';
+  update public.survey_event_counts set events = 200000 where survey_id = v;
+  perform setseed(-0.58);
   perform public.survey_event(t, 'view');
   perform public.survey_event(t, 'start');
-  assert (select count(*) from public.survey_events where survey_id = v) = 200000, 'registrate visite oltre le 200000';
-  -- Conta il contatore, non le righe.
+  assert (select count(*) from public.survey_events where survey_id = v) = 200000
+     and (select events from public.survey_event_counts where survey_id = v) = 200000,
+    'col contatore pieno registrate visite o contatore aggiornato: ' || (select events from public.survey_event_counts where survey_id = v);
+  -- Conta il contatore, non le righe: da 199999 la visita passa e l'aggiornamento lo porta oltre il tetto.
   update public.survey_event_counts set events = 199999 where survey_id = v;
+  perform setseed(-0.58);
   perform public.survey_event(t, 'view');
-  assert (select count(*) from public.survey_events where survey_id = v) = 200001, 'il tetto non legge il contatore';
+  assert (select count(*) from public.survey_events where survey_id = v) = 200001
+     and (select events from public.survey_event_counts where survey_id = v) = 200019, 'il tetto non legge il contatore';
+  perform setseed(-0.58);
   perform public.survey_event(t, 'view');
-  assert (select count(*) from public.survey_events where survey_id = v) = 200001, 'registrata una visita oltre il contatore pieno';
+  assert (select count(*) from public.survey_events where survey_id = v) = 200001
+     and (select events from public.survey_event_counts where survey_id = v) = 200019, 'oltre il tetto registrata una visita o contatore aggiornato';
 end
 $$;
 select set_config('request.headers', '', false);
@@ -1326,15 +1404,17 @@ begin
   assert not exists (select 1 from public.survey_limits where survey_id = v_survey2), 'limiti non azzerati';
   assert exists (select 1 from public.survey_limits where survey_id = current_setting('test.survey')::uuid), 'azzerati i limiti di un altro questionario';
   assert not exists (select 1 from public.survey_counts where survey_id in (current_setting('test.survey')::uuid, v_survey2)), 'contatori rimasti dopo le cancellazioni';
-  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 3
+  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 20
      and (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid) = 3,
     'cancellare alcune risposte tocca visite o contatore delle visite';
-  assert not exists (select 1 from public.survey_event_counts where survey_id = v_survey2), 'contatore delle visite rimasto dopo aver cancellato tutto';
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 0, 'contatore delle visite non azzerato dopo aver cancellato tutto';
   perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.90"}', true);
   assert test.send('TokenDiProvaSecondo_02', '{"nota":"da capo"}') ->> 'status' = 'ok', 'compilazione nuova rifiutata dopo aver cancellato tutto';
   assert (select responses from public.survey_counts where survey_id = v_survey2) = 1, 'contatore non rifatto dopo aver cancellato tutto';
+  -- Seme 0.5: la prima estrazione non aggiorna il contatore.
+  perform setseed(0.5);
   perform public.survey_event('TokenDiProvaSecondo_02', 'view');
-  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 1
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 0
      and (select count(*) from public.survey_events where survey_id = v_survey2) = 1, 'il tetto delle visite non riparte da zero dopo aver cancellato tutto';
 end
 $$;
@@ -1365,7 +1445,7 @@ begin
      and not exists (select 1 from public.survey_limits where survey_id = v and client = 'libera'),
     'limiti cancellati male accanto a righe bloccate';
   assert not exists (select 1 from public.survey_events where survey_id = v)
-     and not exists (select 1 from public.survey_event_counts where survey_id = v), 'visite o contatore rimasti accanto a righe bloccate';
+     and (select events from public.survey_event_counts where survey_id = v) = 0, 'visite rimaste o contatore non azzerato accanto a righe bloccate';
   perform test.dblink_exec('a', 'commit');
   perform test.dblink_disconnect('a');
   perform test.dblink_disconnect('b');

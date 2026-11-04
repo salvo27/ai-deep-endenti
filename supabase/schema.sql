@@ -2414,16 +2414,19 @@ begin
       ) x) >= 6000 then
     return;
   end if;
-  -- Tetto di 200000 eventi per questionario, letto da un contatore: si conta tutto solo la prima volta.
-  update public.survey_event_counts set events = events + 1 where survey_id = s.id returning events into v_events;
-  if not found then
-    select count(*) + 1 into v_events from public.survey_events e where e.survey_id = s.id;
-    insert into public.survey_event_counts (survey_id, events) values (s.id, v_events)
-    on conflict (survey_id) do update set events = public.survey_event_counts.events + 1
-    returning events into v_events;
-  end if;
-  if v_events > 200000 then
+  -- Tetto di 200000 eventi per questionario, letto da un contatore senza aspettare: si conta tutto solo la prima volta.
+  select c.events into v_events from public.survey_event_counts c where c.survey_id = s.id;
+  if v_events is null then
+    insert into public.survey_event_counts (survey_id, events)
+    select s.id, count(*) from public.survey_events e where e.survey_id = s.id
+    on conflict (survey_id) do nothing;
+  elsif v_events >= 200000 then
     return;
+  end if;
+  -- Il contatore si aggiorna di 20 su una visita ogni 20 circa: in una raffica le visite non fanno la fila sulla stessa riga
+  -- e il tetto resta giusto a meno dell'1%.
+  if random() < 0.05 then
+    update public.survey_event_counts set events = events + 20 where survey_id = s.id;
   end if;
   insert into public.survey_events (survey_id, kind) values (s.id, p_kind);
   insert into public.survey_limits (survey_id, client, kind) values (s.id, v_client, p_kind);
@@ -2477,8 +2480,10 @@ begin
   -- Il contatore delle risposte si rifà con un conteggio alla prossima compilazione nuova.
   delete from public.survey_counts where survey_id = p_survey;
   if p_ids is null then
+    -- Prima il contatore a zero, poi gli eventi: una visita in arrivo aspetta questa riga invece di contare eventi che stanno sparendo.
+    insert into public.survey_event_counts (survey_id, events) values (p_survey, 0)
+    on conflict (survey_id) do update set events = 0;
     delete from public.survey_events where survey_id = p_survey;
-    delete from public.survey_event_counts where survey_id = p_survey;
     -- Le righe che sta già togliendo una pulizia si saltano: altrimenti le due attese si bloccherebbero a vicenda.
     delete from public.survey_limits where id in (
       select l.id from public.survey_limits l where l.survey_id = p_survey for update skip locked
