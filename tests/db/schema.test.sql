@@ -174,6 +174,14 @@ begin
   perform test.expect_error('select count(*) from public.survey_events', 'permission denied');
   perform test.expect_error('select count(*) from public.survey_limits', 'permission denied');
   perform test.expect_error('select count(*) from public.survey_salts', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_counts', 'permission denied');
+  perform test.expect_error($q$insert into public.survey_counts (survey_id, responses) values (gen_random_uuid(), 0)$q$, 'permission denied');
+  perform test.expect_error('update public.survey_counts set responses = 0', 'permission denied');
+  perform test.expect_error('delete from public.survey_counts', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_event_counts', 'permission denied');
+  perform test.expect_error($q$insert into public.survey_event_counts (survey_id, events) values (gen_random_uuid(), 0)$q$, 'permission denied');
+  perform test.expect_error('update public.survey_event_counts set events = 0', 'permission denied');
+  perform test.expect_error('delete from public.survey_event_counts', 'permission denied');
   perform test.expect_error('select count(*) from public.member_activity', 'permission denied');
   perform test.expect_error($q$insert into public.survey_responses (survey_id, answers) values (gen_random_uuid(), '{}')$q$, 'permission denied');
   perform test.expect_error('select public.survey_funnel(gen_random_uuid())', 'permission denied');
@@ -338,6 +346,41 @@ returns jsonb
 language sql
 as $$
   select public.submit_survey(p_token, p_answers, jsonb_build_object('session', gen_random_uuid(), 'final', true) || p_meta)
+$$;
+-- Impronta di chi arriva con questo x-forwarded-for (fino alla fine della transazione), e quella attesa per un indirizzo.
+create function test.client_at(p_survey uuid, p_forwarded text)
+returns text
+language plpgsql
+as $$
+begin
+  perform set_config('request.headers', jsonb_build_object('x-forwarded-for', p_forwarded)::text, true);
+  return public.survey_client(p_survey);
+end
+$$;
+create function test.fingerprint(p_survey uuid, p_address text)
+returns text
+language sql
+as $$
+  select encode(sha256(convert_to(s.salt || '|' || p_survey::text || '|' || p_address, 'UTF8')), 'hex')
+  from public.survey_salts s where s.day = (now() at time zone 'utc')::date
+$$;
+-- Limiti più vecchi di 24 ore, quelli che la pulizia deve togliere.
+create function test.old_limits(p_client text)
+returns bigint
+language sql
+as $$
+  select count(*) from public.survey_limits where client = p_client and created_at < now() - interval '24 hours'
+$$;
+-- Se questa transazione tiene la fila del questionario (il blocco consultivo delle compilazioni nuove).
+create function test.holds_survey_lock(p_survey uuid)
+returns boolean
+language sql
+as $$
+  select exists (
+    select 1 from pg_locks, lateral (select hashtextextended('survey:' || p_survey::text, 0) as k) h
+    where locktype = 'advisory' and pid = pg_backend_pid() and granted and objsubid = 1
+      and classid = ((h.k >> 32) & 4294967295)::oid and objid = (h.k & 4294967295)::oid
+  )
 $$;
 set role authenticated;
 select test.login('a');
@@ -594,19 +637,30 @@ end
 $$;
 
 \echo 'ok - questionari: limiti per chi risponde e per questionario, con impronte del giorno al posto degli indirizzi'
-set role anon;
 select set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.0.0.1"}', false);
+-- Dalla stessa rete si arriva a 48 compilazioni nell'ultima ora: le ultime due passano dalla funzione.
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  v_client text := public.survey_client(v_survey);
+begin
+  insert into public.survey_limits (survey_id, client, kind)
+  select v_survey, v_client, 'session'
+  from generate_series(1, 48 - (select count(*) from public.survey_limits where survey_id = v_survey and client = v_client and kind = 'session'));
+end
+$$;
+set role anon;
 do $$
 declare
   t text := 'TokenDiProvaAperto0001';
   v jsonb := '{"ruolo":"b","fatica":2}';
   r jsonb;
 begin
-  for i in 1..2 loop
-    assert test.send(t, v) ->> 'status' = 'ok', 'compilazione ' || i || ' rifiutata';
+  for i in 49..50 loop
+    assert test.send(t, v) ->> 'status' = 'ok', 'compilazione ' || i || ' dalla stessa rete rifiutata';
   end loop;
   r := test.send(t, v);
-  assert r ->> 'reason' like '%più volte%', 'sesta compilazione in un''ora accettata: ' || r::text;
+  assert r ->> 'reason' like '%più volte%', 'compilazione 51 in un''ora dalla stessa rete accettata: ' || r::text;
   perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.7, 10.9.9.9"}', false);
   assert test.send(t, v) ->> 'reason' like '%più volte%', 'il limite cambia passando da un altro proxy';
   perform set_config('request.headers', '{"x-forwarded-for":"198.51.100.4"}', false);
@@ -656,25 +710,288 @@ begin
 end
 $$;
 update public.survey_responses set created_at = now() - interval '2 minutes';
+insert into public.survey_responses (survey_id, session, answers, completed)
+select current_setting('test.survey')::uuid, gen_random_uuid(), '{"ruolo":"a","fatica":5}', true from generate_series(1, 598);
+update public.survey_counts set responses = responses + 598 where survey_id = current_setting('test.survey')::uuid;
 set role anon;
 do $$
 declare
   r jsonb;
 begin
-  for i in 1..30 loop
-    perform set_config('request.headers', format('{"x-forwarded-for":"192.0.2.%s"}', i), false);
+  for i in 599..600 loop
+    perform set_config('request.headers', format('{"x-forwarded-for":"192.0.2.%s"}', i - 598), false);
     r := test.send('TokenDiProvaAperto0001', '{"ruolo":"a","fatica":5}');
     assert r ->> 'status' = 'ok', format('compilazione %s del minuto rifiutata: %s', i, r);
   end loop;
   perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.200"}', false);
   r := test.send('TokenDiProvaAperto0001', '{"ruolo":"a","fatica":5}');
-  assert r ->> 'reason' like '%in questo momento%', 'più di 30 compilazioni nuove in un minuto: ' || r::text;
+  assert r ->> 'reason' like '%in questo momento%', 'più di 600 compilazioni nuove in un minuto: ' || r::text;
   r := public.submit_survey('TokenDiProvaAperto0001', '{"ruolo":"b","canali":["web"]}', jsonb_build_object('session', current_setting('test.session2')));
   assert r ->> 'status' = 'ok', 'il limite delle compilazioni nuove blocca chi aveva già iniziato: ' || r::text;
 end
 $$;
+reset role;
+do $$
+declare
+  v_survey uuid := current_setting('test.survey')::uuid;
+  n int := (select count(*) from public.survey_responses where survey_id = current_setting('test.survey')::uuid);
+begin
+  assert (select responses from public.survey_counts where survey_id = v_survey) = n,
+    format('contatore %s, risposte %s', (select responses from public.survey_counts where survey_id = v_survey), n);
+end
+$$;
 
-\echo 'ok - questionari: la durata mediana si mostra solo con almeno 20 compilazioni complete, e c è un tetto di 5000 risposte'
+\echo 'ok - questionari: un indirizzo IPv6 conta per la sua /64, un IPv4 scritto in IPv6 conta come l IPv4, gli indirizzi non validi restano come sono'
+do $$
+declare
+  v uuid := current_setting('test.survey')::uuid;
+  v_net text := test.client_at(current_setting('test.survey')::uuid, '2001:db8:aa:1::1');
+  x text;
+begin
+  assert v_net = test.fingerprint(v, '2001:db8:aa:1::'), 'un indirizzo IPv6 non conta per la sua /64';
+  foreach x in array array['2001:db8:aa:1:ffff:ffff:ffff:ffff', '2001:DB8:AA:1:0:0:0:2', '2001:db8:aa:1::3, 10.0.0.1'] loop
+    assert test.client_at(v, x) = v_net, 'stessa /64, impronta diversa: ' || x;
+  end loop;
+  foreach x in array array['2001:db8:aa:2::1', '2001:db8:aa:0:ffff:ffff:ffff:ffff', '2001:db8:ab:1::1'] loop
+    assert test.client_at(v, x) <> v_net, 'un''altra /64, stessa impronta: ' || x;
+  end loop;
+  foreach x in array array['203.0.113.7', 'non-un-indirizzo', '2001:db8::zz', '999.1.1.1', '2001:db8:aa:1::1/200'] loop
+    assert test.client_at(v, x) = test.fingerprint(v, x), 'indirizzo cambiato: ' || x;
+  end loop;
+  foreach x in array array['::ffff:203.0.113.7', '::FFFF:203.0.113.7', '::ffff:cb00:7107', '0:0:0:0:0:ffff:203.0.113.7', '203.0.113.7/24'] loop
+    assert test.client_at(v, x) = test.fingerprint(v, '203.0.113.7'), 'lo stesso IPv4 scritto in un altro modo ha un''altra impronta: ' || x;
+  end loop;
+  assert test.client_at(v, '::ffff:203.0.113.8') = test.fingerprint(v, '203.0.113.8'), 'un IPv4 scritto in IPv6 non conta come l''IPv4';
+  assert test.client_at(v, '::ffff:203.0.113.8') <> test.client_at(v, '::ffff:203.0.113.7'), 'un IPv4 scritto in IPv6 conta come una /64';
+  assert test.client_at(v, '203.0.113.8') <> test.client_at(v, '203.0.113.7'), 'due IPv4 vicini hanno la stessa impronta';
+end
+$$;
+set role anon;
+
+\echo 'ok - questionari: chi salva una compilazione già iniziata non entra nella fila del questionario, una compilazione nuova sì'
+select set_config('request.headers', '{"x-forwarded-for":"192.0.2.60"}', false);
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  m jsonb := jsonb_build_object('session', gen_random_uuid());
+  m_done jsonb := jsonb_build_object('session', gen_random_uuid());
+  m_twice jsonb := jsonb_build_object('session', gen_random_uuid());
+begin
+  perform set_config('test.lock_session', m ->> 'session', false);
+  perform set_config('test.lock_done', m_done ->> 'session', false);
+  perform set_config('test.lock_twice', m_twice ->> 'session', false);
+  assert public.submit_survey(t, '{"nota":"prima"}', m) ->> 'status' = 'ok', 'compilazione nuova rifiutata';
+  assert public.submit_survey(t, '{"nota":"fine"}', m_done || '{"final":true}') ->> 'status' = 'ok', 'compilazione conclusa rifiutata';
+  assert public.submit_survey(t, '{"nota":"doppio"}', m_twice) ->> 'status' = 'ok', 'primo salvataggio rifiutato';
+end
+$$;
+-- Tutto in una transazione: i blocchi consultivi restano fino alla fine e pg_locks li mostra.
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  r jsonb;
+begin
+  r := public.submit_survey(t, '{"nota":"seconda"}', jsonb_build_object('session', current_setting('test.lock_session')));
+  assert r ->> 'status' = 'ok', 'salvataggio di una compilazione iniziata rifiutato: ' || r::text;
+  assert not exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()), 'un salvataggio entra nella fila del questionario';
+  r := public.submit_survey(t, '{"nota":"cambiata"}', jsonb_build_object('session', current_setting('test.lock_done')));
+  assert r ->> 'reason' like '%già state inviate%', 'una compilazione conclusa cambia ancora: ' || r::text;
+  r := public.submit_survey(t, '{"nota":"doppio"}', jsonb_build_object('session', current_setting('test.lock_twice')));
+  assert r ->> 'status' = 'ok', 'secondo primo salvataggio rifiutato: ' || r::text;
+  assert not exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()), 'un secondo primo salvataggio entra nella fila del questionario';
+  assert public.submit_survey(t, '{}', jsonb_build_object('session', gen_random_uuid())) = '{"status":"ok"}'::jsonb, 'primo salvataggio vuoto rifiutato';
+  assert public.submit_survey(t, '{"nota":5}', jsonb_build_object('session', gen_random_uuid())) ->> 'reason' = 'Risposte non valide.', 'primo salvataggio non valido accettato';
+  assert public.submit_survey(t, '{"nota":"   "}', jsonb_build_object('session', gen_random_uuid(), 'final', true)) ->> 'reason' like '%almeno una%', 'primo invio vuoto accettato';
+  assert public.submit_survey(t, '{"nota":"x"}', '{"session":"x"}') ->> 'reason' like '%Sessione%', 'sessione non valida accettata';
+  assert public.submit_survey(t, jsonb_build_object('nota', repeat('x', 301)), jsonb_build_object('session', gen_random_uuid())) ->> 'question' = 'nota', 'risposta troppo lunga accettata';
+  assert not exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()), 'un primo salvataggio vuoto o non valido entra nella fila del questionario';
+  assert public.submit_survey(t, '{"nota":"terza"}', jsonb_build_object('session', gen_random_uuid())) ->> 'status' = 'ok', 'compilazione nuova rifiutata';
+  assert test.holds_survey_lock(current_setting('test.survey2')::uuid), 'una compilazione nuova non passa dalla fila del questionario';
+end
+$$;
+reset role;
+do $$
+declare
+  v_survey uuid := current_setting('test.survey2')::uuid;
+  r public.survey_responses;
+begin
+  select * into r from public.survey_responses where session = current_setting('test.lock_session')::uuid;
+  assert r.saves = 2 and not r.completed and r.answers = '{"nota":"seconda"}'::jsonb, 'salvataggio senza fila: ' || row_to_json(r)::text;
+  select * into r from public.survey_responses where session = current_setting('test.lock_done')::uuid;
+  assert r.saves = 1 and r.completed and r.answers = '{"nota":"fine"}'::jsonb, 'compilazione conclusa cambiata: ' || row_to_json(r)::text;
+  select * into r from public.survey_responses where session = current_setting('test.lock_twice')::uuid;
+  assert r.saves = 2 and not r.completed, 'un secondo primo salvataggio non diventa un salvataggio: ' || row_to_json(r)::text;
+  assert (select count(*) from public.survey_responses where survey_id = v_survey) = 4, 'compilazioni nuove contate male';
+  assert (select count(*) from public.survey_limits where survey_id = v_survey and client = public.survey_client(v_survey) and kind = 'session') = 4,
+    'un secondo primo salvataggio conta come compilazione nuova';
+  assert (select responses from public.survey_counts where survey_id = v_survey) = 4, 'contatore delle risposte sbagliato';
+end
+$$;
+
+select exists (select 1 from pg_available_extensions where name = 'dblink') as has_dblink \gset
+\if :has_dblink
+\echo 'ok - questionari: con due connessioni vere chi salva non aspetta chi apre una compilazione, e un doppio primo salvataggio in contemporanea resta una compilazione sola'
+create extension dblink schema test;
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v_survey uuid := current_setting('test.survey2')::uuid;
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  v_setup text := $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"192.0.2.61"}'$q$;
+  v_session uuid := gen_random_uuid();
+  v_pid int;
+  v_count int := (select responses from public.survey_counts where survey_id = current_setting('test.survey2')::uuid);
+  r jsonb;
+  i int := 0;
+begin
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  perform test.dblink_exec('a', v_setup);
+  perform test.dblink_exec('b', v_setup);
+  select p into v_pid from test.dblink('b', 'select pg_backend_pid()') as d(p int);
+  -- a apre una compilazione e tiene la fila fino al commit.
+  perform test.dblink_exec('a', 'begin');
+  select x into r from test.dblink('a', format('select public.submit_survey(%L, %L, %L)', t, '{"nota":"primo"}', jsonb_build_object('session', v_session))) as d(x jsonb);
+  assert r ->> 'status' = 'ok', 'compilazione nuova rifiutata: ' || r::text;
+  select x into r from test.dblink('b', format('select public.submit_survey(%L, %L, %L)', t, '{"nota":"senza fila"}', jsonb_build_object('session', current_setting('test.lock_session')))) as d(x jsonb);
+  assert r ->> 'status' = 'ok', 'salvataggio rifiutato mentre si apre un''altra compilazione: ' || r::text;
+  perform test.dblink_send_query('b', format('select public.submit_survey(%L, %L, %L)', t, '{"nota":"secondo"}', jsonb_build_object('session', v_session)));
+  while not exists (select 1 from pg_locks where locktype = 'advisory' and pid = v_pid and not granted) loop
+    i := i + 1;
+    assert i < 200, 'il secondo primo salvataggio non aspetta la fila';
+    perform pg_sleep(0.01);
+  end loop;
+  perform test.dblink_exec('a', 'commit');
+  select x into r from test.dblink_get_result('b') as d(x jsonb);
+  assert r ->> 'status' = 'ok', 'doppio primo salvataggio rifiutato: ' || coalesce(r::text, 'nessuna risposta');
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  assert (select saves = 2 and answers = '{"nota":"secondo"}'::jsonb from public.survey_responses where session = v_session),
+    'doppio primo salvataggio: ' || (select row_to_json(x)::text from public.survey_responses x where session = v_session);
+  assert (select saves = 3 and answers = '{"nota":"senza fila"}'::jsonb from public.survey_responses where session = current_setting('test.lock_session')::uuid),
+    'salvataggio senza fila perso';
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.61"}', true);
+  assert (select count(*) from public.survey_limits where survey_id = v_survey and client = public.survey_client(v_survey) and kind = 'session') = 1,
+    'un doppio primo salvataggio in contemporanea conta come due compilazioni nuove';
+  assert (select responses from public.survey_counts where survey_id = v_survey) = v_count + 1, 'il contatore non cresce di uno con un doppio primo salvataggio';
+end
+$$;
+
+\echo 'ok - questionari: la pulizia dei limiti vecchi salta le righe bloccate da un altra connessione, senza aspettarla'
+-- I 30 più vecchi li terrà bloccati un'altra connessione.
+insert into public.survey_limits (survey_id, client, kind, created_at)
+select current_setting('test.survey2')::uuid, case when g <= 30 then 'bloccata' else 'vecchia' end, 'view',
+  now() - case when g <= 30 then interval '30 hours' else interval '25 hours' end
+from generate_series(1, 480) g;
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  n bigint;
+  r jsonb;
+begin
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  perform test.dblink_exec('b', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"192.0.2.62"}'$q$);
+  perform test.dblink_exec('a', 'begin');
+  select x into n from test.dblink('a', $q$select count(*) from (select 1 from public.survey_limits where client = 'bloccata' for update) y$q$) as d(x bigint);
+  assert n = 30, 'righe bloccate: ' || n;
+  select x into r from test.dblink('b', format('select public.submit_survey(%L, %L, %L)', t, '{"nota":"pulizia"}', jsonb_build_object('session', gen_random_uuid()))) as d(x jsonb);
+  assert r ->> 'status' = 'ok', 'compilazione nuova rifiutata durante la pulizia: ' || r::text;
+  assert test.old_limits('bloccata') = 30 and test.old_limits('vecchia') = 250,
+    format('pulizia di una compilazione nuova: %s bloccate e %s vecchie', test.old_limits('bloccata'), test.old_limits('vecchia'));
+  perform x from test.dblink('b', $q$select public.survey_event('TokenDiProvaSecondo_02', 'view')$q$) as d(x text);
+  assert test.old_limits('bloccata') = 30 and test.old_limits('vecchia') = 50,
+    format('pulizia di una visita: %s bloccate e %s vecchie', test.old_limits('bloccata'), test.old_limits('vecchia'));
+  perform test.dblink_exec('a', 'commit');
+  perform x from test.dblink('b', $q$select public.survey_event('TokenDiProvaSecondo_02', 'view')$q$) as d(x text);
+  assert test.old_limits('bloccata') = 0 and test.old_limits('vecchia') = 0, 'righe sbloccate non tolte';
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  -- Le visite servivano solo alla pulizia: le prove sulle visite partono da zero.
+  delete from public.survey_events where survey_id = current_setting('test.survey2')::uuid;
+  delete from public.survey_event_counts where survey_id = current_setting('test.survey2')::uuid;
+end
+$$;
+drop extension dblink;
+\else
+\echo 'saltato - manca dblink: niente prova con due connessioni vere'
+\endif
+
+\echo 'ok - questionari: il contatore delle risposte nasce dal conteggio vero e cresce solo con le compilazioni nuove, e una cancellazione lo fa rifare'
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v uuid := current_setting('test.survey2')::uuid;
+  m jsonb := jsonb_build_object('session', gen_random_uuid());
+  n int;
+begin
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.70"}', true);
+  -- Risposte arrivate prima del contatore, come in un questionario già avviato.
+  delete from public.survey_counts where survey_id = v;
+  insert into public.survey_responses (survey_id, session, answers, completed)
+  select v, gen_random_uuid(), '{"nota":"storia"}', true from generate_series(1, 3);
+  n := (select count(*) from public.survey_responses where survey_id = v);
+  assert public.submit_survey(t, '{}', m) = '{"status":"ok"}'::jsonb, 'primo salvataggio vuoto rifiutato';
+  assert public.submit_survey(t, '{"nota":5}', m) ->> 'reason' = 'Risposte non valide.', 'primo salvataggio non valido accettato';
+  assert public.submit_survey(t, '{}', m || '{"final":true}') ->> 'reason' like '%almeno una%', 'primo invio vuoto accettato';
+  assert not exists (select 1 from public.survey_counts where survey_id = v), 'un primo salvataggio vuoto o non valido crea il contatore';
+  assert public.submit_survey(t, '{"nota":"uno"}', m) ->> 'status' = 'ok', 'compilazione nuova rifiutata';
+  assert (select responses from public.survey_counts where survey_id = v) = n + 1,
+    format('contatore nato da %s, risposte %s', (select responses from public.survey_counts where survey_id = v), n + 1);
+  assert public.submit_survey(t, '{"nota":"due"}', m) ->> 'status' = 'ok', 'salvataggio rifiutato';
+  assert public.submit_survey(t, '{"nota":"tre"}', m || '{"final":true}') ->> 'status' = 'ok', 'ultimo invio rifiutato';
+  assert public.submit_survey(t, '{"nota":"quattro"}', m) ->> 'reason' like '%già state inviate%', 'una compilazione conclusa cambia ancora';
+  assert public.submit_survey(t, '{}', jsonb_build_object('session', gen_random_uuid())) = '{"status":"ok"}'::jsonb, 'primo salvataggio vuoto rifiutato';
+  assert (select responses from public.survey_counts where survey_id = v) = n + 1, 'salvataggi o primi salvataggi vuoti contati come compilazioni nuove';
+  assert test.send(t, '{"nota":"cinque"}') ->> 'status' = 'ok' and test.send(t, '{"nota":"sei"}') ->> 'status' = 'ok', 'compilazioni nuove rifiutate';
+  assert (select responses from public.survey_counts where survey_id = v) = n + 3
+     and (select count(*) from public.survey_responses where survey_id = v) = n + 3, 'ogni compilazione nuova deve contare una volta';
+  perform test.login('b');
+  assert public.delete_survey_responses(v, array(select id from public.survey_responses where survey_id = v and answers = '{"nota":"storia"}' limit 2)) = 2,
+    'risposte non cancellate';
+  perform set_config('request.jwt.claims', '{"role":"anon"}', false);
+  assert not exists (select 1 from public.survey_counts where survey_id = v), 'il contatore resta dopo una cancellazione';
+  assert test.send(t, '{"nota":"sette"}') ->> 'status' = 'ok', 'compilazione nuova rifiutata dopo una cancellazione';
+  assert (select responses from public.survey_counts where survey_id = v) = n + 2
+     and (select count(*) from public.survey_responses where survey_id = v) = n + 2, 'contatore non rifatto dopo una cancellazione';
+end
+$$;
+
+\echo 'ok - questionari: i limiti più vecchi di 24 ore si tolgono al massimo 200 per chiamata, solo da compilazioni nuove e visite registrate'
+insert into public.survey_limits (survey_id, client, kind, created_at)
+select current_setting('test.survey2')::uuid, case when g = 0 then 'recente' else 'vecchia' end, 'view', now() - case when g = 0 then interval '23 hours' else interval '25 hours' end
+from generate_series(0, 650) g;
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v uuid := current_setting('test.survey2')::uuid;
+  m jsonb := jsonb_build_object('session', gen_random_uuid());
+begin
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.80"}', true);
+  perform public.submit_survey(t, '{}', m);
+  perform public.submit_survey(t, '{"nota":5}', m);
+  perform public.survey_event(t, 'click');
+  perform public.survey_event('TokenDiProvaTerzo-0003', 'view');
+  assert test.old_limits('vecchia') = 650, 'pulizia senza registrare nulla: ' || test.old_limits('vecchia');
+  assert public.submit_survey(t, '{"nota":"uno"}', m) ->> 'status' = 'ok', 'compilazione nuova rifiutata';
+  assert test.old_limits('vecchia') = 450, 'pulizia di una compilazione nuova: ' || test.old_limits('vecchia');
+  assert public.submit_survey(t, '{"nota":"due"}', m) ->> 'status' = 'ok', 'salvataggio rifiutato';
+  assert test.old_limits('vecchia') = 450, 'pulizia di un salvataggio: ' || test.old_limits('vecchia');
+  perform public.survey_event(t, 'view');
+  assert test.old_limits('vecchia') = 250, 'pulizia di una visita: ' || test.old_limits('vecchia');
+  perform public.survey_event(t, 'start');
+  assert test.old_limits('vecchia') = 50, 'pulizia di un inizio: ' || test.old_limits('vecchia');
+  perform public.survey_event(t, 'view');
+  assert test.old_limits('vecchia') = 0, 'limiti vecchi rimasti: ' || test.old_limits('vecchia');
+  assert exists (select 1 from public.survey_limits where client = 'recente'), 'tolto un limite di meno di 24 ore';
+  delete from public.survey_limits where client = 'recente';
+  delete from public.survey_events where survey_id = v;
+  delete from public.survey_event_counts where survey_id = v;
+end
+$$;
+
+\echo 'ok - questionari: la durata mediana si mostra con almeno 20 compilazioni complete e usa le ultime 1000'
 reset role;
 insert into public.survey_responses (survey_id, session, answers, duration_seconds, completed)
 select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', g * 10, true from generate_series(1, 19) g;
@@ -698,19 +1015,78 @@ begin
 end
 $$;
 reset role;
-insert into public.survey_responses (survey_id, session, answers, completed, created_at)
-select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', true, now() - interval '1 day'
-from generate_series(1, 4999 - (select count(*) from public.survey_responses where survey_id = current_setting('test.survey2')::uuid));
+-- Le 20 di prima diventano le più vecchie: le ultime 1000 complete (500 da 100 secondi, 500 da 300) danno 200, con una in più o in meno 100.
+update public.survey_responses set created_at = now() - interval '2 days'
+where survey_id = current_setting('test.survey2')::uuid and completed and duration_seconds is not null;
+insert into public.survey_responses (survey_id, session, answers, duration_seconds, completed, created_at)
+select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', case when g <= 500 then 100 else 300 end, true, now() - interval '1 hour'
+from generate_series(1, 1000) g;
 set role anon;
-select set_config('request.headers', '{"x-forwarded-for":"192.0.2.250"}', false);
 do $$
 begin
-  assert test.send('TokenDiProvaSecondo_02', '{"nota":"ultima"}') ->> 'status' = 'ok', 'la risposta numero 5000 è rifiutata';
-  assert test.send('TokenDiProvaSecondo_02', '{"nota":"una di troppo"}') ->> 'reason' like '%non accetta altre%', 'oltre 5000 risposte';
+  assert public.public_survey('TokenDiProvaSecondo_02') -> 'median_seconds' = '200'::jsonb,
+    'durata mediana non sulle ultime 1000 compilazioni complete: ' || (public.public_survey('TokenDiProvaSecondo_02') -> 'median_seconds')::text;
 end
 $$;
 
-\echo 'ok - questionari: visite e inizi solo per i questionari aperti, con un limite per chi visita'
+\echo 'ok - questionari: il tetto di 60000 risposte legge il contatore, che si rifà col conteggio vero se manca'
+reset role;
+insert into public.survey_responses (survey_id, session, answers, completed, created_at)
+select current_setting('test.survey2')::uuid, gen_random_uuid(), '{"nota":"x"}', true, now() - interval '1 day'
+from generate_series(1, 59999 - (select count(*) from public.survey_responses where survey_id = current_setting('test.survey2')::uuid));
+-- Il contatore dice già 60000 con una risposta vera in meno.
+update public.survey_counts set responses = 60000 where survey_id = current_setting('test.survey2')::uuid;
+select set_config('request.headers', '{"x-forwarded-for":"192.0.2.250"}', false);
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v uuid := current_setting('test.survey2')::uuid;
+begin
+  assert test.send(t, '{"nota":"contata"}') ->> 'reason' like '%non accetta altre%', 'il tetto non legge il contatore';
+  update public.survey_counts set responses = 59999 where survey_id = v;
+  assert test.send(t, '{"nota":"ultima"}') ->> 'status' = 'ok', 'la risposta numero 60000 è rifiutata';
+  assert (select responses from public.survey_counts where survey_id = v) = 60000, 'contatore non cresciuto con la risposta numero 60000';
+  assert test.send(t, '{"nota":"una di troppo"}') ->> 'reason' like '%non accetta altre%', 'oltre 60000 risposte';
+  delete from public.survey_counts where survey_id = v;
+  assert test.send(t, '{"nota":"una di troppo"}') ->> 'reason' like '%non accetta altre%', 'oltre 60000 risposte senza contatore';
+  assert (select responses from public.survey_counts where survey_id = v) = 60000, 'contatore non rifatto col conteggio vero';
+  assert (select count(*) from public.survey_responses where survey_id = v) = 60000, 'risposte oltre il tetto';
+end
+$$;
+
+\echo 'ok - questionari: i limiti delle compilazioni nuove si controllano dal più leggero, rete poi minuto poi totale'
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v uuid := current_setting('test.survey2')::uuid;
+  r jsonb;
+begin
+  -- Totale e minuto pieni, contatore da rifare.
+  update public.survey_responses set created_at = now()
+  where id in (select id from public.survey_responses where survey_id = v and answers = '{"nota":"x"}' limit 600);
+  delete from public.survey_counts where survey_id = v;
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.251"}', true);
+  r := test.send(t, '{"nota":"x"}');
+  assert r ->> 'reason' like '%in questo momento%', 'con minuto e totale pieni non vale il limite al minuto: ' || r::text;
+  -- Anche la rete oltre il limite.
+  insert into public.survey_limits (survey_id, client, kind) select v, public.survey_client(v), 'session' from generate_series(1, 50);
+  r := test.send(t, '{"nota":"x"}');
+  assert r ->> 'reason' like '%più volte%', 'con rete, minuto e totale pieni non vale il limite per rete: ' || r::text;
+  assert not exists (select 1 from public.survey_counts where survey_id = v), 'il totale si conta anche quando basta un limite più leggero';
+  -- Libero il minuto, resta il totale.
+  update public.survey_responses set created_at = now() - interval '1 day' where survey_id = v and created_at > now() - interval '1 minute';
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.252"}', true);
+  r := test.send(t, '{"nota":"x"}');
+  assert r ->> 'reason' like '%non accetta altre%', 'con il solo totale pieno: ' || r::text;
+  assert (select responses from public.survey_counts where survey_id = v) = 60000, 'contatore non rifatto';
+  assert (select count(*) from public.survey_responses where survey_id = v) = 60000, 'risposte oltre il tetto';
+  assert (select count(*) from public.survey_limits where survey_id = v and kind = 'session' and client = public.survey_client(v)) = 0,
+    'una compilazione rifiutata conta per la rete';
+end
+$$;
+set role anon;
+
+\echo 'ok - questionari: visite e inizi solo per i questionari aperti, con limiti per chi visita e al minuto, e oltre i limiti il contatore non cresce'
 select set_config('request.headers', '{"x-forwarded-for":"203.0.113.50"}', false);
 do $$
 begin
@@ -722,19 +1098,149 @@ begin
   perform public.survey_event('TokenDiProvaTerzo-0003', 'view');
   perform public.survey_event('TokenCheNonEsiste00000', 'view');
   perform public.survey_event(null, 'view');
-  for i in 1..40 loop
-    perform public.survey_event('TokenDiProvaSecondo_02', 'view');
-  end loop;
 end
 $$;
 reset role;
 do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
 begin
   assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'view') = 2, 'visite contate male';
   assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid and kind = 'start') = 1, 'inizi contati male';
   assert not exists (select 1 from public.survey_events where survey_id = current_setting('test.survey3')::uuid), 'visita a un questionario chiuso';
-  assert (select count(*) from public.survey_events where survey_id = current_setting('test.survey2')::uuid) = 30, 'nessun limite alle visite di una persona';
+  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 3, 'contatore delle visite sbagliato';
+  assert not exists (select 1 from public.survey_event_counts where survey_id = current_setting('test.survey3')::uuid), 'contatore per un questionario chiuso';
+  assert not exists (select 1 from public.survey_events where survey_id = v_survey2)
+     and not exists (select 1 from public.survey_event_counts where survey_id = v_survey2), 'visite del secondo questionario già presenti';
   perform set_config('test.survey_n', (select count(*) from public.survey_responses where survey_id = current_setting('test.survey')::uuid)::text, false);
+  -- Dalla stessa rete 298 visite e inizi nell'ultima ora: ne passano altri due, poi non si conta più.
+  insert into public.survey_limits (survey_id, client, kind)
+  select v_survey2, public.survey_client(v_survey2), case when g % 2 = 0 then 'view' else 'start' end from generate_series(1, 298) g;
+end
+$$;
+set role anon;
+do $$
+begin
+  perform public.survey_event('TokenDiProvaSecondo_02', 'start');
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  perform public.survey_event('TokenDiProvaSecondo_02', 'start');
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.51"}', false);
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+end
+$$;
+reset role;
+do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+begin
+  assert (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'start') = 1
+     and (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'view') = 2,
+    'limite di 300 visite e inizi all''ora dalla stessa rete: ' || (select count(*) from public.survey_events where survey_id = v_survey2);
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 3, 'contate le visite oltre il limite per rete';
+end
+$$;
+
+\if :has_dblink
+\echo 'ok - questionari: due visite in contemporanea senza contatore lo fanno nascere una volta sola e contano entrambe'
+create extension dblink schema test;
+delete from public.survey_event_counts where survey_id = current_setting('test.survey2')::uuid;
+do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  v_call text := $q$select public.survey_event('TokenDiProvaSecondo_02', 'view')$q$;
+  v_pid int;
+  i int := 0;
+begin
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  perform test.dblink_exec('a', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"203.0.113.60"}'$q$);
+  perform test.dblink_exec('b', $q$set role anon; set statement_timeout = '2s'; set request.headers = '{"x-forwarded-for":"203.0.113.61"}'$q$);
+  select p into v_pid from test.dblink('b', 'select pg_backend_pid()') as d(p int);
+  perform test.dblink_exec('a', 'begin');
+  perform x from test.dblink('a', v_call) as d(x text);
+  -- b non vede il contatore di a, ancora da confermare: lo conta da capo e aspetta a sull'inserimento.
+  perform test.dblink_send_query('b', v_call);
+  while not exists (select 1 from pg_locks where pid = v_pid and not granted) loop
+    i := i + 1;
+    assert i < 200, 'la seconda visita non aspetta il contatore della prima';
+    perform pg_sleep(0.01);
+  end loop;
+  perform test.dblink_exec('a', 'commit');
+  perform x from test.dblink_get_result('b') as d(x text);
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  assert (select count(*) from public.survey_events where survey_id = v_survey2) = 5
+     and (select events from public.survey_event_counts where survey_id = v_survey2) = 5,
+    format('visite in contemporanea: %s registrate, contatore %s', (select count(*) from public.survey_events where survey_id = v_survey2),
+      (select events from public.survey_event_counts where survey_id = v_survey2));
+end
+$$;
+drop extension dblink;
+\else
+\echo 'saltato - manca dblink: niente prova sul contatore delle visite con due connessioni vere'
+\endif
+
+do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+begin
+  -- Fino a 5999 visite nell'ultimo minuto, messe a mano: il contatore si rifà dal conteggio vero.
+  insert into public.survey_events (survey_id, kind)
+  select v_survey2, 'view' from generate_series(1, 5999 - (select count(*) from public.survey_events where survey_id = v_survey2));
+  delete from public.survey_event_counts where survey_id = v_survey2;
+end
+$$;
+set role anon;
+do $$
+begin
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.52"}', false);
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.53"}', false);
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  perform public.survey_event('TokenDiProvaSecondo_02', 'start');
+end
+$$;
+reset role;
+do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
+begin
+  assert (select count(*) from public.survey_events where survey_id = v_survey2) = 6000
+     and (select count(*) from public.survey_events where survey_id = v_survey2 and kind = 'start') = 1,
+    'limite di 6000 visite e inizi al minuto: ' || (select count(*) from public.survey_events where survey_id = v_survey2);
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 6000,
+    'contatore non rifatto dal conteggio vero, o cresciuto oltre il limite al minuto: ' || (select events from public.survey_event_counts where survey_id = v_survey2);
+end
+$$;
+
+\echo 'ok - questionari: il tetto di 200000 visite e inizi legge il contatore, che nasce dal conteggio vero'
+do $$
+declare
+  t text := 'TokenDiProvaSecondo_02';
+  v uuid := current_setting('test.survey2')::uuid;
+begin
+  -- 199999 visite, tutte fuori dal minuto, e il contatore da rifare.
+  update public.survey_events set created_at = now() - interval '1 day' where survey_id = v;
+  insert into public.survey_events (survey_id, kind, created_at)
+  select v, 'view', now() - interval '1 day' from generate_series(1, 199999 - 6000);
+  delete from public.survey_event_counts where survey_id = v;
+  perform set_config('request.headers', '{"x-forwarded-for":"203.0.113.54"}', true);
+  perform public.survey_event(t, 'start');
+  assert (select count(*) from public.survey_events where survey_id = v) = 200000
+     and (select events from public.survey_event_counts where survey_id = v) = 200000
+     and exists (select 1 from public.survey_events where survey_id = v and kind = 'start' and created_at > now() - interval '1 minute'),
+    'la visita numero 200000 non è registrata, o il contatore non nasce dal conteggio vero';
+  perform public.survey_event(t, 'view');
+  perform public.survey_event(t, 'start');
+  assert (select count(*) from public.survey_events where survey_id = v) = 200000, 'registrate visite oltre le 200000';
+  -- Conta il contatore, non le righe.
+  update public.survey_event_counts set events = 199999 where survey_id = v;
+  perform public.survey_event(t, 'view');
+  assert (select count(*) from public.survey_events where survey_id = v) = 200001, 'il tetto non legge il contatore';
+  perform public.survey_event(t, 'view');
+  assert (select count(*) from public.survey_events where survey_id = v) = 200001, 'registrata una visita oltre il contatore pieno';
 end
 $$;
 select set_config('request.headers', '', false);
@@ -747,7 +1253,7 @@ declare
   v_survey uuid := current_setting('test.survey')::uuid;
   n int := current_setting('test.survey_n')::int;
 begin
-  assert n = 42, 'risposte di prova: ' || n;
+  assert n = 612, 'risposte di prova: ' || n;
   assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'l''advisor non legge le risposte';
   assert (select count(*) from public.survey_responses where survey_id = v_survey and not completed) = 1, 'l''advisor non vede le compilazioni interrotte';
   assert public.survey_funnel(v_survey) = jsonb_build_object('views', 2, 'starts', 1, 'partial', 1, 'completed', n - 1), 'imbuto: ' || public.survey_funnel(v_survey)::text;
@@ -758,6 +1264,20 @@ begin
   perform test.expect_error('select count(*) from public.survey_events', 'permission denied');
   perform test.expect_error('select count(*) from public.survey_limits', 'permission denied');
   perform test.expect_error('select count(*) from public.survey_salts', 'permission denied');
+  perform test.expect_error('select count(*) from public.survey_counts', 'permission denied');
+  perform test.expect_error(format('insert into public.survey_counts (survey_id, responses) values (%L, 0)', v_survey), 'permission denied');
+  perform test.expect_error('update public.survey_counts set responses = 0', 'permission denied');
+  perform test.expect_error('delete from public.survey_counts', 'permission denied');
+  assert not has_table_privilege('authenticated', 'public.survey_counts', 'select, insert, update, delete, truncate, references, trigger')
+     and not has_table_privilege('service_role', 'public.survey_counts', 'select, insert, update, delete, truncate, references, trigger'),
+    'il contatore delle risposte è accessibile da fuori';
+  perform test.expect_error('select count(*) from public.survey_event_counts', 'permission denied');
+  perform test.expect_error(format('insert into public.survey_event_counts (survey_id, events) values (%L, 0)', v_survey), 'permission denied');
+  perform test.expect_error('update public.survey_event_counts set events = 0', 'permission denied');
+  perform test.expect_error('delete from public.survey_event_counts', 'permission denied');
+  assert not has_table_privilege('authenticated', 'public.survey_event_counts', 'select, insert, update, delete, truncate, references, trigger')
+     and not has_table_privilege('service_role', 'public.survey_event_counts', 'select, insert, update, delete, truncate, references, trigger'),
+    'il contatore delle visite è accessibile da fuori';
   perform test.expect_error(format('select public.survey_client(%L)', v_survey), 'permission denied');
   perform test.expect_error($q$select public.survey_public_questions('{}')$q$, 'permission denied');
 end
@@ -785,22 +1305,77 @@ declare
   v_one uuid := (select id from public.survey_responses where survey_id = v_survey order by created_at, id limit 1);
   v_other uuid := (select id from public.survey_responses where survey_id = v_survey2 limit 1);
 begin
+  assert public.delete_survey_responses(gen_random_uuid()) = 0, 'cancellato qualcosa da un questionario che non esiste';
+  assert not exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()), 'un questionario che non esiste entra in una fila';
   assert public.delete_survey_responses(v_survey, array[v_one, v_other]) = 1, 'cancellata la risposta di un altro questionario';
+  assert test.holds_survey_lock(v_survey) and not test.holds_survey_lock(v_survey2), 'cancellare alcune risposte non passa dalla fila del questionario';
   assert not exists (select 1 from public.survey_responses where id = v_one), 'risposta non cancellata';
   assert exists (select 1 from public.survey_responses where id = v_other), 'risposta di un altro questionario cancellata';
   assert public.delete_survey_responses(v_survey, '{}') = 0, 'un elenco vuoto cancella qualcosa';
-  assert public.delete_survey_responses(v_survey2) = 5000, 'non cancellate tutte le risposte';
+  assert public.delete_survey_responses(v_survey2) = 60000, 'non cancellate tutte le risposte';
+  assert test.holds_survey_lock(v_survey2), 'cancellare tutte le risposte non passa dalla fila del questionario';
   assert public.survey_funnel(v_survey2) = '{"views":0,"starts":0,"partial":0,"completed":0}'::jsonb, 'visite e inizi non azzerati: ' || public.survey_funnel(v_survey2)::text;
   assert public.survey_funnel(v_survey) ->> 'views' = '2', 'azzerate le visite di un altro questionario';
 end
 $$;
 reset role;
 do $$
+declare
+  v_survey2 uuid := current_setting('test.survey2')::uuid;
 begin
-  assert not exists (select 1 from public.survey_limits where survey_id = current_setting('test.survey2')::uuid), 'limiti non azzerati';
+  assert not exists (select 1 from public.survey_limits where survey_id = v_survey2), 'limiti non azzerati';
   assert exists (select 1 from public.survey_limits where survey_id = current_setting('test.survey')::uuid), 'azzerati i limiti di un altro questionario';
+  assert not exists (select 1 from public.survey_counts where survey_id in (current_setting('test.survey')::uuid, v_survey2)), 'contatori rimasti dopo le cancellazioni';
+  assert (select events from public.survey_event_counts where survey_id = current_setting('test.survey')::uuid) = 3
+     and (select count(*) from public.survey_events where survey_id = current_setting('test.survey')::uuid) = 3,
+    'cancellare alcune risposte tocca visite o contatore delle visite';
+  assert not exists (select 1 from public.survey_event_counts where survey_id = v_survey2), 'contatore delle visite rimasto dopo aver cancellato tutto';
+  perform set_config('request.headers', '{"x-forwarded-for":"192.0.2.90"}', true);
+  assert test.send('TokenDiProvaSecondo_02', '{"nota":"da capo"}') ->> 'status' = 'ok', 'compilazione nuova rifiutata dopo aver cancellato tutto';
+  assert (select responses from public.survey_counts where survey_id = v_survey2) = 1, 'contatore non rifatto dopo aver cancellato tutto';
+  perform public.survey_event('TokenDiProvaSecondo_02', 'view');
+  assert (select events from public.survey_event_counts where survey_id = v_survey2) = 1
+     and (select count(*) from public.survey_events where survey_id = v_survey2) = 1, 'il tetto delle visite non riparte da zero dopo aver cancellato tutto';
 end
 $$;
+
+\if :has_dblink
+\echo 'ok - questionari: cancellando tutte le risposte i limiti bloccati da un altra connessione si saltano, senza aspettarla'
+create extension dblink schema test;
+insert into public.survey_limits (survey_id, client, kind)
+select current_setting('test.survey3')::uuid, case when g <= 5 then 'bloccata' else 'libera' end, 'view' from generate_series(1, 20) g;
+insert into public.survey_events (survey_id, kind) values (current_setting('test.survey3')::uuid, 'view');
+insert into public.survey_event_counts (survey_id, events) values (current_setting('test.survey3')::uuid, 1);
+do $$
+declare
+  v uuid := current_setting('test.survey3')::uuid;
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  n bigint;
+begin
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  perform test.dblink_exec('b', format($q$set role authenticated; set statement_timeout = '2s'; set request.jwt.claims = %L$q$,
+    json_build_object('sub', test.uid('b'), 'aal', 'aal2', 'role', 'authenticated')));
+  perform test.dblink_exec('a', 'begin');
+  select x into n from test.dblink('a', format($q$select count(*) from (select 1 from public.survey_limits where survey_id = %L and client = 'bloccata' for update) y$q$, v)) as d(x bigint);
+  assert n = 5, 'righe bloccate: ' || n;
+  select x into n from test.dblink('b', format('select public.delete_survey_responses(%L)', v)) as d(x int);
+  assert n = 0, 'risposte cancellate: ' || n;
+  assert (select count(*) from public.survey_limits where survey_id = v and client = 'bloccata') = 5
+     and not exists (select 1 from public.survey_limits where survey_id = v and client = 'libera'),
+    'limiti cancellati male accanto a righe bloccate';
+  assert not exists (select 1 from public.survey_events where survey_id = v)
+     and not exists (select 1 from public.survey_event_counts where survey_id = v), 'visite o contatore rimasti accanto a righe bloccate';
+  perform test.dblink_exec('a', 'commit');
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  delete from public.survey_limits where survey_id = v;
+end
+$$;
+drop extension dblink;
+\else
+\echo 'saltato - manca dblink: niente prova sui limiti bloccati durante una cancellazione'
+\endif
 
 \echo 'ok - questionari: con il questionario o l idea nel cestino risposte e link spariscono, e tornano col ripristino'
 set role authenticated;
@@ -816,6 +1391,7 @@ begin
   assert (select count(*) from public.survey_responses where survey_id = v_survey) = 0, 'risposte visibili con il questionario nel cestino';
   assert public.survey_funnel(v_survey) is null, 'imbuto visibile con il questionario nel cestino';
   assert public.delete_survey_responses(v_survey) = 0, 'risposte cancellate dal cestino';
+  assert not test.holds_survey_lock(v_survey), 'un questionario nel cestino entra nella fila';
   assert public.public_survey('TokenDiProvaAperto0001') ->> 'status' = 'non_trovato', 'link attivo con il questionario nel cestino';
   perform public.restore_item(v_survey);
   assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'risposte perse col ripristino';
@@ -850,9 +1426,11 @@ declare
 begin
   insert into public.survey_responses (survey_id, session, answers) values (v_closed, gen_random_uuid(), '{"nota":"x"}');
   insert into public.survey_events (survey_id, kind) values (v_closed, 'view');
+  insert into public.survey_counts (survey_id, responses) values (v_closed, 1);
   delete from public.items where id = v_closed;
   assert not exists (select 1 from public.survey_responses where survey_id = v_closed), 'risposte rimaste dopo la cancellazione definitiva';
   assert not exists (select 1 from public.survey_events where survey_id = v_closed), 'visite rimaste dopo la cancellazione definitiva';
+  assert not exists (select 1 from public.survey_counts where survey_id = v_closed), 'contatore rimasto dopo la cancellazione definitiva';
 end
 $$;
 set role authenticated;

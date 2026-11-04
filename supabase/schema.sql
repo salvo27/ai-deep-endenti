@@ -1785,6 +1785,18 @@ create table if not exists public.survey_limits (
 create index if not exists survey_limits_client_idx on public.survey_limits (survey_id, client, created_at);
 create index if not exists survey_limits_created_idx on public.survey_limits (created_at);
 
+-- Quante risposte ha ogni questionario, aggiornato nella fila delle compilazioni nuove; si rifà da solo se manca.
+create table if not exists public.survey_counts (
+  survey_id uuid primary key references public.items (id) on delete cascade,
+  responses integer not null check (responses >= 0)
+);
+
+-- Quante visite e quanti inizi ha ogni questionario, per un tetto che non costi un conteggio di tutti gli eventi a ogni visita.
+create table if not exists public.survey_event_counts (
+  survey_id uuid primary key references public.items (id) on delete cascade,
+  events integer not null check (events >= 0)
+);
+
 -- Un sale casuale al giorno, letto solo dalle funzioni qui sotto: cambiando ogni giorno, le impronte non si collegano tra giorni.
 create table if not exists public.survey_salts (
   day date primary key,
@@ -1795,6 +1807,8 @@ alter table public.survey_responses enable row level security;
 alter table public.survey_events enable row level security;
 alter table public.survey_limits enable row level security;
 alter table public.survey_salts enable row level security;
+alter table public.survey_counts enable row level security;
+alter table public.survey_event_counts enable row level security;
 
 -- Il team legge le risposte dei questionari non archiviati di idee non archiviate; nessuno le scrive direttamente.
 drop policy if exists survey_responses_select on public.survey_responses;
@@ -1969,6 +1983,7 @@ declare
   v_day date := (now() at time zone 'utc')::date;
   v_headers jsonb;
   v_address text;
+  v_inet inet;
   v_salt text;
 begin
   begin
@@ -1980,6 +1995,18 @@ begin
     nullif(btrim(v_headers ->> 'cf-connecting-ip'), ''),
     nullif(btrim(split_part(coalesce(v_headers ->> 'x-forwarded-for', ''), ',', 1)), '')
   );
+  -- Un indirizzo IPv6 conta per la sua /64: una sola connessione di casa ne ha miliardi e aggirerebbe il limite per rete.
+  begin
+    v_inet := v_address::inet;
+    if family(v_inet) = 6 and not v_inet <<= '::ffff:0:0/96'::inet then
+      v_address := host(network(set_masklen(v_inet, 64)));
+    else
+      -- Lo stesso IPv4 scritto in due modi (1.2.3.4 e ::ffff:1.2.3.4) dà la stessa impronta.
+      v_address := regexp_replace(host(v_inet), '^::ffff:', '');
+    end if;
+  exception when others then
+    null;
+  end;
   delete from public.survey_salts where day < v_day;
   insert into public.survey_salts (day, salt)
   values (v_day, replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
@@ -2025,10 +2052,15 @@ begin
     'layout', case when s.data ->> 'layout' = 'sezioni' then 'sezioni' else 'una' end,
     'progress', case when s.data ->> 'progress' in ('barra', 'nessuno') then s.data ->> 'progress' else 'contatore' end,
     'show_time', coalesce(s.data -> 'show_time' <> 'false'::jsonb, true),
+    -- Mediana sulle ultime 1000 compilazioni complete: per la stima del tempo basta, e la pagina si apre in fretta anche con decine di migliaia di risposte.
     'median_seconds', (
-      select case when count(*) >= 20 then round(percentile_cont(0.5) within group (order by r.duration_seconds)::numeric)::integer end
-      from public.survey_responses r
-      where r.survey_id = s.id and r.completed and r.duration_seconds is not null
+      select case when count(*) >= 20 then round(percentile_cont(0.5) within group (order by d.duration_seconds)::numeric)::integer end
+      from (
+        select r.duration_seconds from public.survey_responses r
+        where r.survey_id = s.id and r.completed and r.duration_seconds is not null
+        order by r.created_at desc
+        limit 1000
+      ) d
     ),
     'cover', case when s.data -> 'cover' ->> 'path' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$' then jsonb_build_object(
       'path', s.data -> 'cover' ->> 'path',
@@ -2080,6 +2112,7 @@ declare
   v_duration integer;
   v_times jsonb;
   v_client text;
+  v_total integer;
 begin
   if jsonb_typeof(p_answers) is distinct from 'object' or jsonb_typeof(v_meta) <> 'object' then
     return public.survey_error('Risposte non valide.');
@@ -2113,30 +2146,13 @@ begin
   v_final := coalesce(v_meta -> 'final' = 'true'::jsonb, false);
   v_device := case when v_meta ->> 'device' in ('telefono', 'computer') then v_meta ->> 'device' end;
 
-  -- Una richiesta alla volta per questionario, così limiti e sessioni restano esatti.
-  perform pg_advisory_xact_lock(hashtextextended('survey:' || s.id::text, 0));
-  delete from public.survey_limits where created_at < now() - interval '24 hours';
+  -- I salvataggi di una compilazione già iniziata aspettano solo la propria riga, così migliaia di persone salvano insieme.
   select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
   if r.id is not null then
     if r.completed then
       return public.survey_error('Le risposte sono già state inviate.');
     elsif not v_final and r.saves >= 60 then
       return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
-    end if;
-  else
-    -- I limiti contano le compilazioni nuove; i salvataggi di una compilazione già iniziata no.
-    if (select count(*) from (select 1 from public.survey_responses x where x.survey_id = s.id limit 5000) y) >= 5000 then
-      return public.survey_error('Il questionario non accetta altre risposte.');
-    end if;
-    if (select count(*) from public.survey_responses x where x.survey_id = s.id and x.created_at > now() - interval '1 minute') >= 30 then
-      return public.survey_error('Troppe risposte in questo momento. Riprova tra qualche minuto.');
-    end if;
-    v_client := public.survey_client(s.id);
-    if (
-      select count(*) from public.survey_limits l
-      where l.survey_id = s.id and l.client = v_client and l.kind = 'session' and l.created_at > now() - interval '1 hour'
-    ) >= 5 then
-      return public.survey_error('Hai già compilato questo questionario più volte. Riprova più tardi.');
     end if;
   end if;
 
@@ -2291,13 +2307,58 @@ begin
     and (t.value #>> '{}')::numeric between 0 and 86400;
 
   if r.id is null then
-    -- Una compilazione appena iniziata senza risposte non lascia traccia.
+    -- Una compilazione appena iniziata senza risposte non lascia traccia e non passa dalla fila.
     if v_clean = '{}'::jsonb and v_email is null then
       return jsonb_build_object('status', 'ok');
+    end if;
+    -- Pulizia a piccoli lotti, saltando le righe che sta già togliendo un'altra richiesta: niente attese il giorno dopo un picco.
+    delete from public.survey_limits where id in (
+      select l.id from public.survey_limits l where l.created_at < now() - interval '24 hours'
+      order by l.created_at limit 200 for update skip locked
+    );
+    -- Una compilazione nuova passa da una fila per questionario, così limiti e sessioni restano esatti.
+    -- Arriva qui già controllata: in fila si fanno solo i conti, dal più leggero.
+    perform pg_advisory_xact_lock(hashtextextended('survey:' || s.id::text, 0));
+    -- Nel frattempo la stessa compilazione può essere arrivata da un'altra richiesta (doppio clic, rete lenta).
+    select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
+    if r.id is not null then
+      if r.completed then
+        return public.survey_error('Le risposte sono già state inviate.');
+      elsif not v_final and r.saves >= 60 then
+        return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+      end if;
+    end if;
+  end if;
+
+  if r.id is null then
+    -- Limiti larghi per invii a decine di migliaia di persone: 50 compilazioni all'ora dalla stessa rete (operatori mobili,
+    -- uffici e Wi-Fi pubblici fanno uscire molte persone dallo stesso indirizzo), 600 al minuto e 60000 in tutto.
+    v_client := public.survey_client(s.id);
+    if (
+      select count(*) from public.survey_limits l
+      where l.survey_id = s.id and l.client = v_client and l.kind = 'session' and l.created_at > now() - interval '1 hour'
+    ) >= 50 then
+      return public.survey_error('Hai già compilato questo questionario più volte. Riprova più tardi.');
+    end if;
+    if (select count(*) from (
+          select 1 from public.survey_responses x where x.survey_id = s.id and x.created_at > now() - interval '1 minute' limit 600
+        ) y) >= 600 then
+      return public.survey_error('Troppe risposte in questo momento. Riprova tra qualche minuto.');
+    end if;
+    -- Il totale sta in un contatore, rifatto con un conteggio solo quando manca: contarle tutte a ogni compilazione costerebbe troppo.
+    select c.responses into v_total from public.survey_counts c where c.survey_id = s.id;
+    if v_total is null then
+      select count(*) into v_total from public.survey_responses x where x.survey_id = s.id;
+      insert into public.survey_counts (survey_id, responses) values (s.id, v_total)
+      on conflict (survey_id) do update set responses = excluded.responses;
+    end if;
+    if v_total >= 60000 then
+      return public.survey_error('Il questionario non accetta altre risposte.');
     end if;
     insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed, question_seconds)
     values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final, v_times);
     insert into public.survey_limits (survey_id, client, kind) values (s.id, v_client, 'session');
+    update public.survey_counts set responses = responses + 1 where survey_id = s.id;
   else
     update public.survey_responses
        set answers = v_clean,
@@ -2325,6 +2386,7 @@ as $$
 declare
   s public.items;
   v_client text;
+  v_events integer;
 begin
   if p_kind is null or p_kind not in ('view', 'start') then
     return;
@@ -2333,16 +2395,34 @@ begin
   if s.id is null or s.status is distinct from 'aperto' then
     return;
   end if;
-  delete from public.survey_limits where created_at < now() - interval '24 hours';
+  delete from public.survey_limits where id in (
+    select l.id from public.survey_limits l where l.created_at < now() - interval '24 hours'
+    order by l.created_at limit 200 for update skip locked
+  );
   v_client := public.survey_client(s.id);
+  -- Visite e inizi servono solo alle statistiche: limiti larghi come quelli delle risposte, oltre non si conta e basta.
   if (
     select count(*) from public.survey_limits l
     where l.survey_id = s.id and l.client = v_client and l.kind in ('view', 'start') and l.created_at > now() - interval '1 hour'
-  ) >= 30 then
+  ) >= 300 then
     return;
   end if;
-  if (select count(*) from public.survey_events e where e.survey_id = s.id and e.created_at > now() - interval '1 minute') >= 300
-     or (select count(*) from (select 1 from public.survey_events e where e.survey_id = s.id limit 100000) x) >= 100000 then
+  -- Con kind nella condizione il conto usa l'indice (survey_id, kind, created_at).
+  if (select count(*) from (
+        select 1 from public.survey_events e
+        where e.survey_id = s.id and e.kind in ('view', 'start') and e.created_at > now() - interval '1 minute' limit 6000
+      ) x) >= 6000 then
+    return;
+  end if;
+  -- Tetto di 200000 eventi per questionario, letto da un contatore: si conta tutto solo la prima volta.
+  update public.survey_event_counts set events = events + 1 where survey_id = s.id returning events into v_events;
+  if not found then
+    select count(*) + 1 into v_events from public.survey_events e where e.survey_id = s.id;
+    insert into public.survey_event_counts (survey_id, events) values (s.id, v_events)
+    on conflict (survey_id) do update set events = public.survey_event_counts.events + 1
+    returning events into v_events;
+  end if;
+  if v_events > 200000 then
     return;
   end if;
   insert into public.survey_events (survey_id, kind) values (s.id, p_kind);
@@ -2390,11 +2470,19 @@ begin
   ) then
     return 0;
   end if;
+  -- La stessa fila delle compilazioni nuove: il contatore non si rifà mentre si cancella.
+  perform pg_advisory_xact_lock(hashtextextended('survey:' || p_survey::text, 0));
   delete from public.survey_responses r where r.survey_id = p_survey and (p_ids is null or r.id = any (p_ids));
   get diagnostics v_count = row_count;
+  -- Il contatore delle risposte si rifà con un conteggio alla prossima compilazione nuova.
+  delete from public.survey_counts where survey_id = p_survey;
   if p_ids is null then
     delete from public.survey_events where survey_id = p_survey;
-    delete from public.survey_limits where survey_id = p_survey;
+    delete from public.survey_event_counts where survey_id = p_survey;
+    -- Le righe che sta già togliendo una pulizia si saltano: altrimenti le due attese si bloccherebbero a vicenda.
+    delete from public.survey_limits where id in (
+      select l.id from public.survey_limits l where l.survey_id = p_survey for update skip locked
+    );
   end if;
   return v_count;
 end
@@ -2404,11 +2492,11 @@ $$;
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.member_activity, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts from authenticated;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.member_activity, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from anon;
+revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from authenticated;
 revoke all on all sequences in schema public from anon;
 -- Il sale e le impronte dei limiti non li legge neanche la chiave di servizio: con il sale l'impronta di un indirizzo si ricostruisce.
-revoke all on public.survey_limits, public.survey_salts from service_role;
+revoke all on public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from service_role;
 grant select on public.survey_responses to authenticated;
 grant select on public.email_prefs to authenticated;
 grant select on public.audit_log to authenticated;
