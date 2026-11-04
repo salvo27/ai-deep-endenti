@@ -20,6 +20,7 @@ export const VERBS = {
 const TOP_LABELS = {
   score: { scores: 'voti', notes: 'note' },
   availability: { busy: 'orario tipo', until: 'scadenza dell\'orario tipo', weeks: 'settimane con un orario diverso' },
+  timesheet: { week: 'settimana', pledge: 'ore dichiarate', entries: 'righe' },
   criteria: { criteria: 'criteri' },
   generator: { rows: 'righe', cols: 'colonne', cells: 'celle' },
   canvas: { validated: 'blocchi validati' },

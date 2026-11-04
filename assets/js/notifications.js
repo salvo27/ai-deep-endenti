@@ -1,6 +1,8 @@
 import { api } from './lib/api.js';
 import { routeFor, statusLabel } from './schema.js';
-import { emit, getItem, memberName, on, readLocal, state, writeLocal } from './store.js';
+import { emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
+import { addDays, thisMonday, weekLabel } from './availability.js';
+import { pledgeFor, sanitizeTimesheet } from './timesheet.js';
 
 // Notifiche: cosa fanno gli altri che vale la pena sapere. Le modifiche minori ai testi restano nello storico.
 
@@ -103,9 +105,48 @@ function add(note, { live = false } = {}) {
   if (!note || seen.has(note.id) || note.authorId === state.user?.id) return false;
   seen.add(note.id);
   items = [note, ...items].sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX);
-  if (!newest || note.at > newest) newest = note.at;
+  // Il promemoria nasce sul dispositivo: non deve spostare il punto da cui si chiede il resto delle notifiche.
+  if (note.kind !== 'reminder' && (!newest || note.at > newest)) newest = note.at;
   emit('notifications', { note, live });
   return true;
+}
+
+// Promemoria del lunedì, solo per chi usa già le ore: la settimana scorsa è vuota e non aveva dichiarato zero ore.
+export function timesheetReminder(now = new Date()) {
+  if (!['admin', 'member'].includes(state.me?.role)) return null;
+  const weeks = new Map(
+    timesheetsOf(state.user?.id)
+      .map((item) => sanitizeTimesheet(item.data))
+      .filter((data) => data.week)
+      .map((data) => [data.week, data]),
+  );
+  const monday = thisMonday(now);
+  const lastWeek = addDays(monday, -7);
+  // Chi ha cominciato solo questa settimana non ha niente da recuperare.
+  if (![...weeks.keys()].some((week) => week <= lastWeek)) return null;
+  if (weeks.get(lastWeek)?.entries.length || pledgeFor(weeks, lastWeek) === 0) return null;
+  const [y, m, d] = monday.split('-').map(Number);
+  const at = new Date(y, m - 1, d, 8);
+  if (now < at) return null;
+  return {
+    id: `t-${lastWeek}`,
+    text: `Non hai ancora segnato le ore della settimana ${weekLabel(lastWeek)}`,
+    href: `#/squadra/ore?vista=mie&settimana=${lastWeek}`,
+    at: at.toISOString(),
+    authorId: null,
+    kind: 'reminder',
+  };
+}
+
+function syncReminder() {
+  const note = timesheetReminder();
+  const stale = items.filter((n) => n.kind === 'reminder' && n.id !== note?.id);
+  if (stale.length) {
+    items = items.filter((n) => !stale.includes(n));
+    stale.forEach((n) => seen.delete(n.id));
+    emit('notifications', { note: null, live: false });
+  }
+  if (note) add(note);
 }
 
 export const isUnread = (note) => (!lastRead || note.at > lastRead) && !readIds.has(note.id);
@@ -124,7 +165,9 @@ export function markRead(id) {
 }
 
 export function markAllRead() {
-  lastRead = newest || new Date().toISOString();
+  // Anche il promemoria, che non sposta newest, conta come letto.
+  const latest = items.reduce((max, note) => (note.at > max ? note.at : max), newest || '');
+  lastRead = latest || new Date().toISOString();
   readIds = new Set();
   writeLocal('notificheLette', lastRead);
   saveReadIds();
@@ -153,10 +196,14 @@ export async function startNotifications() {
   readIds = new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
   await refreshNotifications();
   if (!lastRead) markAllRead();
+  syncReminder();
   offs = [
     on('revision', (rev) => add(describeRevision(rev), { live: true })),
     on('comment', (row) => add(describeComment(row), { live: true })),
-    on('synced', () => refreshNotifications()),
+    on('synced', () => refreshNotifications().then(syncReminder)),
+    on('item', ({ item }) => {
+      if (item.kind === 'timesheet') syncReminder();
+    }),
   ];
 }
 

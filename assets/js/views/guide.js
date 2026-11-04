@@ -22,7 +22,7 @@ const TOOLS = [
   ['Esperimenti', 'Javelin Board: un\'assunzione per esperimento, criterio deciso prima.', 'experiment'],
   ['Interviste', 'Fatti, citazioni e impegni presi.', 'interview'],
   ['Decisioni', 'Cosa si è deciso, con alternative e motivi.', 'decision'],
-  ['Squadra', 'Team Canvas, quote e orari liberi in comune.', 'heart'],
+  ['Squadra', 'Team Canvas, quote, orari liberi in comune e ore lavorate.', 'heart'],
 ];
 
 function progressTable() {

@@ -48,7 +48,7 @@ export const ROADMAP = [
         how: [
           'Scrivete le ore reali, tolti lavoro, esami e impegni fissi.',
           'Assegnate un responsabile per area: nel suo ambito decide lui, dopo aver sentito gli altri.',
-          'Riparlatene ogni 3 mesi: il tempo disponibile cambia.',
+          'Riparlatene ogni 3 mesi: il tempo disponibile cambia. In Squadra › Ore lavorate si vedono le ore fatte accanto a quelle dichiarate.',
         ],
         done: 'Ruoli e ore sono scritti (nel Team Canvas, blocco Persone e ruoli) e tutti li hanno accettati.',
         mistake: 'Dare per scontato che tutti mettano lo stesso impegno: è la prima fonte di risentimento quando si parla di quote.',

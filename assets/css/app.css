@@ -5623,6 +5623,7 @@ button.chat-quote {
 }
 
 .av-scroll {
+  position: relative;
   overflow-x: auto;
 }
 
@@ -5836,4 +5837,299 @@ button.chat-quote {
 
 .av-person.is-on .av-person-state.av-warn {
   color: var(--text);
+}
+
+/* Ore lavorate */
+
+.ts-total {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 32rem;
+}
+
+.ts-bar {
+  display: block;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+/* Testo solo per i lettori di schermo */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ts-bar-fill {
+  display: block;
+  width: var(--value);
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.ts-pledge {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 20rem;
+}
+
+.ts-pledge-input {
+  width: 8rem;
+}
+
+.ts-pledge p {
+  margin: 0;
+}
+
+.ts-days {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ts-day {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.ts-day.is-future {
+  background: var(--surface-2);
+}
+
+.ts-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ts-day-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ts-rows {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-row {
+  display: grid;
+  grid-template-columns: auto minmax(7rem, 9rem) minmax(0, 1fr) auto;
+  grid-template-areas: 'times area note remove';
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ts-times {
+  grid-area: times;
+}
+
+.ts-area {
+  grid-area: area;
+}
+
+.ts-note {
+  grid-area: note;
+}
+
+.ts-remove {
+  grid-area: remove;
+}
+
+.ts-times {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ts-time {
+  width: 6.5rem;
+}
+
+.ts-add {
+  margin-top: 0.4rem;
+}
+
+/* Sul telefono orari e «togli» su una riga, area e nota sotto. A 16px iOS non ingrandisce la pagina a ogni tocco. */
+@media (max-width: 640px) {
+  .ts-row {
+    grid-template-columns: minmax(7rem, 9rem) minmax(0, 1fr) auto;
+    grid-template-areas:
+      'times times remove'
+      'area note note';
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ts-time {
+    width: 6.6rem;
+  }
+
+  .ts-row .input,
+  .ts-pledge-input {
+    font-size: 16px;
+  }
+
+  .ts-remove {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+}
+
+.ts-table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ts-table th,
+.ts-table td {
+  padding: 0.45rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Scorrendo la tabella di lato, i nomi restano in vista */
+.ts-table th[scope='row'],
+.ts-table thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+.ts-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.ts-table th[scope='row'],
+.ts-table thead th:first-child {
+  text-align: left;
+}
+
+.ts-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ts-sum {
+  min-width: 7rem;
+  text-align: left;
+}
+
+.ts-sum .ts-bar {
+  margin-top: 0.25rem;
+}
+
+.ts-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-people li {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.ts-history {
+  width: 100%;
+  height: auto;
+}
+
+.ts-col {
+  fill: color-mix(in srgb, var(--primary) 70%, var(--surface));
+}
+
+.ts-history-axis {
+  display: flex;
+  justify-content: space-between;
+}
+
+.ts-problem {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.ts-problem:empty {
+  display: none;
+}
+
+.save-bar .ts-problem .error-box {
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+}
+
+.ts-row [aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.ts-col-now {
+  fill: var(--primary);
+}
+
+.ts-pledge-mark {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.ts-baseline {
+  stroke: var(--border);
+}
+
+.ts-areas {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ts-areas li {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.ts-detail summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ts-detail ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.bell-reminder {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: var(--warn-soft);
+  color: var(--warn);
 }

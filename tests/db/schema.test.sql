@@ -43,6 +43,59 @@ begin
 end
 $$;
 
+-- Per le ore lavorate «oggi» è quello di Roma, come nel database, qualunque fuso abbia la sessione.
+create function test.today()
+returns date
+language sql
+stable
+as $$ select (now() at time zone 'Europe/Rome')::date $$;
+
+create function test.this_monday()
+returns date
+language sql
+stable
+as $$ select test.today() - extract(isodow from test.today())::int + 1 $$;
+
+-- Una settimana di ore con una riga dalle 9 alle 10 per ogni giorno dato.
+create function test.timesheet_days(p_week date, p_days text[])
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object('week', p_week::text, 'entries', coalesce((
+    select jsonb_agg(jsonb_build_object('id', 'r' || n, 'day', d, 'start', 540, 'end', 600, 'area', 'prodotto') order by n)
+    from unnest(p_days) with ordinality as t (d, n)
+  ), '[]'::jsonb))
+$$;
+
+-- Scrive le ore di chi è entrato (salva se la settimana c'è già, altrimenti la crea) e annulla: dà 'accettate' o il messaggio d'errore.
+create function test.timesheet_try(p_data jsonb)
+returns text
+language plpgsql
+as $$
+declare
+  v_item public.items;
+  v_res jsonb;
+  v_msg text;
+begin
+  select * into v_item from public.items
+   where kind = 'timesheet' and created_by = auth.uid() and data ->> 'week' = p_data ->> 'week';
+  begin
+    if v_item.id is null then
+      perform public.create_item('timesheet', 'Ore lavorate', null, p_data);
+      v_msg := 'accettate';
+    else
+      v_res := public.save_item(v_item.id, v_item.version, 'Ore lavorate', null, p_data);
+      v_msg := case when v_res ->> 'status' = 'ok' then 'accettate' else 'stato ' || (v_res ->> 'status') end;
+    end if;
+    raise exception 'annulla';
+  exception when others then
+    v_msg := coalesce(v_msg, sqlerrm);
+  end;
+  return v_msg;
+end
+$$;
+
 grant execute on all functions in schema test to authenticated, anon;
 
 select public.add_member('admin@test.it', 'Admin', 'admin');
@@ -1129,6 +1182,461 @@ begin
   assert (select count(*) from public.items where kind = 'availability') = 0, 'impegni visibili senza 2FA';
   perform test.expect_error($q$select public.create_item('availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
   assert public.save_item(current_setting('test.avail_c')::uuid, 2, 'Impegni di Advisor', null, '{"busy":{}}') ->> 'status' = 'not_found', 'impegni modificati senza 2FA';
+end
+$$;
+select test.login('b');
+
+-- Ore lavorate: le settimane partono dal lunedì di questa settimana a Roma e vanno indietro, così i test non dipendono dal giorno né dal fuso.
+\echo 'ok - ore lavorate: un membro crea le sue settimane, una sola per settimana, a nome proprio e con il titolo fisso'
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_data jsonb := jsonb_build_object('week', test.this_monday()::text, 'pledge', 600, 'entries', '[]'::jsonb);
+  i public.items;
+  j public.items;
+begin
+  assert current_user = 'authenticated' and public.my_role() = 'member', 'il test non gira come membro';
+  i := public.create_item('timesheet', 'Ore di Membro', null, v_data, null, 'Prima settimana');
+  assert i.version = 1 and i.created_by = test.uid('b') and i.status is null and i.idea_id is null and i.deleted_at is null and i.data = v_data,
+    'ore non create: ' || row_to_json(i)::text;
+  assert i.title = 'Ore lavorate', 'titolo non forzato alla creazione: ' || i.title;
+  insert into public.items (kind, title, data, created_by)
+  values ('timesheet', 'Ore di Admin', jsonb_build_object('week', (v_monday - 7)::text, 'entries', '[{"id":"r1","day":"lun","start":540,"end":600,"area":"prodotto"}]'::jsonb), test.uid('a'))
+  returning * into j;
+  assert j.created_by = test.uid('b') and j.title = 'Ore lavorate', 'ore create a nome di un altro o con un altro titolo: ' || row_to_json(j)::text;
+  perform test.expect_error(format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, v_data - 'pledge'), 'items_one_timesheet_per_week_idx');
+  perform test.expect_error(
+    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 7)::text, 'pledge', 0, 'entries', '[]'::jsonb)),
+    'items_one_timesheet_per_week_idx'
+  );
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'settimane del membro sbagliate';
+  assert (select r.op = 'create' and r.title = 'Ore lavorate' and r.message = 'Prima settimana' and r.author_id = test.uid('b')
+          from public.revisions r where r.item_id = i.id and r.version = 1), 'prima revisione delle ore sbagliata';
+  perform test.expect_error(format($q$select public.create_item('timesheet', 'X', 'nuova', %L)$q$, v_data), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item('timesheet', 'X', null, %L, %L)$q$, v_data, current_setting('test.idea')), 'non può appartenere');
+  perform set_config('test.ts_b', i.id::text, false);
+end
+$$;
+
+\echo 'ok - ore lavorate: chi le ha create le modifica, ma la settimana e il titolo non cambiano'
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_id uuid := current_setting('test.ts_b')::uuid;
+  v_data jsonb := jsonb_build_object('week', test.this_monday()::text, 'pledge', 600, 'entries', jsonb_build_array(
+    jsonb_build_object('id', 'a1', 'day', 'lun', 'start', 540, 'end', 780, 'area', 'prodotto', 'note', 'Pagina delle ore'),
+    jsonb_build_object('id', 'a2', 'day', 'lun', 'start', 780, 'end', 840, 'area', 'clienti')
+  ));
+  res jsonb;
+begin
+  res := public.save_item(v_id, 1, 'Ore di Membro', null, v_data, null, 'Ore del lunedì');
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 2 and res -> 'item' -> 'data' = v_data, 'il proprietario non salva le sue ore: ' || res::text;
+  assert res -> 'item' ->> 'title' = 'Ore lavorate', 'titolo non forzato al salvataggio: ' || res::text;
+  assert (select r.changed = array['entries'] and r.author_id = test.uid('b') from public.revisions r where r.item_id = v_id and r.version = 2),
+    'revisione del salvataggio sbagliata';
+  update public.items set title = 'Altro titolo' where id = v_id;
+  assert (select title = 'Ore lavorate' and version = 2 from public.items where id = v_id), 'titolo cambiato con un update diretto';
+  perform test.expect_error(
+    format($q$select public.save_item(%L, 2, 'Ore lavorate', null, %L)$q$, v_id, v_data || jsonb_build_object('week', (v_monday - 14)::text)),
+    'La settimana delle ore non si può cambiare'
+  );
+  perform test.expect_error(format($q$select public.save_item(%L, 2, 'Ore lavorate', null, %L)$q$, v_id, v_data - 'week'), 'La settimana delle ore non si può cambiare');
+  perform test.expect_error(
+    format($q$update public.items set data = jsonb_set(data, '{week}', %L) where id = %L$q$, to_jsonb((v_monday - 14)::text), v_id),
+    'La settimana delle ore non si può cambiare'
+  );
+  assert (select version = 2 and data = v_data from public.items where id = v_id), 'ore cambiate';
+end
+$$;
+
+\echo 'ok - ore lavorate: ognuno ha le sue settimane e nessuno modifica o archivia quelle degli altri, nemmeno l admin'
+select test.login('a');
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_other uuid := current_setting('test.ts_b')::uuid;
+  v_other_data jsonb := (select data from public.items where id = current_setting('test.ts_b')::uuid);
+  i public.items;
+  n int;
+begin
+  i := public.create_item('timesheet', null, null, jsonb_build_object('week', v_monday::text, 'entries', '[]'::jsonb));
+  assert i.created_by = test.uid('a') and i.title = 'Ore lavorate' and i.data = jsonb_build_object('week', v_monday::text, 'entries', '[]'::jsonb),
+    'l''admin non crea la stessa settimana del membro: ' || row_to_json(i)::text;
+  assert (select count(*) from public.items where kind = 'timesheet') = 3, 'il team non vede le ore di tutti';
+  assert public.save_item(v_other, 2, 'Ore lavorate', null, v_other_data - 'pledge') ->> 'status' = 'forbidden', 'ore altrui modificate dall''admin';
+  with x as (update public.items set data = data - 'pledge' where id = v_other returning 1) select count(*) into n from x;
+  assert n = 0, 'ore altrui modificate dall''admin senza RPC';
+  assert public.delete_item(v_other, 2) ->> 'status' = 'forbidden', 'ore altrui archiviate dall''admin';
+  with x as (update public.items set deleted_at = now() where id = v_other returning 1) select count(*) into n from x;
+  assert n = 0, 'ore altrui archiviate dall''admin senza RPC';
+  assert public.revert_item(v_other, 1, 2) ->> 'status' = 'forbidden', 'ore altrui riportate indietro dall''admin';
+  assert (select version = 2 and deleted_at is null and data = v_other_data from public.items where id = v_other), 'ore altrui cambiate';
+  perform set_config('test.ts_a', i.id::text, false);
+end
+$$;
+select test.login('b');
+do $$
+declare
+  v_id uuid := current_setting('test.ts_a')::uuid;
+  n int;
+begin
+  assert public.save_item(v_id, 1, 'Ore lavorate', null, (select data from public.items where id = v_id) || '{"pledge":60}') ->> 'status' = 'forbidden',
+    'ore altrui modificate da un membro';
+  with x as (update public.items set data = data || '{"pledge":60}' where id = v_id returning 1) select count(*) into n from x;
+  assert n = 0, 'ore altrui modificate da un membro senza RPC';
+  assert public.delete_item(v_id, 1) ->> 'status' = 'forbidden', 'ore altrui archiviate da un membro';
+  assert (select version = 1 and not data ? 'pledge' from public.items where id = v_id), 'ore altrui cambiate';
+end
+$$;
+
+\echo 'ok - ore lavorate: un advisor le legge tutte, ma non ne crea e non ne modifica'
+select test.login('c');
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_week jsonb := jsonb_build_object('week', test.this_monday()::text, 'entries', '[]'::jsonb);
+  v_id uuid := current_setting('test.ts_b')::uuid;
+  n int;
+begin
+  assert (select count(*) from public.items where kind = 'timesheet') = 3, 'l''advisor non legge le ore del team';
+  perform test.expect_error(format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, v_week), 'row-level security');
+  perform test.expect_error(
+    format($q$insert into public.items (kind, title, data) values ('timesheet', 'Ore lavorate', %L)$q$, v_week || jsonb_build_object('week', (v_monday - 7)::text)),
+    'row-level security'
+  );
+  assert public.save_item(v_id, 2, 'Ore lavorate', null, (select data from public.items where id = v_id) - 'pledge') ->> 'status' = 'forbidden',
+    'ore altrui modificate da un advisor';
+  with x as (update public.items set data = data - 'pledge' where kind = 'timesheet' returning 1) select count(*) into n from x;
+  assert n = 0, 'ore modificate da un advisor senza RPC';
+  assert public.delete_item(v_id, 2) ->> 'status' = 'forbidden', 'ore archiviate da un advisor';
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('c')) = 0, 'un advisor ha delle ore';
+end
+$$;
+
+\echo 'ok - ore lavorate: chi diventa advisor le legge ma non modifica più nemmeno le sue, e torna a farlo da membro'
+select test.login('a');
+update public.members set role = 'advisor' where user_id = test.uid('b');
+select test.login('b');
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_id uuid := current_setting('test.ts_b')::uuid;
+  v_data jsonb := (select data from public.items where id = current_setting('test.ts_b')::uuid);
+  n int;
+begin
+  assert public.my_role() = 'advisor', 'il ruolo non è cambiato';
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'da advisor non legge più le sue ore';
+  assert public.save_item(v_id, 2, 'Ore lavorate', null, v_data || '{"pledge":0}') ->> 'status' = 'forbidden', 'un advisor modifica le sue ore';
+  with x as (update public.items set data = data || '{"pledge":0}' where id = v_id returning 1) select count(*) into n from x;
+  assert n = 0, 'un advisor modifica le sue ore senza RPC';
+  perform test.expect_error(
+    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 14)::text, 'entries', '[]'::jsonb)),
+    'row-level security'
+  );
+  assert (select version = 2 and data = v_data from public.items where id = v_id), 'ore cambiate da advisor';
+end
+$$;
+select test.login('a');
+update public.members set role = 'member' where user_id = test.uid('b');
+select test.login('b');
+do $$
+declare
+  v_id uuid := current_setting('test.ts_b')::uuid;
+  res jsonb;
+begin
+  assert public.my_role() = 'member', 'il ruolo non è tornato membro';
+  res := public.save_item(v_id, 2, 'Ore lavorate', null, (select data from public.items where id = v_id) || '{"pledge":0}');
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 3 and res -> 'item' -> 'data' -> 'pledge' = '0'::jsonb,
+    'tornato membro non modifica le sue ore: ' || res::text;
+end
+$$;
+
+\echo 'ok - ore lavorate: non si archiviano, nemmeno dal proprietario con un update o un insert diretto'
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_id uuid := current_setting('test.ts_b')::uuid;
+begin
+  assert public.delete_item(v_id, 3) ->> 'status' = 'forbidden', 'ore archiviate dal proprietario';
+  perform test.expect_error(format($q$update public.items set deleted_at = now() where id = %L$q$, v_id), 'Le ore lavorate non si possono mettere nel cestino');
+  perform test.expect_error(
+    format($q$insert into public.items (kind, title, data, deleted_at) values ('timesheet', 'Ore lavorate', %L, now())$q$,
+      jsonb_build_object('week', (v_monday - 21)::text, 'entries', '[]'::jsonb)),
+    'Le ore lavorate non si possono mettere nel cestino'
+  );
+  perform test.expect_error(format('delete from public.items where id = %L', v_id), 'permission denied');
+  assert (select deleted_at is null and version = 3 from public.items where id = v_id), 'ore archiviate senza RPC';
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'ore create già nel cestino';
+end
+$$;
+
+\echo 'ok - ore lavorate: settimana, ore dichiarate e righe controllate dal database con messaggi puliti, anche con il piano generico'
+do $$
+declare
+  v_monday date := test.this_monday();
+  v_week text := (test.this_monday() - 28)::text;
+  v_row jsonb := '{"id":"r1","day":"lun","start":540,"end":600,"area":"prodotto"}';
+  v_base jsonb;
+  v_bads jsonb[];
+  v_overlaps jsonb[];
+  v_future jsonb[];
+  v_bad jsonb;
+  v_mode text;
+  v_msg text;
+  v_expected text;
+begin
+  assert extract(isodow from v_week::date) = 1 and v_week::date = v_monday - 28, 'settimana di prova sbagliata';
+  v_base := jsonb_build_object('week', v_week, 'entries', '[]'::jsonb);
+  v_bads := array[
+    '[1,2]', '[]', '"ore"', '9', 'true', 'null', '{}'
+  ]::jsonb[] || array[
+    v_base - 'week', v_base - 'entries', v_base || '{"note":"x"}', v_base || '{"busy":{}}', v_base || '{"Week":"x"}',
+    v_base || '{"week":"domani"}', v_base || '{"week":20261102}', v_base || '{"week":null}', v_base || '{"week":["2026-11-02"]}',
+    v_base || '{"week":"2026-11-02T00:00:00Z"}', v_base || '{"week":"2/11/2026"}', v_base || '{"week":"2026-13-02"}', v_base || '{"week":"2026-11-2"}',
+    v_base || '{"week":"2026-02-31"}', v_base || '{"week":"2026-04-31"}', v_base || '{"week":"2027-02-29"}', v_base || '{"week":"0000-01-03"}',
+    v_base || jsonb_build_object('week', (v_monday - 27)::text), v_base || jsonb_build_object('week', (v_monday - 29)::text),
+    v_base || '{"pledge":7}', v_base || '{"pledge":4815}', v_base || '{"pledge":-15}', v_base || '{"pledge":9.5}', v_base || '{"pledge":"600"}',
+    v_base || '{"pledge":null}', v_base || '{"pledge":[600]}', v_base || '{"pledge":true}', v_base || '{"pledge":1e30}', v_base || '{"pledge":99990}',
+    v_base || '{"entries":{}}', v_base || '{"entries":"r1"}', v_base || '{"entries":null}', v_base || '{"entries":[1]}', v_base || '{"entries":["r1"]}',
+    v_base || '{"entries":[null]}', v_base || jsonb_build_object('entries', jsonb_build_array(jsonb_build_array(v_row))),
+    v_base || jsonb_build_object('entries', (select jsonb_agg(jsonb_build_object('id', 'r' || g, 'day', (array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'])[g / 96 + 1],
+      'start', (g % 96) * 15, 'end', (g % 96) * 15 + 15, 'area', 'altro')) from generate_series(0, 100) g)),
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row, v_row || '{"day":"mar"}'))
+  ];
+  foreach v_bad in array array[
+    v_row || '{"who":"b"}', v_row || '{"minutes":60}', v_row || '{"Id":"r2"}',
+    v_row - 'id', v_row || '{"id":""}', v_row || '{"id":"R1"}', v_row || '{"id":"r-1"}', v_row || '{"id":"r 1"}', v_row || '{"id":"abcdefghijklmnopq"}',
+    v_row || '{"id":null}', v_row || '{"id":["r1"]}', v_row || '{"id":"r1\n"}',
+    v_row - 'day', v_row || '{"day":"lunedi"}', v_row || '{"day":"Lun"}', v_row || '{"day":"mon"}', v_row || '{"day":1}', v_row || '{"day":null}',
+    v_row - 'area', v_row || '{"area":"vendite"}', v_row || '{"area":"Prodotto"}', v_row || '{"area":""}', v_row || '{"area":null}',
+    v_row - 'start', v_row - 'end', v_row || '{"start":10}', v_row || '{"end":70}', v_row || '{"start":545}', v_row || '{"end":605}',
+    v_row || '{"start":600}', v_row || '{"start":615}', v_row || '{"end":1455}', v_row || '{"start":1440,"end":1455}', v_row || '{"start":1440,"end":1440}',
+    v_row || '{"start":-15}', v_row || '{"start":"540"}', v_row || '{"end":"600"}', v_row || '{"start":540.5}', v_row || '{"start":null}',
+    v_row || '{"start":true}', v_row || '{"start":1e30}', v_row || '{"end":99990}',
+    v_row || jsonb_build_object('note', repeat('x', 141)), v_row || '{"note":5}', v_row || '{"note":null}', v_row || '{"note":{"text":"x"}}', v_row || '{"note":["x"]}'
+  ] loop
+    v_bads := v_bads || (v_base || jsonb_build_object('entries', jsonb_build_array(v_bad)));
+  end loop;
+  v_overlaps := array[
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row, v_row || '{"id":"r2","start":570,"end":630}')),
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row || '{"start":540,"end":720}', v_row || '{"id":"r2","start":600,"end":660}')),
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row, v_row || '{"id":"r2"}')),
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row || '{"id":"zz"}', v_row || '{"id":"aa","start":585,"end":645}')),
+    v_base || jsonb_build_object('entries', jsonb_build_array(v_row || '{"day":"dom"}', v_row || '{"id":"r2","day":"mar"}', v_row || '{"id":"r3","day":"dom","start":0,"end":1440}'))
+  ];
+  -- La settimana prossima è sempre futura: now() è lo stesso del trigger per tutta la transazione.
+  v_future := array[
+    v_base || jsonb_build_object('week', (v_monday + 7)::text),
+    v_base || jsonb_build_object('week', (v_monday + 14)::text),
+    v_base || jsonb_build_object('week', (v_monday + 7 * 52)::text, 'entries', jsonb_build_array(v_row))
+  ];
+  -- Ogni controllo vale sia con il piano su misura sia con quello generico del trigger.
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    foreach v_bad in array v_bads || v_overlaps || v_future loop
+      v_expected := case
+        when v_bad = any (v_overlaps) then 'Due righe dello stesso giorno si accavallano'
+        when v_bad = any (v_future) then 'Non si possono segnare ore in una settimana che deve ancora venire'
+        else 'Ore lavorate non valide'
+      end;
+      begin
+        perform public.create_item('timesheet', 'Ore lavorate', null, v_bad);
+        raise exception 'ore accettate: %', v_bad;
+      exception when others then
+        assert sqlerrm = v_expected and sqlstate = 'P0001',
+          v_mode || ', messaggio sbagliato per ' || v_bad::text || ': ' || sqlstate || ' ' || sqlerrm;
+      end;
+    end loop;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'ore non valide salvate';
+end
+$$;
+
+\echo 'ok - ore lavorate: un id di riga che non è testo è rifiutato come fa il sito, anche quando come testo sarebbe giusto'
+do $$
+declare
+  v_row jsonb := '{"day":"lun","start":540,"end":600,"area":"prodotto"}';
+  v_id jsonb;
+  v_week date;
+  v_mode text;
+  v_got text;
+begin
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    foreach v_id in array array['5', '12', '1e3', 'true', 'false']::jsonb[] loop
+      assert (v_id #>> '{}') ~ '^[a-z0-9]{1,16}$', 'id di prova sbagliato anche come testo: ' || v_id::text;
+      -- Questa settimana c'è già e si salva, quella di quattro settimane fa si crea.
+      foreach v_week in array array[test.this_monday(), test.this_monday() - 28] loop
+        v_got := test.timesheet_try(jsonb_build_object('week', v_week::text, 'entries', jsonb_build_array(v_row || jsonb_build_object('id', v_id))));
+        assert v_got = 'Ore lavorate non valide', v_mode || ', id ' || v_id::text || ' nella settimana del ' || v_week || ': ' || v_got;
+      end loop;
+    end loop;
+    v_got := test.timesheet_try(jsonb_build_object('week', (test.this_monday() - 28)::text, 'entries', jsonb_build_array(v_row || '{"id":"5"}')));
+    assert v_got = 'accettate', v_mode || ', id "5" scritto come testo rifiutato: ' || v_got;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+  assert (select version = 3 from public.items where id = current_setting('test.ts_b')::uuid), 'ore cambiate';
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'ore con id non testo salvate';
+end
+$$;
+
+\echo 'ok - ore lavorate: si segna fino a oggi e non un giorno o una settimana che deve ancora venire, con oggi di Roma qualunque fuso abbia la sessione e con il piano generico'
+do $$
+declare
+  v_days text[] := array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'];
+  v_today date := test.today();
+  v_monday date := test.this_monday();
+  v_dow int := extract(isodow from test.today())::int;
+  v_day_msg text := 'Non si possono segnare ore in un giorno che deve ancora venire';
+  v_week_msg text := 'Non si possono segnare ore in una settimana che deve ancora venire';
+  v_mode text;
+  v_zone text;
+  v_where text;
+  v_local date;
+  v_local_monday date;
+  v_got text;
+  v_expected text;
+  v_differs boolean := false;
+begin
+  -- now() resta lo stesso per tutta la transazione: cambia solo come la sessione legge l'ora.
+  -- Kiritimati è già a domani da mezzogiorno circa di Roma, Pago Pago è ancora a ieri fino a mezzogiorno circa:
+  -- a qualunque ora almeno una delle due ha una data diversa da Roma.
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    foreach v_zone in array array['Europe/Rome', 'Pacific/Kiritimati', 'America/Los_Angeles', 'Pacific/Pago_Pago', 'UTC'] loop
+      execute format('set local time zone %L', v_zone);
+      v_where := v_mode || ', ' || v_zone;
+      assert current_setting('TimeZone') = v_zone and test.today() = v_today, 'fuso della sessione non cambiato: ' || current_setting('TimeZone');
+      v_got := test.timesheet_try(test.timesheet_days(v_monday, array[v_days[v_dow]]));
+      assert v_got = 'accettate', v_where || ', ore di oggi rifiutate: ' || v_got;
+      v_got := test.timesheet_try(test.timesheet_days(v_monday, v_days[1:v_dow]));
+      assert v_got = 'accettate', v_where || ', ore da lunedì a oggi rifiutate: ' || v_got;
+      v_got := test.timesheet_try(test.timesheet_days(v_monday - 7, v_days));
+      assert v_got = 'accettate', v_where || ', ore di tutta la settimana scorsa rifiutate: ' || v_got;
+      -- La domenica non c'è un giorno dopo nella stessa settimana.
+      if v_dow < 7 then
+        v_got := test.timesheet_try(test.timesheet_days(v_monday, array[v_days[v_dow + 1]]));
+        assert v_got = v_day_msg, v_where || ', ore di domani: ' || v_got;
+        v_got := test.timesheet_try(test.timesheet_days(v_monday, array[v_days[v_dow], 'dom']));
+        assert v_got = v_day_msg, v_where || ', ore di oggi e di domenica: ' || v_got;
+      end if;
+      v_got := test.timesheet_try(test.timesheet_days(v_monday + 7, '{}'));
+      assert v_got = v_week_msg, v_where || ', settimana prossima: ' || v_got;
+      v_got := test.timesheet_try(test.timesheet_days(v_monday + 14, array['lun']));
+      assert v_got = v_week_msg, v_where || ', tra due settimane: ' || v_got;
+      -- Il giorno della sessione conta solo se a Roma è già arrivato.
+      v_local := current_date;
+      v_differs := v_differs or v_local <> v_today;
+      v_local_monday := v_local - extract(isodow from v_local)::int + 1;
+      v_expected := case when v_local <= v_today then 'accettate' when v_local_monday = v_monday then v_day_msg else v_week_msg end;
+      v_got := test.timesheet_try(test.timesheet_days(v_local_monday, array[v_days[extract(isodow from v_local)::int]]));
+      assert v_got = v_expected, v_where || ', ore del ' || v_local || ' con oggi a Roma ' || v_today || ': ' || v_got;
+    end loop;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+  assert v_differs, 'nessun fuso con una data diversa da Roma: il confronto non prova nulla';
+  -- Anche creando la settimana: il controllo viene prima dell'indice che vieta una seconda scheda, quindi oggi passa e si ferma lì.
+  set local time zone 'Pacific/Kiritimati';
+  if v_dow < 7 then
+    begin
+      perform public.create_item('timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow + 1]]));
+      raise exception 'ore di domani accettate alla creazione';
+    exception when others then
+      assert sqlerrm = v_day_msg and sqlstate = 'P0001', 'creazione con ore di domani: ' || sqlstate || ' ' || sqlerrm;
+    end;
+  end if;
+  begin
+    perform public.create_item('timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow]]));
+    raise exception 'seconda scheda della settimana accettata';
+  exception when others then
+    assert sqlerrm like '%items_one_timesheet_per_week_idx%', 'creazione con ore di oggi: ' || sqlerrm;
+  end;
+  assert (select version = 3 from public.items where id = current_setting('test.ts_b')::uuid), 'ore cambiate';
+  assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'ore di prova salvate';
+end
+$$;
+
+\echo 'ok - ore lavorate: ai limiti si accettano 100 righe, tutto il giorno, note di 140 caratteri, righe che si toccano e lo stesso orario in giorni diversi'
+do $$
+declare
+  v_week text := (test.this_monday() - 28)::text;
+  v_many jsonb := (select jsonb_agg(jsonb_build_object('id', 'r' || g, 'day', (array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'])[g / 96 + 1],
+    'start', (g % 96) * 15, 'end', (g % 96) * 15 + 15, 'area', 'altro')) from generate_series(0, 99) g);
+  v_edge jsonb;
+  i public.items;
+  res jsonb;
+begin
+  i := public.create_item('timesheet', null, null, jsonb_build_object('week', v_week, 'pledge', 4800, 'entries', v_many));
+  assert i.version = 1 and jsonb_array_length(i.data -> 'entries') = 100 and i.data -> 'pledge' = '4800'::jsonb, '100 righe o 80 ore dichiarate rifiutate';
+  v_edge := jsonb_build_object('week', v_week, 'pledge', 0, 'entries', jsonb_build_array(
+    jsonb_build_object('id', 'tutto', 'day', 'lun', 'start', 0, 'end', 1440, 'area', 'ricerca', 'note', repeat('x', 140)),
+    jsonb_build_object('id', 'm1', 'day', 'mar', 'start', 540, 'end', 600, 'area', 'numeri', 'note', 'Più clienti del previsto, è andata bene'),
+    jsonb_build_object('id', 'm2', 'day', 'mar', 'start', 600, 'end', 660, 'area', 'clienti', 'note', ''),
+    jsonb_build_object('id', 'm3', 'day', 'mar', 'start', 480, 'end', 540, 'area', 'altro'),
+    jsonb_build_object('id', 'm4', 'day', 'mer', 'start', 540, 'end', 600, 'area', 'prodotto'),
+    jsonb_build_object('id', 'abcdefghijklmnop', 'day', 'dom', 'start', 1425, 'end', 1440, 'area', 'prodotto')
+  ));
+  res := public.save_item(i.id, 1, 'Ore lavorate', null, v_edge);
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 2 and res -> 'item' -> 'data' = v_edge, 'righe ai limiti rifiutate: ' || res::text;
+  res := public.save_item(i.id, 2, 'Ore lavorate', null, jsonb_build_object('week', v_week, 'entries', '[]'::jsonb));
+  assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 3, 'senza righe e senza ore dichiarate rifiutate: ' || res::text;
+  perform set_config('test.ts_edge', i.id::text, false);
+end
+$$;
+
+\echo 'ok - ore lavorate: anche nel salvataggio righe, accavallamenti e dati non oggetto danno un messaggio pulito, anche con il piano generico'
+do $$
+declare
+  v_id uuid := current_setting('test.ts_edge')::uuid;
+  v_week text := (test.this_monday() - 28)::text;
+  v_row jsonb := '{"id":"r1","day":"lun","start":540,"end":600,"area":"prodotto"}';
+  v_mode text;
+  v_case record;
+begin
+  foreach v_mode in array array['force_custom_plan', 'force_generic_plan'] loop
+    perform set_config('plan_cache_mode', v_mode, true);
+    for v_case in
+      select * from (values
+        (jsonb_build_object('week', v_week, 'entries', jsonb_build_array(v_row || '{"end":1455}')), 'Ore lavorate non valide'),
+        (jsonb_build_object('week', v_week, 'pledge', 7, 'entries', '[]'::jsonb), 'Ore lavorate non valide'),
+        (jsonb_build_object('week', v_week, 'entries', '[]'::jsonb, 'extra', 1), 'Ore lavorate non valide'),
+        (jsonb_build_object('week', v_week, 'entries', jsonb_build_array(v_row, v_row || '{"id":"r2","start":585,"end":615}')), 'Due righe dello stesso giorno si accavallano'),
+        ('[1,2]'::jsonb, 'La settimana delle ore non si può cambiare'),
+        ('"ore"'::jsonb, 'La settimana delle ore non si può cambiare'),
+        ('null'::jsonb, 'La settimana delle ore non si può cambiare')
+      ) as t (data, message)
+    loop
+      begin
+        perform public.save_item(v_id, 3, 'Ore lavorate', null, v_case.data);
+        raise exception 'ore accettate nel salvataggio: %', v_case.data;
+      exception when others then
+        assert sqlerrm = v_case.message and sqlstate = 'P0001',
+          v_mode || ', messaggio sbagliato per ' || v_case.data::text || ': ' || sqlstate || ' ' || sqlerrm;
+      end;
+    end loop;
+  end loop;
+  perform set_config('plan_cache_mode', 'auto', true);
+  assert (select version = 3 and data = jsonb_build_object('week', v_week, 'entries', '[]'::jsonb) from public.items where id = v_id), 'ore cambiate';
+end
+$$;
+
+\echo 'ok - ore lavorate: senza ruolo nel team o senza 2FA non si vedono e non si creano'
+select test.login('d');
+do $$
+begin
+  assert (select count(*) from public.items where kind = 'timesheet') = 0, 'un estraneo vede le ore';
+  perform test.expect_error(
+    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', test.this_monday()::text, 'entries', '[]'::jsonb)),
+    'row-level security'
+  );
+end
+$$;
+select test.login('b', 'aal1');
+do $$
+begin
+  assert (select count(*) from public.items where kind = 'timesheet') = 0, 'ore visibili senza 2FA';
+  assert public.save_item(current_setting('test.ts_b')::uuid, 3, 'Ore lavorate', null, '{}') ->> 'status' = 'not_found', 'ore modificate senza 2FA';
 end
 $$;
 select test.login('b');

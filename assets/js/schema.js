@@ -14,6 +14,7 @@ import {
 import { fmtDate, fmtMoney } from './lib/format.js';
 import { CURRENCIES, EXPENSE_CATEGORIES, MOVEMENT_TYPES, SPLIT_MODES, sanitizeExpense, sanitizeExpenseGroup } from './expenses.js';
 import { dayName, hoursText, sanitizeAvailability, sanitizeBusy, shortDate, withDay } from './availability.js';
+import { areaLabel, clockText, durationText, sanitizeEntry, sanitizeTimesheet, timesheetProblem } from './timesheet.js';
 
 export const TECH_SUGGESTIONS = [
   'Inverse design',
@@ -578,6 +579,8 @@ export const KINDS = {
   },
   // Uno per persona, lo modifica solo chi l'ha creato: i dati li valida sanitizeAvailability.
   availability: { label: 'Impegni', plural: 'Impegni', icon: 'calendar', titleLabel: 'Titolo', statuses: null, fields: [] },
+  // Uno per persona e per settimana, lo modifica solo chi l'ha creato: i dati li valida sanitizeTimesheet.
+  timesheet: { label: 'Ore lavorate', plural: 'Ore lavorate', icon: 'clock', titleLabel: 'Titolo', statuses: null, fields: [] },
   criteria: { label: 'Criteri di valutazione', plural: 'Criteri', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   score: { label: 'Voti', plural: 'Voti', icon: 'scoring', titleLabel: 'Titolo', statuses: null, fields: [] },
   scoresnap: { label: 'Fotografia della valutazione', plural: 'Fotografie della valutazione', icon: 'image', titleLabel: 'Nome', statuses: null, fields: [] },
@@ -1047,6 +1050,7 @@ export function sanitizeSnapshot(kind, snapshot) {
   else if (kind === 'expensegroup') data = sanitizeExpenseGroup(raw);
   else if (kind === 'expense') data = sanitizeExpense(raw);
   else if (kind === 'availability') data = sanitizeAvailability(raw);
+  else if (kind === 'timesheet') data = sanitizeTimesheet(raw);
   else {
     for (const f of def.fields) {
       const value = sanitizeField(f, raw[f.key]);
@@ -1093,6 +1097,7 @@ export function snapshotProblem(kind, snapshot) {
   if (kind === 'expense' && !snapshot.data.amount) return 'Scrivi un importo maggiore di zero.';
   if (def.needsIdea && !snapshot.idea_id) return 'Scegli l\'idea a cui appartiene.';
   if (kind === 'scoresnap' && !snapshot.title) return 'Dai un nome alla fotografia.';
+  if (kind === 'timesheet') return timesheetProblem(snapshot.data);
   return null;
 }
 
@@ -1194,6 +1199,12 @@ export function describePath(kind, path, ctx = {}) {
     const week = head.match(/^weeks#(.+)$/);
     if (week) return `Settimana ${withDay('del', week[1], shortDate(week[1]))}${tail[1] ? ` › ${dayName(tail[1])}` : ''}`;
   }
+  if (kind === 'timesheet') {
+    if (head === 'week') return 'Settimana';
+    if (head === 'pledge') return 'Ore dichiarate per la settimana';
+    if (head === 'entries') return tail[0] === '#order' ? 'Righe › ordine' : 'Righe';
+    if (head.startsWith('entries#')) return `Riga › ${{ day: 'giorno', start: 'inizio', end: 'fine', area: 'area', note: 'cosa' }[tail[0]] || 'riga'}`;
+  }
   if (kind === 'canvas' && head === 'validated') {
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
@@ -1231,6 +1242,18 @@ export function formatValue(kind, path, value, ctx = {}) {
     }
     if (Array.isArray(value) && value.every(Number.isInteger)) return hoursText(value);
   }
+  if (kind === 'timesheet') {
+    if (path === 'data.pledge' && Number.isInteger(value)) return durationText(value);
+    if (path === 'data.week') return `settimana ${withDay('del', value, shortDate(value))}`;
+    if (/\.(start|end)$/.test(path) && Number.isInteger(value)) return clockText(value);
+    if (path.endsWith('.area')) return areaLabel(value);
+    if (path.endsWith('.day')) return dayName(value);
+    // Un conflitto su tutte le righe arriva come array intero.
+    if (path === 'data.entries' && Array.isArray(value)) {
+      const rows = value.map(sanitizeEntry).filter(Boolean);
+      return rows.length ? rows.map((e) => `${dayName(e.day)} ${clockText(e.start)}-${clockText(e.end)} (${areaLabel(e.area)})`) : ['nessuna riga'];
+    }
+  }
   const key = path.replace(/^data\./, '').split('.')[0];
   const def = fieldOf(kind, key);
   if (def) {
@@ -1257,6 +1280,7 @@ export function routeFor(item) {
   if (item.kind === 'teamcanvas') return '#/squadra';
   if (item.kind === 'equity') return '#/squadra/quote';
   if (item.kind === 'availability') return '#/squadra/disponibilita';
+  if (item.kind === 'timesheet') return '#/squadra/ore';
   if (item.kind === 'survey') return `#/questionario/${item.id}`;
   if (item.kind === 'expensegroup') return `#/spese/${item.id}`;
   if (item.kind === 'expense') return isUuid(item.data?.group) ? `#/spese/${item.data.group}?movimento=${item.id}` : '#/spese';

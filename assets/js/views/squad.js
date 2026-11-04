@@ -3,6 +3,7 @@ import { KINDS, TEAM_BLOCKS } from '../schema.js';
 import { canWrite, on, singleton } from '../store.js';
 import { conceptButton } from './concept-help.js';
 import { availabilityView } from './availability.js';
+import { timesheetView } from './timesheet.js';
 import { equityView } from './equity.js';
 import { button, emptyState, metaLine, pageHeader, tabs, textBlock } from './components.js';
 
@@ -10,13 +11,14 @@ const TABS = [
   ['canvas', 'Team Canvas', 'teamcanvas'],
   ['quote', 'Divisione delle quote', 'equity'],
   ['disponibilita', 'Disponibilità', 'availability'],
+  ['ore', 'Ore lavorate', 'timesheet'],
 ];
 
 function squadChrome(tab, actions) {
   return [
     pageHeader({
       title: 'Squadra',
-      subtitle: 'Il team che costruisce l\'azienda: chi siamo, come lavoriamo, quando siamo liberi e come dividiamo le quote.',
+      subtitle: 'Il team che costruisce l\'azienda: chi siamo, come lavoriamo, quando siamo liberi, quante ore dedichiamo e come dividiamo le quote.',
       actions,
     }),
     tabs(TABS.map(([key, text]) => [key, text]), tab, (key) => `#/squadra/${key}`),
@@ -41,6 +43,7 @@ export function teamCanvasView(item) {
 export function squadView(outlet, params, query) {
   const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'canvas';
   if (tab === 'disponibilita') return availabilityView(outlet, query, (actions) => squadChrome(tab, actions));
+  if (tab === 'ore') return timesheetView(outlet, query, (actions) => squadChrome(tab, actions));
   const [, , kind] = TABS.find(([key]) => key === tab);
   const writable = canWrite();
 

@@ -84,7 +84,35 @@ const availabilities = [
   availability(3, ADVISOR, { busy: { lun: [9, 10, 11, 12, 13, 14, 15, 16, 17] }, until: addDays(monday, -3) }),
 ];
 
-[...boardItems(), ...extraIdeas, ...surveys, ...expenses, ...availabilities].forEach((i) => store.applyItem(i));
+// Ore lavorate di fantasia: settimane passate e questa, con note. Bruno ha dichiarato zero ore due settimane fa.
+const LONG_NOTE = 'Preparato le domande per le interviste ai responsabili acquisti e riscritto la parte del problema nel canvas dopo le ultime chiamate.';
+const row = (id, day, start, end, area, note) => ({ id, day, start: start * 60, end: end * 60, area, ...(note ? { note } : {}) });
+const timesheet = (n, author, week, data) =>
+  item({ id: `cccccccc-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`, kind: 'timesheet', title: 'Ore lavorate', created_by: author, updated_by: author, updated_at: new Date(Date.now() - n * 3600e3).toISOString(), data: { week: addDays(monday, week * 7), ...data } });
+const timesheets = [
+  timesheet(1, ME, -10, { pledge: 600, entries: [row('a1', 'lun', 9, 12, 'ricerca', 'Interviste con due coordinatrici'), row('a2', 'mer', 14, 17.5, 'prodotto')] }),
+  timesheet(2, ME, -7, { entries: [row('a1', 'mar', 18, 20, 'clienti'), row('a2', 'sab', 10, 13, 'prodotto', 'Prototipo della pagina dei turni')] }),
+  timesheet(3, ME, -4, { pledge: 480, entries: [row('a1', 'mer', 9, 13, 'numeri', 'Piano economico, prima bozza'), row('a2', 'ven', 15, 16.5, 'altro')] }),
+  timesheet(4, ME, -2, { entries: [row('a1', 'lun', 9, 11, 'prodotto'), row('a2', 'gio', 21, 24, 'prodotto', LONG_NOTE)] }),
+  timesheet(5, ME, -1, {
+    entries: [
+      row('a1', 'lun', 9, 10.5, 'clienti', 'Chiamata con la clinica'),
+      row('a2', 'lun', 10.5, 12, 'prodotto'),
+      row('a3', 'mar', 14.25, 18.75, 'ricerca', LONG_NOTE),
+      row('a4', 'gio', 9, 13, 'numeri'),
+      row('a5', 'dom', 22, 24, 'altro', 'Preparato la riunione'),
+    ],
+  }),
+  timesheet(6, ME, 0, { entries: [row('a1', 'lun', 9, 11, 'prodotto', 'Riunione di inizio settimana')] }),
+  timesheet(7, OTHER, -6, { pledge: 360, entries: [row('b1', 'lun', 18, 21, 'prodotto')] }),
+  timesheet(8, OTHER, -3, { entries: [row('b1', 'gio', 9, 12, 'clienti', 'Due demo')] }),
+  timesheet(9, OTHER, -2, { pledge: 0, entries: [] }),
+  timesheet(10, OTHER, -1, { pledge: 360, entries: [row('b1', 'mar', 10, 13, 'clienti', 'Telefonate a tre aziende'), row('b2', 'ven', 15, 19.25, 'prodotto')] }),
+  timesheet(11, OTHER, 0, { entries: [row('b1', 'lun', 14, 16.75, 'ricerca')] }),
+  timesheet(12, ADVISOR, -1, { pledge: 120, entries: [row('c1', 'mer', 17, 18, 'altro', 'Revisione del pitch')] }),
+];
+
+[...boardItems(), ...extraIdeas, ...surveys, ...expenses, ...availabilities, ...timesheets].forEach((i) => store.applyItem(i));
 store.state.commentCounts = new Map([[IDS.idea, 2]]);
 
 const history = [

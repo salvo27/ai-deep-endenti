@@ -155,6 +155,15 @@ export function startRouter(target, { fallback } = {}) {
   return render();
 }
 
+// Una vista che cambia l'indirizzo da sola (per esempio la settimana mostrata) aggiorna anche la chiave della pagina,
+// così l'avviso per le modifiche non salvate resta giusto.
+export function replaceCurrent(path) {
+  history.replaceState(history.state, '', `#${path}`);
+  const parsed = parseHash(`#${path}`);
+  current.path = parsed.path;
+  current.key = parsed.query.toString() ? `${parsed.path}?${parsed.query}` : parsed.path;
+}
+
 export function navigate(path, { replace = false } = {}) {
   if (replace) {
     history.replaceState(history.state, '', `#${path}`);

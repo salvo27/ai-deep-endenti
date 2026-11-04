@@ -231,7 +231,8 @@ alter table public.items drop constraint if exists items_kind_check;
 alter table public.items add constraint items_kind_check check (
   kind in (
     'idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors',
-    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey', 'expensegroup', 'expense', 'availability'
+    'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'survey', 'expensegroup', 'expense', 'availability',
+    'timesheet'
   )
 );
 
@@ -246,6 +247,8 @@ create unique index if not exists items_one_score_per_member_idx on public.items
   where kind = 'score';
 create unique index if not exists items_one_availability_per_member_idx on public.items (created_by)
   where kind = 'availability';
+create unique index if not exists items_one_timesheet_per_week_idx on public.items (created_by, (data ->> 'week'))
+  where kind = 'timesheet';
 
 create table if not exists public.revisions (
   id bigint generated always as identity primary key,
@@ -310,7 +313,7 @@ begin
     or (new.kind = 'contact' and new.status in ('da_contattare', 'contattata', 'fissata', 'in_contatto', 'chiusa'))
     or (new.kind = 'survey' and new.status in ('bozza', 'aperto', 'chiuso'))
     or (new.kind in ('canvas', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap',
-                     'expensegroup', 'expense', 'availability')
+                     'expensegroup', 'expense', 'availability', 'timesheet')
         and new.status is null),
     false
   ) then
@@ -324,7 +327,8 @@ begin
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
     raise exception 'Questo elemento deve appartenere a un''idea';
   end if;
-  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense', 'availability')
+  if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense', 'availability',
+                  'timesheet')
      and new.idea_id is not null then
     raise exception 'Questo elemento non può appartenere a un''idea';
   end if;
@@ -483,6 +487,80 @@ begin
     end;
   end if;
 
+  -- Ore lavorate: una settimana per elemento, righe con giorno, orari a passi di 15 minuti, area e una nota breve.
+  if new.kind = 'timesheet' then
+    new.title := 'Ore lavorate';
+    if new.deleted_at is not null then
+      raise exception 'Le ore lavorate non si possono mettere nel cestino';
+    end if;
+    if tg_op = 'UPDATE' and (new.data -> 'week') is distinct from (old.data -> 'week') then
+      raise exception 'La settimana delle ore non si può cambiare';
+    end if;
+    -- Ogni controllo che converte in numero sta dentro un case: un valore sbagliato dà il messaggio, non un errore tecnico.
+    if not coalesce(case when jsonb_typeof(new.data) = 'object' then
+         not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('week', 'pledge', 'entries'))
+         and coalesce(jsonb_typeof(new.data -> 'week'), '') = 'string'
+         and (new.data ->> 'week') ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+         and (not new.data ? 'pledge' or case when coalesce(jsonb_typeof(new.data -> 'pledge'), '') = 'number' and (new.data ->> 'pledge') ~ '^[0-9]{1,4}$'
+               then (new.data ->> 'pledge')::int <= 4800 and (new.data ->> 'pledge')::int % 15 = 0
+               else false end)
+         and case when coalesce(jsonb_typeof(new.data -> 'entries'), '') = 'array' then
+               jsonb_array_length(new.data -> 'entries') <= 100
+               and not exists (
+                 select 1 from jsonb_array_elements(new.data -> 'entries') e
+                 where case when jsonb_typeof(e) = 'object' then
+                     exists (select 1 from jsonb_object_keys(e) k where k not in ('id', 'day', 'start', 'end', 'area', 'note'))
+                     or coalesce(jsonb_typeof(e -> 'id'), '') <> 'string'
+                     or coalesce(e ->> 'id', '') !~ '^[a-z0-9]{1,16}$'
+                     or coalesce(e ->> 'day', '') not in ('lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom')
+                     or coalesce(e ->> 'area', '') not in ('prodotto', 'clienti', 'numeri', 'ricerca', 'altro')
+                     or coalesce(jsonb_typeof(e -> 'start'), '') <> 'number'
+                     or coalesce(jsonb_typeof(e -> 'end'), '') <> 'number'
+                     or (e ? 'note' and (coalesce(jsonb_typeof(e -> 'note'), '') <> 'string' or char_length(e ->> 'note') > 140))
+                     or case when (e ->> 'start') ~ '^[0-9]{1,4}$' and (e ->> 'end') ~ '^[0-9]{1,4}$' then
+                          (e ->> 'start')::int % 15 <> 0 or (e ->> 'end')::int % 15 <> 0
+                          or (e ->> 'start')::int >= (e ->> 'end')::int or (e ->> 'end')::int > 1440
+                        else true end
+                   else true end
+               )
+               and (select count(distinct e ->> 'id') from jsonb_array_elements(new.data -> 'entries') e) = jsonb_array_length(new.data -> 'entries')
+             else false end
+       else false end, false) then
+      raise exception 'Ore lavorate non valide';
+    end if;
+    -- Qui la forma è già giusta: si può convertire senza sorprese.
+    if exists (
+         select 1 from jsonb_array_elements(new.data -> 'entries') a, jsonb_array_elements(new.data -> 'entries') b
+         where a ->> 'id' < b ->> 'id' and a ->> 'day' = b ->> 'day'
+           and (a ->> 'start')::int < (b ->> 'end')::int and (b ->> 'start')::int < (a ->> 'end')::int
+       ) then
+      raise exception 'Due righe dello stesso giorno si accavallano';
+    end if;
+    declare
+      v_week date;
+      -- Il team lavora in ora italiana: «oggi» si calcola lì, qualunque fuso chieda la sessione.
+      v_today date := (now() at time zone 'Europe/Rome')::date;
+    begin
+      begin
+        v_week := (new.data ->> 'week')::date;
+      exception when others then
+        raise exception 'Ore lavorate non valide';
+      end;
+      if extract(isodow from v_week) <> 1 then
+        raise exception 'Ore lavorate non valide';
+      end if;
+      if v_week > v_today then
+        raise exception 'Non si possono segnare ore in una settimana che deve ancora venire';
+      end if;
+      if exists (
+           select 1 from jsonb_array_elements(new.data -> 'entries') e
+           where v_week + (array_position(array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'], e ->> 'day') - 1) > v_today
+         ) then
+        raise exception 'Non si possono segnare ore in un giorno che deve ancora venire';
+      end if;
+    end;
+  end if;
+
   if tg_op = 'INSERT' then
     new.version := 1;
     new.created_by := auth.uid();
@@ -590,6 +668,7 @@ create policy items_insert on public.items
     and ((select public.can_write()) or kind in ('score', 'availability'))
   );
 
+-- Le ore lavorate le scrive solo chi le ha create, e solo finché è admin o membro.
 drop policy if exists items_update on public.items;
 create policy items_update on public.items
   for update to authenticated
@@ -597,14 +676,16 @@ create policy items_update on public.items
     (select public.can_read())
     and (
       (kind in ('score', 'availability') and created_by = (select auth.uid()))
-      or (kind not in ('score', 'availability') and (select public.can_write()))
+      or (kind = 'timesheet' and created_by = (select auth.uid()) and (select public.can_write()))
+      or (kind not in ('score', 'availability', 'timesheet') and (select public.can_write()))
     )
   )
   with check (
     (select public.can_read())
     and (
       (kind in ('score', 'availability') and created_by = (select auth.uid()))
-      or (kind not in ('score', 'availability') and (select public.can_write()))
+      or (kind = 'timesheet' and created_by = (select auth.uid()) and (select public.can_write()))
+      or (kind not in ('score', 'availability', 'timesheet') and (select public.can_write()))
     )
   );
 
@@ -706,7 +787,7 @@ begin
    where id = p_id
      and version = p_base_version
      and deleted_at is null
-     and kind not in ('criteria', 'generator', 'score', 'teamcanvas', 'equity', 'availability')
+     and kind not in ('criteria', 'generator', 'score', 'teamcanvas', 'equity', 'availability', 'timesheet')
   returning * into r;
   if found then
     return jsonb_build_object('status', 'ok', 'item', to_jsonb(r));

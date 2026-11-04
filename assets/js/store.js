@@ -267,6 +267,7 @@ export const scoreItems = () => itemsOf('score');
 export const myScoreItem = () => [...state.items.values()].find((i) => i.kind === 'score' && i.created_by === state.user?.id) || null;
 export const availabilityOf = (userId) =>
   [...state.items.values()].find((i) => i.kind === 'availability' && !i.deleted_at && i.created_by === userId) || null;
+export const timesheetsOf = (userId) => [...state.items.values()].filter((i) => i.kind === 'timesheet' && !i.deleted_at && i.created_by === userId);
 export const criteriaList = () => singleton('criteria')?.data?.criteria || [];
 export const deletedItems = () => [...state.items.values()].filter((i) => i.deleted_at);
 

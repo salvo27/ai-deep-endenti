@@ -223,8 +223,8 @@ test('in «I miei impegni» a tap marks an hour and the first save creates my it
 test('the Squadra tabs include Disponibilità and the other tabs still work', async () => {
   let body = await visit('#/squadra');
   const tabs = [...outlet.querySelectorAll('.tabs .tab')];
-  assert.deepEqual(tabs.map(text), ['Team Canvas', 'Divisione delle quote', 'Disponibilità']);
-  assert.deepEqual(tabs.map((a) => a.getAttribute('href')), ['#/squadra/canvas', '#/squadra/quote', '#/squadra/disponibilita']);
+  assert.deepEqual(tabs.map(text), ['Team Canvas', 'Divisione delle quote', 'Disponibilità', 'Ore lavorate']);
+  assert.deepEqual(tabs.map((a) => a.getAttribute('href')), ['#/squadra/canvas', '#/squadra/quote', '#/squadra/disponibilita', '#/squadra/ore']);
   assert.equal(text(outlet.querySelector('.tab.is-active')), 'Team Canvas');
   assert.match(body, /Il Team Canvas non è ancora stato compilato/);
   assert.match(body, /quando siamo liberi/);

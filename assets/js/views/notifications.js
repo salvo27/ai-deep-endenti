@@ -48,7 +48,7 @@ export function notificationBell() {
                       close();
                     },
                   },
-                  avatar(note.authorId, 26),
+                  note.kind === 'reminder' ? h('span', { class: 'avatar bell-reminder', 'aria-hidden': 'true' }, icon('clock', 15)) : avatar(note.authorId, 26),
                   h('span', { class: 'bell-text' }, note.text, h('span', { class: 'muted small' }, ' · ', timeAgo(note.at))),
                 ),
               ),
