@@ -5957,7 +5957,7 @@ button.chat-quote {
 }
 
 .ts-time {
-  width: 6.5rem;
+  width: 7.4rem;
 }
 
 .ts-add {
@@ -5975,8 +5975,9 @@ button.chat-quote {
     border-bottom: 1px solid var(--border);
   }
 
+  /* Con i caratteri più larghi di Linux e Android servono circa 104 px per «00:00» e l'orologio */
   .ts-time {
-    width: 6.6rem;
+    width: 7.6rem;
   }
 
   .ts-row .input,
