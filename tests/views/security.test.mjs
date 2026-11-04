@@ -144,7 +144,7 @@ test('every public table in the schema has row level security', () => {
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
   assert.deepEqual(tables.sort(), [
     'ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions', 'revisions',
-    'survey_events', 'survey_limits', 'survey_responses', 'survey_salts',
+    'survey_counts', 'survey_event_counts', 'survey_events', 'survey_limits', 'survey_responses', 'survey_salts',
   ]);
   for (const table of tables) {
     assert.match(schema, new RegExp(`alter table public\\.${table} enable row level security`), table);
