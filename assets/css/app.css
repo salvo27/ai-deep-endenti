@@ -1549,10 +1549,15 @@ select.input:disabled {
 
 .kanban {
   display: grid;
-  grid-template-columns: repeat(6, minmax(220px, 1fr));
+  grid-template-columns: repeat(6, minmax(180px, 1fr));
   gap: 0.75rem;
   overflow-x: auto;
   padding-bottom: 0.5rem;
+}
+
+/* Le sei colonne non stanno nei 1280px della pagina: la board usa tutta la larghezza */
+.content:has(.kanban:not(.kanban-3)) {
+  max-width: none;
 }
 
 .kanban-3 {
