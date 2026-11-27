@@ -156,7 +156,7 @@ test('comments can be added, edited and deleted by their author only', async () 
 
 test('profile saves name and color, changes the password and manages devices', async () => {
   const log = [];
-  api.updateMember = async (id, patch) => log.push(['member', id, patch]);
+  api.updateProfile = async (patch) => log.push(['profile', patch]);
   api.membersOverview = async () => members();
   api.updatePassword = async (p) => log.push(['password', p]);
   let factors = [
@@ -179,7 +179,7 @@ test('profile saves name and color, changes the password and manages devices', a
   typeInto(profileForm.querySelector('input[type="text"]'), 'Anna B.');
   profileForm.dispatchEvent(new window.Event('submit', { cancelable: true }));
   await flush(5);
-  assert.deepEqual(log[0], ['member', ME, { display_name: 'Anna B.', color: '#4f5bd5' }]);
+  assert.deepEqual(log[0], ['profile', { display_name: 'Anna B.', color: '#4f5bd5' }]);
 
   const [pwd, confirm] = passwordForm.querySelectorAll('input');
   typeInto(pwd, 'Nuova-Password-1');

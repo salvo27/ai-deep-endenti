@@ -25,6 +25,8 @@ beforeEach(() => {
   api.listFactors = async () => [];
   api.aiUsageLastDay = async () => 0;
   api.emailPrefs = async () => ({ mentions: true, weekly: true });
+  // La lingua scelta va anche nel profilo, prima di ricaricare: qui il salvataggio riesce subito.
+  api.updateProfile = async (patch) => patch;
 });
 
 afterEach(() => Object.assign(api, original));
@@ -57,20 +59,22 @@ describe('lingua scelta dal Profilo', () => {
     assert.match(text(card), /italiano se è in italiano, inglese negli altri casi/);
   });
 
-  it('una scelta si salva sul dispositivo e ricarica la pagina, così ogni testo cambia lingua', () => {
+  it('una scelta si salva sul dispositivo e ricarica la pagina, così ogni testo cambia lingua', async () => {
     let reloads = 0;
     const card = profile.languageCard(() => reloads++);
     change(card, 'en');
     assert.equal(localStorage.getItem('lingua'), 'en');
+    await flush();
     assert.equal(reloads, 1);
   });
 
-  it('tornare ad automatica toglie la scelta', () => {
+  it('tornare ad automatica toglie la scelta', async () => {
     localStorage.setItem('lingua', 'en');
     let reloads = 0;
     const card = profile.languageCard(() => reloads++);
     change(card, 'auto');
     assert.equal(localStorage.getItem('lingua'), null);
+    await flush();
     assert.equal(reloads, 1);
   });
 
