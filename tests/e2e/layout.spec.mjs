@@ -76,6 +76,37 @@ for (const hash of PAGES) {
   });
 }
 
+// The roadmap steps open on a tap and show the links to the book. The longest labels, in English above all, must wrap
+// instead of widening the page, also with a wider font: GitHub's Linux runner draws system-ui with DejaVu Sans, wider
+// than Segoe UI on Windows, and Verdana has about the same widths.
+for (const hash of ['#/guida', `#/idea/${IDEA}/roadmap`]) {
+  test(`${hash}: con tutti i passi aperti e caratteri larghi niente esce dallo schermo`, { tag: '@ogni-lingua' }, async ({ page }) => {
+    const errors = await open(page, hash);
+    await page.addStyleTag({ content: 'body { font-family: Verdana, "DejaVu Sans", sans-serif; }' });
+    const opened = await page.evaluate(() => {
+      const steps = [...document.querySelectorAll('#content details')];
+      steps.forEach((step) => { step.open = true; });
+      return steps.length;
+    });
+    expect(opened, 'i passi da aprire').toBeGreaterThan(0);
+    await page.waitForTimeout(100);
+    const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, window.innerWidth) - window.visualViewport.width);
+    expect(overflow, 'la pagina scorre in orizzontale').toBeLessThanOrEqual(1);
+    // A button or link that reaches past its card is a few pixels away from widening the page with another font.
+    const outside = await page.evaluate(() =>
+      [...document.querySelectorAll('#content .card .btn, #content .card .concept-link')]
+        .filter((el) => {
+          const card = el.closest('.card');
+          const edge = card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
+          return el.getBoundingClientRect().right > edge + 1;
+        })
+        .map((el) => el.textContent.trim()),
+    );
+    expect(outside, 'pulsanti e link oltre il bordo del riquadro').toEqual([]);
+    expect(errors).toEqual([]);
+  });
+}
+
 for (const [hash, label] of [['#/valutazione?vista=miei', 'Salva i miei voti'], ['#/squadra/disponibilita?vista=miei', 'Salva i miei impegni'], ['#/squadra/ore?vista=mie', 'Salva le mie ore']]) {
   test(`la barra "${label}" resta sopra la tabella anche in fondo alla pagina`, async ({ page }) => {
     await open(page, hash);

@@ -611,6 +611,14 @@ del {
   color: var(--example);
 }
 
+/* The links to the examples carry a sentence ("Example of an advanced roadmap: …"): on a phone it wraps inside the
+   button instead of pushing it past the card. */
+a.btn-example {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+}
+
 .btn-small {
   min-height: 30px;
   padding: 0.2rem 0.6rem;
@@ -2807,8 +2815,11 @@ dialog::backdrop {
   color: var(--primary);
 }
 
+/* Kept in one piece, and on one line when it fits: a label longer than the line wraps inside its box instead of
+   widening the page (some book titles in English are longer than a phone screen). */
 .concept-link {
-  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .chips .concept-link {
