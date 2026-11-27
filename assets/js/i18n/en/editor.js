@@ -6,7 +6,7 @@ export const editor = {
     sections: 'Sections',
     itemUnavailable: 'Item not available',
     onlineResearch: 'Online research',
-    onlineResearchHint: 'It does not count as an interview: nobody was heard',
+    onlineResearchHint: 'It does not count as an interview: no one was spoken to',
     scale: (value) => `${value} out of 5`,
     exampleReadOnly: 'Read-only example.',
     exampleHint: 'Shows how to fill in this part of the board.',

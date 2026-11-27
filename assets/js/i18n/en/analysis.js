@@ -37,7 +37,7 @@ export const analysis = {
   },
   persona: {
     facts: {
-      role_type: 'In the purchase',
+      role_type: 'Buying role',
       segment: 'Segment',
       age_range: 'Age',
       gender: 'Gender',

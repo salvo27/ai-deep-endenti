@@ -106,7 +106,7 @@ describe('buyer persona in inglese', () => {
   it('la scheda ha foto, ruolo e dati demografici in inglese', () => {
     const view = boards.personaView(persona({ photo: PHOTO, role: 'Dietitian', early_adopter: 'forse' }));
     assert.equal(view.querySelector('img').getAttribute('alt'), 'Photo: Rita Quaglia');
-    assert.deepEqual([...view.querySelectorAll('.persona-facts dt')].map((d) => text(d)), ['In the purchase', 'Segment', 'Early adopter', 'Age', 'Gender', 'Area', 'Income', 'Education']);
+    assert.deepEqual([...view.querySelectorAll('.persona-facts dt')].map((d) => text(d)), ['Buying role', 'Segment', 'Early adopter', 'Age', 'Gender', 'Area', 'Income', 'Education']);
     assert.equal(text(view.querySelectorAll('.persona-facts dd')[2]), 'Maybe');
     assert.deepEqual(italianLeftovers(text(view.querySelector('.persona-hero')), AREAS), []);
   });

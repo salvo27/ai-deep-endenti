@@ -77,7 +77,7 @@ describe('pezzi comuni delle pagine in inglese', () => {
     const research = item({ kind: 'interview', data: { source: 'ricerca' } });
     const badge = components.sourceBadge(research);
     assert.equal(text(badge), 'Online research');
-    assert.equal(badge.getAttribute('title'), 'It does not count as an interview: nobody was heard');
+    assert.equal(badge.getAttribute('title'), 'It does not count as an interview: no one was spoken to');
     assert.equal(components.sourceBadge(store.getItem(IDS.interview)), null);
   });
 
