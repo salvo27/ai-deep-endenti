@@ -1,8 +1,8 @@
-// i18n: da tradurre
 import { h, mount, toast } from '../lib/dom.js';
 import { snapshotOf } from '../lib/diff.js';
-import { daysUntil, fmtDate, plural } from '../lib/format.js';
+import { daysUntil, fmtDate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';
+import { language, tx } from '../i18n/index.js';
 import { KINDS } from '../schema.js';
 import { canWrite, getItem, ideas, itemsOf, memberName, on, state } from '../store.js';
 import { navigate } from '../router.js';
@@ -12,14 +12,13 @@ import { button, emptyState, itemLink, memberChip, pageHeader, statusPill } from
 
 const STATUSES = KINDS.contact.statuses;
 const STAGE = Object.fromEntries(STATUSES.map(([value], index) => [value, index]));
-const EARLY = new Set(['da_contattare', 'contattata', 'fissata']);
+// Stored values and addresses: their Italian words are part of the data and of the URL, not text the reader sees.
+const EARLY = new Set(['da_contattare', 'contattata', 'fissata']); // i18n-ignore
+const FILTERS = { all: 'tutte', mine: 'mie', noOwner: 'senza', thisWeek: 'settimana' }; // i18n-ignore
+const PARAMS = { filter: 'filtro', status: 'stato', idea: 'idea' }; // i18n-ignore
+const PATHS = { contacts: '/contatti', interview: '#/nuovo/interview?contatto=', held: '&stato=fatta', create: '#/nuovo/contact' }; // i18n-ignore
 
-export const CONTACT_FILTERS = [
-  ['tutte', 'Tutte'],
-  ['mie', 'Mie'],
-  ['senza', 'Senza responsabile'],
-  ['settimana', 'Da sentire questa settimana'],
-];
+export const CONTACT_FILTERS = Object.values(FILTERS).map((value) => [value, tx.contacts.filters[value]]);
 
 const isOpen = (contact) => contact.status !== 'chiusa';
 
@@ -44,9 +43,9 @@ export const needsOwner = (contact) => isOpen(contact) && !contact.data.owner;
 
 export function readContactFilters(query) {
   return {
-    filter: CONTACT_FILTERS.some(([v]) => v === query.get('filtro')) ? query.get('filtro') : 'tutte',
-    status: STATUSES.some(([v]) => v === query.get('stato')) ? query.get('stato') : null,
-    ideaId: isUuid(query.get('idea')) ? query.get('idea') : null,
+    filter: CONTACT_FILTERS.some(([v]) => v === query.get(PARAMS.filter)) ? query.get(PARAMS.filter) : FILTERS.all,
+    status: STATUSES.some(([v]) => v === query.get(PARAMS.status)) ? query.get(PARAMS.status) : null,
+    ideaId: isUuid(query.get(PARAMS.idea)) ? query.get(PARAMS.idea) : null,
   };
 }
 
@@ -54,14 +53,14 @@ export function filterContacts(list, filters, { me = state.user?.id, now = new D
   return list.filter((c) => {
     if (filters.ideaId && c.idea_id !== filters.ideaId) return false;
     if (filters.status && c.status !== filters.status) return false;
-    if (filters.filter === 'mie') return Boolean(me) && c.data.owner === me;
-    if (filters.filter === 'senza') return needsOwner(c);
-    if (filters.filter === 'settimana') return dueThisWeek(c, now);
+    if (filters.filter === FILTERS.mine) return Boolean(me) && c.data.owner === me;
+    if (filters.filter === FILTERS.noOwner) return needsOwner(c);
+    if (filters.filter === FILTERS.thisWeek) return dueThisWeek(c, now);
     return true;
   });
 }
 
-// Prima chi è in ritardo, poi per data, poi chi non ha una data; le persone chiuse in fondo.
+// Prima chi è in ritardo, poi per data, poi chi non ha una data; le persone chiuse in fondo. I nomi in ordine alfabetico nella lingua in uso.
 export function sortContacts(list, now = new Date()) {
   const rank = (c) => {
     if (!isOpen(c)) return 3;
@@ -74,7 +73,7 @@ export function sortContacts(list, now = new Date()) {
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
     const byDate = ra < 2 ? a.data.next_date.localeCompare(b.data.next_date) : 0;
-    return byDate || STAGE[a.status] - STAGE[b.status] || a.title.localeCompare(b.title, 'it');
+    return byDate || STAGE[a.status] - STAGE[b.status] || a.title.localeCompare(b.title, language);
   });
 }
 
@@ -89,25 +88,21 @@ export const unownedContacts = () => itemsOf('contact').filter(needsOwner);
 
 export function dueLabel(contact, now = new Date()) {
   if (!isOpen(contact)) return null;
+  const texts = tx.contacts;
   const days = daysToContact(contact, now);
-  if (days === null) return h('span', { class: 'deadline' }, 'senza data');
-  const text = days < 0 ? `in ritardo di ${plural(-days, 'giorno', 'giorni')}` : days === 0 ? 'oggi' : days === 1 ? 'domani' : `tra ${plural(days, 'giorno', 'giorni')}`;
+  if (days === null) return h('span', { class: 'deadline' }, texts.noDate);
+  const text = days < 0 ? texts.late(-days) : days === 0 ? texts.today : days === 1 ? texts.tomorrow : texts.inDays(days);
   return h('span', { class: ['deadline', days < 0 && 'is-late'], title: fmtDate(contact.data.next_date) }, text);
 }
 
 export function contactsSummary(list, now = new Date()) {
   return {
     total: list.length,
-    toContact: list.filter((c) => c.status === 'da_contattare').length,
+    toContact: list.filter((c) => c.status === 'da_contattare').length, // i18n-ignore (status)
     withOwner: list.filter((c) => c.data.owner).length,
     thisWeek: list.filter((c) => dueThisWeek(c, now)).length,
     overdue: list.filter((c) => isOverdue(c, now)).length,
   };
-}
-
-function summaryText(s, forIdea) {
-  const late = s.overdue ? ` (${s.overdue} in ritardo)` : '';
-  return `${plural(s.total, 'persona', 'persone')}${forIdea ? ' per questa idea' : ''}: ${s.toContact} da contattare, ${s.withOwner} con un responsabile, ${s.thisWeek} da sentire questa settimana${late}.`;
 }
 
 async function saveContact(id, change, message) {
@@ -132,6 +127,7 @@ function setData(key, value) {
 }
 
 export function contactsView(outlet, params, query) {
+  const texts = tx.contacts;
   const filters = readContactFilters(query);
   const writable = canWrite();
   let alive = true;
@@ -139,11 +135,11 @@ export function contactsView(outlet, params, query) {
   const hrefFor = (patch) => {
     const next = { ...filters, ...patch };
     const qs = new URLSearchParams();
-    if (next.filter && next.filter !== 'tutte') qs.set('filtro', next.filter);
-    if (next.status) qs.set('stato', next.status);
-    if (next.ideaId) qs.set('idea', next.ideaId);
+    if (next.filter && next.filter !== FILTERS.all) qs.set(PARAMS.filter, next.filter);
+    if (next.status) qs.set(PARAMS.status, next.status);
+    if (next.ideaId) qs.set(PARAMS.idea, next.ideaId);
     const s = qs.toString();
-    return `/contatti${s ? `?${s}` : ''}`;
+    return `${PATHS.contacts}${s ? `?${s}` : ''}`;
   };
 
   // Dopo un salvataggio riuscito la pagina si ridisegna da sola; se non riesce, si torna ai valori salvati.
@@ -152,7 +148,7 @@ export function contactsView(outlet, params, query) {
   const statusControl = (c) =>
     h(
       'select',
-      { class: 'input input-small', 'aria-label': `Stato: ${c.title}`, onChange: (e) => after(changeStatus(getItem(c.id), e.target.value)) },
+      { class: 'input input-small', 'aria-label': texts.statusOf(c.title), onChange: (e) => after(changeStatus(getItem(c.id), e.target.value)) },
       STATUSES.map(([v, label]) => h('option', { value: v, selected: v === c.status }, label)),
     );
 
@@ -163,13 +159,13 @@ export function contactsView(outlet, params, query) {
       'select',
       {
         class: 'input input-small',
-        'aria-label': `Chi se ne occupa: ${c.title}`,
+        'aria-label': texts.ownerOf(c.title),
         onChange: (e) => {
           const owner = e.target.value || undefined;
-          after(saveContact(c.id, setData('owner', owner), `Chi se ne occupa: ${owner ? memberName(owner) : 'nessuno'}`));
+          after(saveContact(c.id, setData('owner', owner), texts.ownerMessage(owner ? memberName(owner) : texts.ownerNone)));
         },
       },
-      h('option', { value: '' }, 'Nessuno'),
+      h('option', { value: '' }, tx.common.states.nobody),
       entries.map(([id, name]) => h('option', { value: id, selected: id === c.data.owner }, name)),
     );
   };
@@ -179,22 +175,22 @@ export function contactsView(outlet, params, query) {
       class: 'input input-small',
       type: 'date',
       value: c.data.next_date || '',
-      'aria-label': `Prossimo contatto: ${c.title}`,
+      'aria-label': texts.nextOf(c.title),
       onChange: (e) => {
         const date = e.target.value || undefined;
         if (date === c.data.next_date) return;
-        after(saveContact(c.id, setData('next_date', date), `Prossimo contatto: ${date ? fmtDate(date) : 'nessuna data'}`));
+        after(saveContact(c.id, setData('next_date', date), texts.nextMessage(date ? fmtDate(date) : texts.nextNone)));
       },
     });
 
   const action = (c) => {
     const interview = c.data.interview_id ? getItem(c.data.interview_id) : null;
-    if (interview && !interview.deleted_at) return itemLink(interview, 'Intervista');
+    if (interview && !interview.deleted_at) return itemLink(interview, texts.interview);
     if (!writable || !isOpen(c)) return null;
-    return button('Registra il colloquio', {
+    return button(texts.logConversation, {
       iconName: 'interview',
-      href: `#/nuovo/interview?contatto=${c.id}&stato=fatta`,
-      title: 'Scrivi com\'è andata: la persona viene collegata all\'intervista e passa a «In contatto»',
+      href: `${PATHS.interview}${c.id}${PATHS.held}`,
+      title: texts.logConversationHint,
     });
   };
 
@@ -206,7 +202,7 @@ export function contactsView(outlet, params, query) {
       h('td', null, itemLink(c), who ? h('div', { class: 'muted small' }, who) : null),
       h('td', null, itemLink(getItem(c.idea_id))),
       h('td', null, writable ? statusControl(c) : statusPill('contact', c.status)),
-      h('td', null, writable ? ownerControl(c) : c.data.owner ? memberChip(c.data.owner) : h('span', { class: 'muted' }, 'Nessuno')),
+      h('td', null, writable ? ownerControl(c) : c.data.owner ? memberChip(c.data.owner) : h('span', { class: 'muted' }, tx.common.states.nobody)),
       h(
         'td',
         { class: 'contact-date' },
@@ -235,9 +231,10 @@ export function contactsView(outlet, params, query) {
     const all = itemsOf('contact');
     const scope = filters.ideaId ? all.filter((c) => c.idea_id === filters.ideaId) : all;
     const list = sortContacts(filterContacts(all, filters, { now }), now);
+    const headers = texts.headers;
     let body;
-    if (!all.length) body = emptyState('Nessuna persona in lista. Si aggiungono dalla pagina di ogni idea, nella scheda «Persone e interviste».');
-    else if (!list.length) body = emptyState('Nessuna persona con questi filtri.');
+    if (!all.length) body = emptyState(texts.empty);
+    else if (!list.length) body = emptyState(texts.noMatch);
     else {
       body = h(
         'div',
@@ -245,7 +242,7 @@ export function contactsView(outlet, params, query) {
         h(
           'table',
           { class: 'table contacts-table' },
-          h('thead', null, h('tr', null, ['Persona', 'Idea', 'Stato', 'Chi se ne occupa', 'Prossimo contatto', ''].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, [headers.person, headers.idea, headers.status, headers.owner, headers.next, ''].map((t) => h('th', null, t)))),
           h('tbody', null, list.map((c) => row(c, now))),
         ),
       );
@@ -253,17 +250,17 @@ export function contactsView(outlet, params, query) {
     mount(
       outlet,
       pageHeader({
-        title: 'Contatti',
-        subtitle: 'Le persone da sentire per tutte le idee. A ognuna serve qualcuno che se ne occupi e una data.',
-        actions: [writable ? button('Aggiungi una persona', { kind: 'primary', iconName: 'plus', href: `#/nuovo/contact${filters.ideaId ? `?idea=${filters.ideaId}` : ''}` }) : null],
+        title: texts.title,
+        subtitle: texts.subtitle,
+        actions: [writable ? button(texts.add, { kind: 'primary', iconName: 'plus', href: `${PATHS.create}${filters.ideaId ? `?idea=${filters.ideaId}` : ''}` }) : null],
       }),
-      h('p', { class: 'contacts-summary' }, summaryText(contactsSummary(scope, now), Boolean(filters.ideaId))),
+      h('p', { class: 'contacts-summary' }, texts.summary(contactsSummary(scope, now), Boolean(filters.ideaId))),
       h(
         'div',
         { class: 'filters' },
         h(
           'div',
-          { class: 'toolbar toolbar-wrap', role: 'group', 'aria-label': 'Quali persone' },
+          { class: 'toolbar toolbar-wrap', role: 'group', 'aria-label': texts.which },
           CONTACT_FILTERS.map(([value, label]) =>
             h(
               'a',
@@ -272,8 +269,8 @@ export function contactsView(outlet, params, query) {
             ),
           ),
         ),
-        select('Stato', filters.status, STATUSES, 'status', 'Tutti'),
-        select('Idea', filters.ideaId, ideas().map((i) => [i.id, i.title]), 'ideaId', 'Tutte'),
+        select(texts.status, filters.status, STATUSES, 'status', texts.allStatuses),
+        select(texts.idea, filters.ideaId, ideas().map((i) => [i.id, i.title]), 'ideaId', texts.allIdeas),
       ),
       body,
     );
