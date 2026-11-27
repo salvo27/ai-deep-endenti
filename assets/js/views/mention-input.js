@@ -1,13 +1,16 @@
-// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { ALL, mentionQuery, mentionToken } from '../lib/mentions.js';
+import { tx } from '../i18n/index.js';
 import { state } from '../store.js';
 import { avatar } from './components.js';
 
-// Scrivendo @ compare l'elenco dei membri (e «tutti»): frecce per scegliere, Invio o Tab per inserire, Esc per chiudere.
+const t = tx.mentions;
+
+// Scrivendo @ compare l'elenco dei membri (e tutto il progetto): frecce per scegliere, Invio o Tab per inserire, Esc per chiudere.
+// Il tag di tutti si trova con la parola della lingua di chi scrive o con quella salvata, e si inserisce sempre come @[tutti].
 // Mentre l'elenco è aperto textarea.mentionOpen è vero, così Invio non manda il messaggio.
 export function attachMentions(textarea, { above = false } = {}) {
-  const menu = h('ul', { class: ['mention-menu', above && 'is-above'], role: 'listbox', 'aria-label': 'Persone da taggare', hidden: true });
+  const menu = h('ul', { class: ['mention-menu', above && 'is-above'], role: 'listbox', 'aria-label': t.suggestions, hidden: true });
   let items = [];
   let active = 0;
   let current = null;
@@ -36,7 +39,8 @@ export function attachMentions(textarea, { above = false } = {}) {
     const people = state.members
       .filter((m) => m.user_id !== state.user?.id && typeof m.display_name === 'string' && m.display_name.toLowerCase().includes(q))
       .map((m) => ({ name: m.display_name, id: m.user_id }));
-    return [...people, ...(ALL.startsWith(q) ? [{ name: ALL, all: true }] : [])].slice(0, 6);
+    const everyone = t.everyone.toLowerCase().startsWith(q) || ALL.startsWith(q);
+    return [...people, ...(everyone ? [{ name: ALL, all: true }] : [])].slice(0, 6);
   };
   const choose = (index) => {
     const item = items[index];
@@ -66,7 +70,7 @@ export function attachMentions(textarea, { above = false } = {}) {
             onMousedown: (e) => e.preventDefault(),
             onClick: () => choose(i),
           },
-          item.all ? [h('strong', null, '@tutti'), h('span', { class: 'muted small' }, 'avvisa tutta la squadra')] : [avatar(item.id, 20), h('span', null, item.name)],
+          item.all ? [h('strong', null, `@${t.everyone}`), h('span', { class: 'muted small' }, t.notifyEveryone)] : [avatar(item.id, 20), h('span', null, item.name)],
         ),
       ),
     );

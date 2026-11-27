@@ -1,37 +1,63 @@
-// i18n: da tradurre
 import { api } from './lib/api.js';
 import { toast } from './lib/dom.js';
-import { browserAlert } from './notifications.js';
-import { chatState } from './chat.js';
-import { emit, getItem, memberName, on, state } from './store.js';
+import { ALL } from './lib/mentions.js';
+import { tx } from './i18n/index.js';
+import { browserAlert, ofOpenProject } from './notifications.js';
+import { chatState, chatTitle } from './chat.js';
+import { currentProjectId, emit, getItem, memberName, on, state } from './store.js';
 
-// Notifiche importanti: chi ti ha taggato, dove, e se l'hai già vista. Separate dalla campanella.
+const t = tx.mentions;
+
+// Notifiche importanti del progetto aperto: chi ti ha taggato, dove, e se l'hai già vista. Separate dalla campanella.
 export const mentionState = { items: [], loaded: false };
 
 export const unreadMentions = () => mentionState.items.filter((m) => !m.read_at).length;
 
 export function mentionWhere(row) {
-  if (row.source === 'chat') return `in «${chatState.chats.get(row.chat_id)?.title || 'chat'}»`;
+  if (row.source === 'chat') return t.inChat(chatTitle(chatState.chats.get(row.chat_id)));
   const item = getItem(row.item_id);
-  if (row.source === 'note') return `nella nota «${item?.title || 'nota'}»`;
-  return `in un commento su «${item?.title || 'una scheda'}»`;
+  if (row.source === 'note') return t.inNote(item?.title || t.note);
+  return t.inComment(item?.title || t.card);
 }
 
-export const mentionText = (row) => `${memberName(row.author_id)} ti ha taggato ${mentionWhere(row)}`;
+export const mentionText = (row) => t.tagged(memberName(row.author_id), mentionWhere(row));
+
+// The database writes the excerpt with @tutti for the tag of everyone and [immagine] for an image: shown in the
+// reader's words. A member whose name starts with "tutti" keeps it.
+const EVERYONE = new RegExp(`@${ALL}(?![\\p{L}\\p{N}])`, 'giu');
+const IMAGE = '[immagine]'; // i18n-ignore: the placeholder the database writes
+
+export function mentionExcerpt(text) {
+  const named = state.members.map((m) => (typeof m.display_name === 'string' ? m.display_name.toLowerCase() : '')).filter((name) => name.startsWith(ALL) && name !== ALL);
+  return String(text ?? '')
+    .split(IMAGE)
+    .join(`[${t.image}]`)
+    .replace(EVERYONE, (match, offset, whole) => (named.some((name) => whole.slice(offset + 1).toLowerCase().startsWith(name)) ? match : `@${t.everyone}`));
+}
 
 export function mentionHref(row) {
-  if (row.source === 'chat') return `#/chat/${row.chat_id}?messaggio=${row.source_id}`;
+  if (row.source === 'chat') return `#/chat/${row.chat_id}?messaggio=${row.source_id}`; // i18n-ignore: address
   if (row.source === 'note') return `#/elemento/${row.item_id}`;
-  return getItem(row.item_id)?.kind === 'idea' ? `#/idea/${row.item_id}/commenti` : `#/elemento/${row.item_id}/commenti`;
+  return getItem(row.item_id)?.kind === 'idea' ? `#/idea/${row.item_id}/commenti` : `#/elemento/${row.item_id}/commenti`; // i18n-ignore: address
 }
 
+// Without a project nothing is asked: the rules of the database would return the mentions of every project.
 export async function loadMentions() {
-  mentionState.items = await api.listMentions();
+  const project = currentProjectId();
+  if (!project) {
+    mentionState.items = [];
+    mentionState.loaded = false;
+    emit('mentions');
+    return;
+  }
+  const rows = await api.listMentions(project);
+  mentionState.items = (rows || []).filter(ofOpenProject);
   mentionState.loaded = true;
   emit('mentions');
 }
 
 function onRow({ row, removed }) {
+  if (!ofOpenProject(row)) return;
   const index = mentionState.items.findIndex((m) => m.id === row.id);
   if (removed) {
     if (index >= 0) mentionState.items.splice(index, 1);
@@ -76,7 +102,10 @@ export function stopMentions() {
   mentionState.loaded = false;
 }
 
+// Without ids, all of them: only those of the open project, the other projects keep theirs unread.
 export async function markMentionsRead(ids = null) {
+  const project = currentProjectId();
+  if (!project) return;
   const now = new Date().toISOString();
   let changed = false;
   for (const m of mentionState.items) {
@@ -87,7 +116,7 @@ export async function markMentionsRead(ids = null) {
   }
   if (!changed) return;
   emit('mentions');
-  await api.markMentionsRead(ids).catch(() => {});
+  await api.markMentionsRead(ids, project).catch(() => {});
 }
 
 // Aprendo il punto in cui si è stati taggati, la menzione è letta.

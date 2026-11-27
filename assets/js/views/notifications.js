@@ -3,8 +3,11 @@ import { claimPopup, h, mount, onOtherPopup, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { on } from '../store.js';
 import { browserAlert, isUnread, markAllRead, markRead, notifications, unreadCount } from '../notifications.js';
-import { markMentionsRead, mentionHref, mentionState, mentionText, unreadMentions } from '../mentions.js';
+import { markMentionsRead, mentionExcerpt, mentionHref, mentionState, mentionText, unreadMentions } from '../mentions.js';
+import { tx } from '../i18n/index.js';
 import { avatar, timeAgo } from './components.js';
+
+const tm = tx.mentions.panel;
 
 export function notificationBell() {
   const badge = h('span', { class: 'bell-badge', hidden: true });
@@ -107,21 +110,21 @@ export function notificationBell() {
 // Notifiche importanti: le menzioni, con un pulsante e un elenco tutti loro.
 export function mentionsButton() {
   const badge = h('span', { class: 'bell-badge bell-badge-important', hidden: true });
-  const button = h('button', { type: 'button', class: 'icon-btn bell mentions-btn', 'aria-label': 'Menzioni', 'aria-expanded': 'false', 'aria-haspopup': 'true' }, icon('at', 20), badge);
-  const panel = h('div', { class: 'bell-panel', hidden: true, role: 'dialog', 'aria-label': 'Menzioni' });
+  const button = h('button', { type: 'button', class: 'icon-btn bell mentions-btn', 'aria-label': tm.title, 'aria-expanded': 'false', 'aria-haspopup': 'true' }, icon('at', 20), badge);
+  const panel = h('div', { class: 'bell-panel', hidden: true, role: 'dialog', 'aria-label': tm.title });
   const box = h('div', { class: 'bell-box' }, button, panel);
 
   const renderBadge = () => {
     const n = unreadMentions();
     badge.hidden = n === 0;
     badge.textContent = n > 9 ? '9+' : String(n);
-    button.setAttribute('aria-label', n ? `Menzioni, ${n} da leggere` : 'Menzioni');
+    button.setAttribute('aria-label', n ? tm.unread(n) : tm.title);
   };
   const renderPanel = () => {
     const list = mentionState.items;
     mount(
       panel,
-      h('div', { class: 'bell-head' }, h('strong', null, 'Menzioni'), unreadMentions() ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markMentionsRead() }, 'Segna tutte come lette') : null),
+      h('div', { class: 'bell-head' }, h('strong', null, tm.title), unreadMentions() ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markMentionsRead() }, tm.markAllRead) : null),
       list.length
         ? h(
             'ul',
@@ -144,14 +147,14 @@ export function mentionsButton() {
                     'span',
                     { class: 'bell-text' },
                     mentionText(m),
-                    m.excerpt ? h('span', { class: 'mention-excerpt' }, m.excerpt) : null,
+                    m.excerpt ? h('span', { class: 'mention-excerpt' }, mentionExcerpt(m.excerpt)) : null,
                     h('span', { class: 'muted small' }, timeAgo(m.created_at)),
                   ),
                 ),
               ),
             ),
           )
-        : h('p', { class: 'muted small bell-empty' }, 'Nessuna menzione. Quando qualcuno ti tagga con @ in chat, nei commenti o nelle note, lo vedi qui.'),
+        : h('p', { class: 'muted small bell-empty' }, tm.empty),
     );
   };
   const onOutside = (event) => {
