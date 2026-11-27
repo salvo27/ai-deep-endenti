@@ -30,6 +30,9 @@ let readIds = new Set();
 const LAST_READ = 'notificheLette';
 const READ_IDS = 'notificheLetteSingole';
 const readKey = (name) => `${name}:${currentProjectId()}`;
+// Before the projects there was one mark for the whole site, under the bare name: it still counts for a project that
+// has none of its own yet, so what was unread before the update stays unread.
+const readStored = (name, fallback) => readLocal(readKey(name), null) ?? readLocal(name, fallback);
 
 const routeOf = (kind, id) => routeFor({ kind, id });
 const quoted = (title) => t.quote(title || t.untitled);
@@ -198,8 +201,8 @@ let offs = [];
 export async function startNotifications() {
   stopNotifications();
   if (!currentProjectId()) return;
-  lastRead = readLocal(readKey(LAST_READ), null);
-  const stored = readLocal(readKey(READ_IDS), []);
+  lastRead = readStored(LAST_READ, null);
+  const stored = readStored(READ_IDS, []);
   readIds = new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
   await refreshNotifications();
   if (!lastRead) markAllRead();

@@ -102,6 +102,27 @@ describe('letture della campanella per progetto', () => {
     assert.deepEqual(notes.notifications({ includeRead: true }).map((n) => n.id), ['r-6', 'r-5']);
     assert.equal(notes.unreadCount(), 0, 'in Alfa la notifica aperta resta letta');
   });
+
+  // Before the projects the browser kept one mark for the whole site: it still counts until the project has its own.
+  it('il segno di lettura di prima dei progetti vale ancora: le novità arrivate dopo restano da leggere', async () => {
+    store.writeLocal('notificheLette', hoursAgo(4));
+    store.writeLocal('notificheLetteSingole', ['r-9']);
+    const latest = hoursAgo(2);
+    feeds[PROJECT] = [rev({ id: 8, created_at: hoursAgo(5) }), rev({ id: 9, created_at: hoursAgo(3) }), rev({ id: 10, created_at: latest })];
+    await open(ALFA);
+    assert.deepEqual(notes.notifications().map((n) => n.id), ['r-10'], 'la vecchia è letta, quella aperta prima anche');
+    notes.markAllRead();
+    assert.equal(notes.unreadCount(), 0);
+    assert.equal(store.readLocal(`notificheLette:${PROJECT}`), latest, 'da qui in poi il progetto ha il suo segno');
+  });
+
+  it('un progetto con il suo segno di lettura non guarda quello di prima', async () => {
+    store.writeLocal('notificheLette', hoursAgo(10));
+    store.writeLocal(`notificheLette:${PROJECT}`, hoursAgo(1.5));
+    feeds[PROJECT] = [rev({ id: 11, created_at: hoursAgo(2) }), rev({ id: 12, created_at: hoursAgo(1) })];
+    await open(ALFA);
+    assert.deepEqual(notes.notifications().map((n) => n.id), ['r-12']);
+  });
 });
 
 describe('novità del progetto aperto', () => {
