@@ -48,7 +48,8 @@ export function ideaMarkdown(idea) {
   const criteria = criteriaList();
   if (criteria.length) {
     const score = ideaScore(idea.id, criteria, scoreItems());
-    out.push('## Valutazione del team', '', `Punteggio: ${score.score === null ? 'nessun voto' : `${score.score}/100`} (${score.voters.length} votanti)`, '');
+    const voters = score.voters.length === 1 ? '1 votante' : `${score.voters.length} votanti`;
+    out.push('## Valutazione del team', '', `Punteggio: ${score.score === null ? 'nessun voto' : `${score.score}/100`} (${voters})`, '');
   }
 
   for (const canvas of itemsOf('canvas', { ideaId: idea.id })) {
