@@ -227,7 +227,7 @@ export const en = {
     review: (count) => (count === 1 ? 'Answer it' : 'Answer the skipped ones'),
     label: 'Unanswered questions',
     more: (count) => `and ${count} more.`,
-    text: 'They are not required: if you prefer, send them as they are.',
+    text: 'They are not required: if you prefer, send your answers as they are.',
   },
   thanks: {
     pageTitle: 'Thank you',

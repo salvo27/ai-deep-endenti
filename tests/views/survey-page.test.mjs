@@ -171,7 +171,7 @@ describe('pagina pubblica in italiano', () => {
   it('chi ha già risposto vede la data, chi torna vede le domande che mancano', async () => {
     await openPage({ storage: { [`questionario:${TOKEN}:inviato`]: '2026-11-27' } });
     assert.equal(document.title, 'Hai già risposto');
-    assert.equal(text(document.querySelector('.text')), 'Le tue risposte sono arrivate il 27/11/2026: non serve compilarlo di nuovo. Ora puoi chiudere questa pagina.');
+    assert.equal(text(document.querySelector('.text')), 'Le tue risposte sono arrivate il 27 novembre 2026: non serve compilarlo di nuovo. Ora puoi chiudere questa pagina.');
     const stored = JSON.stringify({ session: '0b6f3c2e-8d1a-4c5b-9e7f-1a2b3c4d5e6f', index: 2, draft: { eta: 'oltre-30', volte: '4' }, savedAt: Date.now() });
     await openPage({ storage: { [`questionario:${TOKEN}`]: stored } });
     assert.equal(text(document.querySelector('.text')), 'Ti mancano 3 domande su 5: le risposte che avevi dato sono ancora qui, riprendi da dove eri.');

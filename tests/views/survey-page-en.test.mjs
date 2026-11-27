@@ -149,7 +149,7 @@ describe('pagina pubblica in inglese, dall introduzione al grazie', () => {
     await press('Send');
     assert.equal(text(document.querySelector('.reminder-title')), 'You left 2 questions unanswered:');
     assert.equal(document.querySelector('.reminder').getAttribute('aria-label'), 'Unanswered questions');
-    assert.equal(text(document.querySelector('.reminder-text')), 'They are not required: if you prefer, send them as they are.');
+    assert.equal(text(document.querySelector('.reminder-text')), 'They are not required: if you prefer, send your answers as they are.');
     assert.ok(button('Answer the skipped ones'));
     assert.ok(button('Send anyway'));
     noItalian();
@@ -282,11 +282,12 @@ describe('stati senza domande in inglese', () => {
     assert.equal(text(document.querySelector('.text')), 'Survey not available. Please try again later.');
   });
 
-  it('chi ha già risposto da questo dispositivo vede la data scritta all inglese', async () => {
+  // Respondents can be anywhere: the month in words cannot be misread (4 March is never 3 April).
+  it('chi ha già risposto da questo dispositivo vede la data scritta all inglese, con il mese in parole', async () => {
     await openPage({ storage: { [`questionario:${TOKEN}:inviato`]: '2026-11-27' } });
     assert.equal(document.title, 'You have already answered');
     assert.equal(text(document.querySelector('h1')), 'You have already answered, thank you!');
-    assert.equal(text(document.querySelector('.text')), 'Your answers arrived on 27/11/2026: there is no need to fill it in again. You can now close this page.');
+    assert.equal(text(document.querySelector('.text')), 'Your answers arrived on 27 November 2026: there is no need to fill it in again. You can now close this page.');
     noItalian();
   });
 

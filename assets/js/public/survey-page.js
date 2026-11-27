@@ -57,8 +57,9 @@ function errorText(error, fallback) {
   return fallback;
 }
 
-// The day of an earlier answer (yyyy-mm-dd, saved on the device) written the way the respondent reads dates.
-const dayFormat = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+// The day of an earlier answer (yyyy-mm-dd, saved on the device) written the way the respondent reads dates, with the
+// month in words: respondents can be anywhere, and 04/03 is 4 March for some and 3 April for others.
+const dayFormat = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 function dayText(day) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day));
   if (!match) return '';
