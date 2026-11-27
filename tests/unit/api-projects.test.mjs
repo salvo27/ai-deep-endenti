@@ -145,9 +145,9 @@ describe('funzioni del database che vogliono il progetto', () => {
   it('il riepilogo del lunedì chiede anteprima e invio per il progetto aperto', async () => {
     fake.responses.functions.notify = { data: { ok: true }, error: null };
     await api.weeklyPreview();
-    assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'notify', { body: { job: 'weekly-preview', project: PROJECT } }]);
+    assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'notify', { body: { job: 'weekly-preview', project: PROJECT, language: 'it' } }]);
     await api.sendWeeklyNow();
-    assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'notify', { body: { job: 'weekly-now', project: PROJECT } }]);
+    assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'notify', { body: { job: 'weekly-now', project: PROJECT, language: 'it' } }]);
   });
 });
 

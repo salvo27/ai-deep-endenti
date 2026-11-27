@@ -493,15 +493,15 @@ export const api = {
   },
 
   // Riepilogo settimanale, solo per l'admin: la sua anteprima con quante persone lo riceverebbero, e l'invio subito a tutti.
-  // Both for the open project.
+  // Both for the open project; language picks the language of the function's error texts.
   async weeklyPreview() {
     const project = projectId();
-    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-preview', project }, t.failed.weeklyPreview, 'notify');
+    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-preview', project, language }, t.failed.weeklyPreview, 'notify');
   },
 
   async sendWeeklyNow() {
     const project = projectId();
-    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-now', project }, t.failed.weeklySend, 'notify');
+    return invokeFunction(CONFIG.notifyFunction, { job: 'weekly-now', project, language }, t.failed.weeklySend, 'notify');
   },
 
   // I questionari sono tra gli items; le risposte sono solo quelle visibili (questionario e idea non archiviati).
