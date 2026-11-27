@@ -1,3 +1,5 @@
+import { tx } from '../i18n/index.js';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL_CHARS_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
@@ -89,12 +91,11 @@ export function isKey(value) {
 }
 
 export function passwordProblem(password, confirm) {
-  if (typeof password !== 'string' || password.length < 12) return 'La password deve avere almeno 12 caratteri.';
-  if (password.length > 128) return 'La password può avere al massimo 128 caratteri.';
-  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) {
-    return 'Usa lettere minuscole, maiuscole e almeno un numero.';
-  }
-  if (confirm !== undefined && password !== confirm) return 'Le due password non coincidono.';
+  const rules = tx.auth.passwordRules;
+  if (typeof password !== 'string' || password.length < 12) return rules.tooShort;
+  if (password.length > 128) return rules.tooLong;
+  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) return rules.mix;
+  if (confirm !== undefined && password !== confirm) return rules.mismatch;
   return null;
 }
 

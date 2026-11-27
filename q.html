@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,18 +9,20 @@
     />
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Questionario</title>
+    <title>Survey · Questionario</title>
     <!-- Anteprima nei messaggi (WhatsApp, Telegram, email): alla pubblicazione nasce una copia q-<colore>.html per ogni colore della tavolozza (scripts/anteprime.mjs) -->
-    <meta name="description" content="Le risposte sono anonime e all'inizio trovi quanto tempo serve." />
+    <!-- The apps read it without JavaScript, the same for every survey of every project: no survey named, English and Italian. -->
+    <meta name="description" content="Answers are anonymous, and the start tells you how long it takes. · Le risposte sono anonime e all'inizio trovi quanto tempo serve." />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Questionario" />
-    <meta property="og:title" content="Strumenti, abitudini e sfide dei nutrizionisti" />
-    <meta property="og:description" content="Le risposte sono anonime e all'inizio trovi quanto tempo serve." />
+    <meta property="og:site_name" content="Survey · Questionario" />
+    <meta property="og:title" content="Survey · Questionario" />
+    <meta property="og:description" content="Answers are anonymous, and the start tells you how long it takes. · Le risposte sono anonime e all'inizio trovi quanto tempo serve." />
     <meta property="og:image" content="https://salvo27.github.io/ai-deep-endenti/assets/img/anteprima-questionario.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Una scheda con una domanda a scelta e il testo: Strumenti, abitudini e sfide dei nutrizionisti" />
-    <meta property="og:locale" content="it_IT" />
+    <meta property="og:image:alt" content="A card with a multiple-choice question and the words Survey, Questionario" />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:locale:alternate" content="it_IT" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="assets/css/survey.css" />
@@ -32,11 +34,14 @@
     <link rel="modulepreload" href="assets/js/public/survey-flow.js" />
     <link rel="modulepreload" href="assets/js/public/survey-colors.js" />
     <link rel="modulepreload" href="assets/js/public/survey-time.js" />
+    <link rel="modulepreload" href="assets/js/public/texts.js" />
   </head>
   <body>
+    <!-- The page chooses the respondent's language as soon as it starts (assets/js/public/texts.js): what is written
+         here is only seen before that, or without JavaScript, so the no-JavaScript message is in both languages. -->
     <main id="survey" class="survey">
-      <p class="survey-boot" role="status">Caricamento…</p>
-      <noscript><p>Per rispondere al questionario serve JavaScript.</p></noscript>
+      <p class="survey-boot" role="status">Loading… <span lang="it">Caricamento…</span></p>
+      <noscript><p>Per rispondere al questionario serve JavaScript.</p><p lang="en">You need JavaScript to answer this survey.</p></noscript>
     </main>
   </body>
 </html>

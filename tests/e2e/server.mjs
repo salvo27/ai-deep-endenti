@@ -19,8 +19,10 @@ const TYPES = {
 const port = Number(process.argv[2]) || 8091;
 
 createServer(async (req, res) => {
-  const path = normalize(decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
-  if (path === '/favicon.ico') {
+  const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  // Compared before normalize(): on Windows normalize() turns /favicon.ico into \favicon.ico and Chrome got a 404.
+  const path = normalize(urlPath);
+  if (urlPath === '/favicon.ico') {
     res.writeHead(204);
     res.end();
     return;

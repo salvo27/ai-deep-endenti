@@ -1,0 +1,40 @@
+// Same entries as ../it/ai.js, which is the reference: tests/unit/i18n.test.mjs checks it.
+export const ai = {
+  tasks: {
+    critique: 'Critique',
+    next_experiment: 'Next experiment',
+    interview_questions: 'Interview questions',
+    interview_synthesis: 'Interview summary',
+    cell_ideas: 'Ideas for this cell',
+  },
+  context: {
+    status: (label) => `Status: ${label}`,
+    validated: '(validated with data)',
+    us: 'Us',
+    directCompetitor: (name) => `Direct competitor: ${name}`,
+    indirectCompetitor: (name) => `Indirect competitor: ${name}`,
+    feature: (label, importance, who) => `Feature “${label}” (importance ${importance}): ${who}`,
+    nobody: 'nobody',
+    capability: (row) => `Team capability: ${row}`,
+    sector: (col) => `Sector: ${col}`,
+    cellNotes: (text) => `Notes already in the cell:\n${text}`,
+    existingIdeas: (titles) => `Ideas already on the board:\n${titles.map((title) => `- ${title}`).join('\n')}`,
+  },
+  errors: {
+    empty: 'There is not enough content to send to Claude yet.',
+    tooLong: 'There is too much text to send to Claude at once. Reduce the number of interviews or shorten the fields.',
+    invalidTask: 'Invalid request.',
+    emptyResponse: 'Claude did not return a usable answer.',
+  },
+  panel: {
+    reading: 'Claude is reading the board…',
+    copied: 'Text copied.',
+    copyFailed: 'Copy failed.',
+    saveAsComment: 'Save as a comment',
+    savedAsComment: (title) => `Saved in the comments of “${title}”.`,
+    use: 'Use',
+    truncated: 'The answer was cut off because it was too long.',
+    remaining: (n) => `Requests to Claude still available: ${n}`,
+    mistakes: 'Claude can make mistakes: check the facts before you use them.',
+  },
+};

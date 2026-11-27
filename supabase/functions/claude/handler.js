@@ -1,14 +1,20 @@
 import { TASKS, systemPrompt, userMessage } from './prompts.js';
+import { DEFAULT_LANGUAGE, errorText, isLanguage } from './texts.js';
 
 export const MAX_BODY_BYTES = 64 * 1024;
 export const MAX_OUTPUT_CHARS = 20000;
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+const FIELDS = new Set(['task', 'context', 'project', 'language']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// code: il nome dell'errore (texts.js); il testo si sceglie solo alla fine, nella lingua della richiesta.
 export class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
+  constructor(status, code, params = []) {
+    super(code);
     this.status = status;
+    this.code = code;
+    this.params = params;
   }
 }
 
@@ -34,44 +40,64 @@ function json(status, body, cors) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...cors } });
 }
 
-// Validazione a strati: dimensione, poi formato, poi regole di dominio.
-export async function readRequest(req) {
+const failure = (error, language, cors) => json(error.status, { error: errorText(language, error.code, error.params), code: error.code }, cors);
+
+// Prima la dimensione, prima ancora di leggere: oltre il limite non si guarda il contenuto.
+export async function readBody(req) {
   const declared = Number(req.headers.get('content-length') || 0);
-  if (declared > MAX_BODY_BYTES) throw new HttpError(413, 'Richiesta troppo grande.');
+  if (declared > MAX_BODY_BYTES) throw new HttpError(413, 'too_large');
   const raw = await req.text();
-  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) throw new HttpError(413, 'Richiesta troppo grande.');
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) throw new HttpError(413, 'too_large');
+  return raw;
+}
 
-  let body;
+function parseJson(raw) {
   try {
-    body = JSON.parse(raw);
+    const body = JSON.parse(raw);
+    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
   } catch {
-    throw new HttpError(400, 'Richiesta non valida.');
+    return null;
   }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'Richiesta non valida.');
-  const extra = Object.keys(body).filter((k) => k !== 'task' && k !== 'context');
-  if (extra.length || typeof body.task !== 'string' || typeof body.context !== 'string') {
-    throw new HttpError(400, 'Richiesta non valida.');
-  }
+}
 
-  if (!Object.hasOwn(TASKS, body.task)) throw new HttpError(400, 'Compito non riconosciuto.');
+// La lingua degli errori, anche di quelli che arrivano prima della validazione: quella chiesta, se è valida.
+export function requestLanguage(raw) {
+  const language = parseJson(raw)?.language;
+  return isLanguage(language) ? language : DEFAULT_LANGUAGE;
+}
+
+// Validazione a strati: formato, poi progetto e lingua, poi regole di dominio.
+export function parseRequest(raw) {
+  const body = parseJson(raw);
+  if (!body) throw new HttpError(400, 'invalid_request');
+  const extra = Object.keys(body).filter((k) => !FIELDS.has(k));
+  if (extra.length || typeof body.task !== 'string' || typeof body.context !== 'string') throw new HttpError(400, 'invalid_request');
+  if (body.language != null && !isLanguage(body.language)) throw new HttpError(400, 'invalid_request');
+  if (typeof body.project !== 'string' || !UUID.test(body.project)) throw new HttpError(400, 'invalid_project');
+
+  if (!Object.hasOwn(TASKS, body.task)) throw new HttpError(400, 'unknown_task');
   const task = TASKS[body.task];
   const context = body.context.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
-  if (!context) throw new HttpError(400, 'Non c\'è contenuto da analizzare.');
-  if (context.length > task.maxContext) throw new HttpError(413, 'C\'è troppo testo da analizzare in una volta.');
-  return { task: body.task, context };
+  if (!context) throw new HttpError(400, 'empty_context');
+  if (context.length > task.maxContext) throw new HttpError(413, 'context_too_long');
+  return { task: body.task, context, project: body.project.toLowerCase(), language: body.language ?? DEFAULT_LANGUAGE };
+}
+
+export async function readRequest(req) {
+  return parseRequest(await readBody(req));
 }
 
 // Nessuna fiducia nella risposta del modello: si accetta solo testo, di lunghezza limitata.
 export function extractText(message) {
-  if (!message || typeof message !== 'object') throw new HttpError(502, 'Risposta di Claude non valida.');
-  if (message.stop_reason === 'refusal') throw new HttpError(422, 'Claude non può rispondere a questa richiesta.');
+  if (!message || typeof message !== 'object') throw new HttpError(502, 'invalid_response');
+  if (message.stop_reason === 'refusal') throw new HttpError(422, 'refusal');
   const blocks = Array.isArray(message.content) ? message.content : [];
   const text = blocks
     .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text)
     .join('\n')
     .trim();
-  if (!text) throw new HttpError(502, 'Claude non ha restituito testo.');
+  if (!text) throw new HttpError(502, 'empty_response');
   const truncated = message.stop_reason === 'max_tokens' || text.length > MAX_OUTPUT_CHARS;
   return { text: text.slice(0, MAX_OUTPUT_CHARS), truncated };
 }
@@ -88,23 +114,28 @@ export function createHandler(deps) {
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: origin && allowed.includes(origin) ? 204 : 403, headers: cors });
     }
-    if (!origin || !allowed.includes(origin)) return json(403, { error: 'Origine non autorizzata.' }, cors);
-    if (req.method !== 'POST') return json(405, { error: 'Metodo non consentito.' }, cors);
+    if (!origin || !allowed.includes(origin)) return failure(new HttpError(403, 'origin_not_allowed'), DEFAULT_LANGUAGE, cors);
+    if (req.method !== 'POST') return failure(new HttpError(405, 'method_not_allowed'), DEFAULT_LANGUAGE, cors);
 
-    let userId = null;
+    let language = DEFAULT_LANGUAGE;
     try {
-      const caller = await deps.verifyCaller(req.headers.get('authorization'));
-      if (!caller?.userId) throw new HttpError(401, 'Accesso richiesto.');
-      if (!caller.member) throw new HttpError(403, 'Serve un account del team con la verifica in due passaggi.');
-      userId = caller.userId;
+      const raw = await readBody(req);
+      language = requestLanguage(raw);
 
-      const { task, context } = await readRequest(req);
+      // Prima chi è, poi la richiesta, poi se può leggere il progetto che la richiesta nomina.
+      const authorization = req.headers.get('authorization');
+      const caller = await deps.verifyCaller(authorization);
+      if (!caller?.userId) throw new HttpError(401, 'sign_in_required');
+      const userId = caller.userId;
+      const { task, context, project } = parseRequest(raw);
+      if ((await deps.canRead(authorization, project)) !== true) throw new HttpError(403, 'not_member');
 
+      // Il limite è della persona, in tutti i suoi progetti insieme.
       const used = await deps.countUsageToday(userId);
-      if (used >= dailyLimit) throw new HttpError(429, `Hai raggiunto il limite di ${dailyLimit} richieste a Claude nelle ultime 24 ore.`);
+      if (used >= dailyLimit) throw new HttpError(429, 'daily_limit', [dailyLimit]);
       const usageId = await deps.recordUsage({ userId, task });
 
-      const message = await deps.callClaude({ system: systemPrompt(task), user: userMessage(context) });
+      const message = await deps.callClaude({ system: systemPrompt(task, language), user: userMessage(context, language) });
       const { text, truncated } = extractText(message);
       await deps
         .finishUsage(usageId, { model: message.model, inputTokens: message.usage?.input_tokens, outputTokens: message.usage?.output_tokens })
@@ -114,11 +145,11 @@ export function createHandler(deps) {
       return json(200, { text, truncated, remaining: Math.max(0, dailyLimit - used - 1) }, cors);
     } catch (error) {
       if (error instanceof HttpError) {
-        log('claude_rejected', { status: error.status });
-        return json(error.status, { error: error.message }, cors);
+        log('claude_rejected', { status: error.status, code: error.code });
+        return failure(error, language, cors);
       }
       log('claude_failed', { kind: error?.name || 'Error', status: error?.status ?? null });
-      return json(502, { error: 'Claude non è disponibile in questo momento. Riprova più tardi.' }, cors);
+      return failure(new HttpError(502, 'unavailable'), language, cors);
     }
   };
 }

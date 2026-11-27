@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { addDays, shortDate, thisMonday, weekLabel } from '../../assets/js/availability.js';
+import { pinNavigator } from '../setup/language.mjs';
+
+// The week labels these tests expect are worked out here, in Node, which takes the language of the computer running
+// the tests: English on GitHub's Linux runner. They must match the browser, which speaks Italian, so Node is pinned to
+// Italian before the site's module is loaded.
+pinNavigator(globalThis.navigator, 'it');
+const { addDays, shortDate, thisMonday, weekLabel } = await import('../../assets/js/availability.js');
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
 const SURVEY = 'eeeeeeee-0000-4000-8000-000000000001';
@@ -58,12 +64,45 @@ async function open(page, hash) {
   return errors;
 }
 
+// Gira anche nei progetti in inglese (@ogni-lingua): l'anteprima parla la lingua del browser, come il sito.
 for (const hash of PAGES) {
-  test(`${hash}: nessun errore e niente esce dallo schermo`, async ({ page, isMobile }) => {
+  test(`${hash}: nessun errore e niente esce dallo schermo`, { tag: '@ogni-lingua' }, async ({ page }, testInfo) => {
     const errors = await open(page, hash);
+    expect(await page.evaluate(() => document.documentElement.lang), 'la lingua della pagina').toBe(testInfo.project.use.locale.slice(0, 2));
     // Sul telefono una pagina più larga allarga anche innerWidth: si confronta con lo schermo vero.
     const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, window.innerWidth) - window.visualViewport.width);
     expect(overflow, 'la pagina scorre in orizzontale').toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
+
+// The roadmap steps open on a tap and show the links to the book. The longest labels, in English above all, must wrap
+// instead of widening the page, also with a wider font: GitHub's Linux runner draws system-ui with DejaVu Sans, wider
+// than Segoe UI on Windows, and Verdana has about the same widths.
+for (const hash of ['#/guida', `#/idea/${IDEA}/roadmap`]) {
+  test(`${hash}: con tutti i passi aperti e caratteri larghi niente esce dallo schermo`, { tag: '@ogni-lingua' }, async ({ page }) => {
+    const errors = await open(page, hash);
+    await page.addStyleTag({ content: 'body { font-family: Verdana, "DejaVu Sans", sans-serif; }' });
+    const opened = await page.evaluate(() => {
+      const steps = [...document.querySelectorAll('#content details')];
+      steps.forEach((step) => { step.open = true; });
+      return steps.length;
+    });
+    expect(opened, 'i passi da aprire').toBeGreaterThan(0);
+    await page.waitForTimeout(100);
+    const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, window.innerWidth) - window.visualViewport.width);
+    expect(overflow, 'la pagina scorre in orizzontale').toBeLessThanOrEqual(1);
+    // A button or link that reaches past its card is a few pixels away from widening the page with another font.
+    const outside = await page.evaluate(() =>
+      [...document.querySelectorAll('#content .card .btn, #content .card .concept-link')]
+        .filter((el) => {
+          const card = el.closest('.card');
+          const edge = card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
+          return el.getBoundingClientRect().right > edge + 1;
+        })
+        .map((el) => el.textContent.trim()),
+    );
+    expect(outside, 'pulsanti e link oltre il bordo del riquadro').toEqual([]);
     expect(errors).toEqual([]);
   });
 }

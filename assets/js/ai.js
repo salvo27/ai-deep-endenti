@@ -1,20 +1,22 @@
 import { api, AppError } from './lib/api.js';
-import { CANVAS_BLOCKS, KINDS, optionLabel, statusLabel } from './schema.js';
+import { CANVAS_BLOCKS, IMPORTANCE, KINDS, optionLabel, statusLabel } from './schema.js';
 import { fmtDate, fmtMoney } from './lib/format.js';
+import { language, tx } from './i18n/index.js';
+import { currentProjectId } from './store.js';
 
-export const AI_TASKS = {
-  critique: 'Critica',
-  next_experiment: 'Prossimo esperimento',
-  interview_questions: 'Domande per le interviste',
-  interview_synthesis: 'Sintesi delle interviste',
-  cell_ideas: 'Idee per la cella',
-};
+const t = tx.ai;
+
+// Le chiavi restano quelle che la Edge Function conosce; cambiano solo i nomi mostrati.
+export const AI_TASKS = t.tasks;
 
 export const MAX_CONTEXT = 40000;
 
 // Minimizzazione dei dati: a Claude va solo il contenuto delle board, mai persone, contatti o foto.
 const EXCLUDED_TYPES = new Set(['member', 'members', 'image']);
 const EXCLUDED_KEYS = new Set(['contact']);
+// La colonna «noi» della tabella dei concorrenti: l'id salvato resta quello.
+const US = 'noi';
+const importanceLabel = (value) => optionLabel({ options: IMPORTANCE }, value).toLowerCase();
 
 function valueText(def, value) {
   if (value === undefined || value === null || value === '') return null;
@@ -27,26 +29,30 @@ function valueText(def, value) {
   return String(value);
 }
 
+// Le etichette seguono la lingua in uso: Claude legge il contenuto come lo legge il team.
 export function itemText(item, { heading = '#' } = {}) {
   const def = KINDS[item.kind];
   const lines = [`${heading} ${def.label}: ${item.title}`];
-  if (item.status) lines.push(`Stato: ${statusLabel(item.kind, item.status)}`);
+  if (item.status) lines.push(t.context.status(statusLabel(item.kind, item.status)));
   if (item.kind === 'canvas') {
     for (const block of CANVAS_BLOCKS) {
       const value = item.data?.[block.key];
       if (!value) continue;
-      const validated = item.data?.validated?.[block.key] ? ' (validato con dati)' : '';
+      const validated = item.data?.validated?.[block.key] ? ` ${t.context.validated}` : '';
       lines.push(`${block.label}${validated}: ${value}`);
     }
     return lines.join('\n');
   }
   if (item.kind === 'competitors') {
     const data = item.data || {};
-    const names = new Map([['noi', 'Noi'], ...(data.rivals || []).map((r) => [r.id, r.name])]);
-    for (const r of data.rivals || []) lines.push(`Concorrente ${r.type}: ${r.name}${r.note ? ` (${r.note})` : ''}`);
+    const names = new Map([[US, t.context.us], ...(data.rivals || []).map((r) => [r.id, r.name])]);
+    for (const r of data.rivals || []) {
+      const name = `${r.name}${r.note ? ` (${r.note})` : ''}`;
+      lines.push(r.type === 'indiretto' ? t.context.indirectCompetitor(name) : t.context.directCompetitor(name));
+    }
     for (const f of data.features || []) {
       const who = [...names].filter(([id]) => data.cells?.[`${f.id}:${id}`]).map(([, name]) => name);
-      lines.push(`Funzionalità «${f.label}» (importanza ${f.importance}): ${who.length ? who.join(', ') : 'nessuno'}`);
+      lines.push(t.context.feature(f.label, importanceLabel(f.importance), who.length ? who.join(', ') : t.context.nobody));
     }
   }
   for (const f of def.fields) {
@@ -60,9 +66,9 @@ export function itemText(item, { heading = '#' } = {}) {
 export function buildContext(task, { item, idea, canvases = [], experiments = [], interviews = [], boards = [], cell, existingIdeas = [] } = {}) {
   const parts = [];
   if (task === 'cell_ideas') {
-    parts.push(`Capacità del team: ${cell?.row || ''}`, `Settore: ${cell?.col || ''}`);
-    if (cell?.text) parts.push(`Spunti già scritti:\n${cell.text}`);
-    if (existingIdeas.length) parts.push(`Idee già presenti nella board:\n${existingIdeas.map((t) => `- ${t}`).join('\n')}`);
+    parts.push(t.context.capability(cell?.row || ''), t.context.sector(cell?.col || ''));
+    if (cell?.text) parts.push(t.context.cellNotes(cell.text));
+    if (existingIdeas.length) parts.push(t.context.existingIdeas(existingIdeas));
   } else {
     if (idea) parts.push(itemText(idea));
     if (item && item.id !== idea?.id) parts.push(itemText(item));
@@ -72,18 +78,17 @@ export function buildContext(task, { item, idea, canvases = [], experiments = []
     interviews.forEach((interview) => parts.push(itemText(interview, { heading: '##' })));
   }
   const context = parts.filter(Boolean).join('\n\n').trim();
-  if (!context) throw new AppError('Non c\'è ancora abbastanza contenuto da mandare a Claude.', { code: 'empty' });
-  if (context.length > MAX_CONTEXT) {
-    throw new AppError('C\'è troppo testo da mandare a Claude in una volta. Riduci il numero di interviste o accorcia i campi.', { code: 'too_long' });
-  }
+  if (!context) throw new AppError(t.errors.empty, { code: 'empty' });
+  if (context.length > MAX_CONTEXT) throw new AppError(t.errors.tooLong, { code: 'too_long' });
   return context;
 }
 
 export async function askClaude(task, context) {
-  if (!AI_TASKS[task]) throw new AppError('Richiesta non valida.', { code: 'invalid_task' });
-  const response = await api.invokeClaude(task, context);
+  if (!Object.hasOwn(AI_TASKS, task)) throw new AppError(t.errors.invalidTask, { code: 'invalid_task' });
+  // The Edge Function checks that the person is in the open project and answers in the language of the page.
+  const response = await api.invokeClaude(task, context, { project: currentProjectId(), language });
   const text = typeof response?.text === 'string' ? response.text.trim() : '';
-  if (!text) throw new AppError('Claude non ha restituito una risposta utilizzabile.', { code: 'empty_response' });
+  if (!text) throw new AppError(t.errors.emptyResponse, { code: 'empty_response' });
   return {
     text: text.slice(0, 20000),
     truncated: response?.truncated === true,

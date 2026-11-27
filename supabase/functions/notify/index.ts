@@ -1,24 +1,29 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 import { createHandler } from './handler.js';
 
-// Gira dentro Supabase con la chiave di servizio. La chiamano i job di pg_cron, con il segreto condiviso,
-// e il sito per l'anteprima e l'invio a mano del riepilogo, con il token di un admin.
+// Gira dentro Supabase con la chiave di servizio. La chiamano i job di pg_cron, con il segreto condiviso, per tutti i
+// progetti attivi, e il sito per l'anteprima e l'invio a mano del riepilogo di un progetto, con il token del suo admin.
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const admin = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// is_admin controlla ruolo e verifica in due passaggi (aal2) sul token di chi chiama.
-async function verifyAdmin(authorization: string | null) {
+async function verifyCaller(authorization: string | null) {
   if (!authorization?.startsWith('Bearer ')) return null;
   const { data, error } = await admin.auth.getUser(authorization.slice(7));
   if (error || !data?.user) return null;
+  return { userId: data.user.id };
+}
+
+// is_admin controlla, sul token di chi chiama, il ruolo nel progetto, la verifica in due passaggi (aal2) e che il progetto non sia archiviato.
+async function isAdmin(authorization: string | null, project: string) {
+  if (!authorization?.startsWith('Bearer ')) return false;
   const asUser = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY') ?? '', {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: isAdmin, error: rpcError } = await asUser.rpc('is_admin');
-  return { userId: data.user.id, admin: !rpcError && isAdmin === true };
+  const { data, error } = await asUser.rpc('is_admin', { p_project: project });
+  return !error && data === true;
 }
 
 // Gli errori del database diventano un messaggio generico: nei log non finiscono dettagli o dati.
@@ -31,14 +36,15 @@ async function rpc(name: string, params?: Record<string, unknown>) {
 Deno.serve(
   createHandler({
     env: (name: string) => Deno.env.get(name),
-    verifyAdmin,
+    verifyCaller,
+    isAdmin,
     fetch: (url: string, init: RequestInit) => fetch(url, init),
     recipients: () => rpc('notify_recipients'),
     pendingMentions: (since: string) => rpc('notify_pending_mentions', { p_since: since }),
     claimMentions: async (ids: number[]) => ((await rpc('notify_claim_mentions', { p_ids: ids })) ?? []).map((row: { id: number }) => row.id),
     releaseMentions: (ids: number[]) => rpc('notify_release_mentions', { p_ids: ids }),
-    weeklyData: (since: string) => rpc('notify_weekly_data', { p_since: since }),
-    claimWeekly: async (userId: string, week: string) => (await rpc('notify_claim_weekly', { p_user: userId, p_week: week })) === true,
-    releaseWeekly: (userId: string, week: string) => rpc('notify_release_weekly', { p_user: userId, p_week: week }),
+    weeklyData: (project: string, since: string) => rpc('notify_weekly_data', { p_project: project, p_since: since }),
+    claimWeekly: async (userId: string, project: string, week: string) => (await rpc('notify_claim_weekly', { p_user: userId, p_project: project, p_week: week })) === true,
+    releaseWeekly: (userId: string, project: string, week: string) => rpc('notify_release_weekly', { p_user: userId, p_project: project, p_week: week }),
   }),
 );

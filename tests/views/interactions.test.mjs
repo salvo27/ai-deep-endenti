@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, byText, text, typeInto } from '../setup/dom.mjs';
-import { IDS, ME, OTHER, boardItems, item, members } from '../setup/fixtures.mjs';
+import { IDS, ME, OTHER, PROJECT, boardItems, item, members } from '../setup/fixtures.mjs';
 
 let api;
 let store;
@@ -156,7 +156,7 @@ test('comments can be added, edited and deleted by their author only', async () 
 
 test('profile saves name and color, changes the password and manages devices', async () => {
   const log = [];
-  api.updateMember = async (id, patch) => log.push(['member', id, patch]);
+  api.updateProfile = async (patch) => log.push(['profile', patch]);
   api.membersOverview = async () => members();
   api.updatePassword = async (p) => log.push(['password', p]);
   let factors = [
@@ -179,7 +179,7 @@ test('profile saves name and color, changes the password and manages devices', a
   typeInto(profileForm.querySelector('input[type="text"]'), 'Anna B.');
   profileForm.dispatchEvent(new window.Event('submit', { cancelable: true }));
   await flush(5);
-  assert.deepEqual(log[0], ['member', ME, { display_name: 'Anna B.', color: '#4f5bd5' }]);
+  assert.deepEqual(log[0], ['profile', { display_name: 'Anna B.', color: '#4f5bd5' }]);
 
   const [pwd, confirm] = passwordForm.querySelectorAll('input');
   typeInto(pwd, 'Nuova-Password-1');
@@ -227,9 +227,10 @@ test('profile adds a second device through the enrollment flow', async () => {
 
 test('the admin changes roles, removes and adds members', async () => {
   const log = [];
-  api.updateMember = async (id, patch) => log.push(['role', id, patch.role]);
-  api.removeMember = async (id) => log.push(['remove', id]);
-  api.addMember = async (email, name, role) => log.push(['add', email, name, role]);
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
+  api.updateMemberRole = async (project, id, role) => log.push(['role', project, id, role]);
+  api.removeMember = async (project, id) => log.push(['remove', project, id]);
+  api.addMember = async (project, email, name, role) => log.push(['add', project, email, name, role]);
   api.membersOverview = async () => members();
   api.activitySince = async () => [];
   api.auditLog = async () => [];
@@ -241,12 +242,12 @@ test('the admin changes roles, removes and adds members', async () => {
   roleSelect.value = 'advisor';
   roleSelect.dispatchEvent(new window.Event('change'));
   await flush(5);
-  assert.deepEqual(log[0], ['role', OTHER, 'advisor']);
+  assert.deepEqual(log[0], ['role', PROJECT, OTHER, 'advisor']);
   outlet.querySelector('button[title="Rimuovi Bruno"]').click();
   await flush();
   byText(dialog(), 'button', 'Rimuovi').click();
   await flush(5);
-  assert.deepEqual(log[1], ['remove', OTHER]);
+  assert.deepEqual(log[1], ['remove', PROJECT, OTHER]);
   const form = outlet.querySelector('form');
   form.dispatchEvent(new window.Event('submit', { cancelable: true }));
   await flush();
@@ -256,7 +257,7 @@ test('the admin changes roles, removes and adds members', async () => {
   typeInto(name, 'Nuovo Membro');
   form.dispatchEvent(new window.Event('submit', { cancelable: true }));
   await flush(5);
-  assert.deepEqual(log[2], ['add', 'nuovo@test.it', 'Nuovo Membro', 'member']);
+  assert.deepEqual(log[2], ['add', PROJECT, 'nuovo@test.it', 'Nuovo Membro', 'member']);
   assert.equal(mods.team.roleLabel('advisor'), 'Advisor');
   assert.deepEqual([...mods.team.activityCounts([{ author_id: ME }, { author_id: ME }])], [[ME, 2]]);
 });

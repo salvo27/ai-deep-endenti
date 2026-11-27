@@ -1,17 +1,12 @@
 import { cleanLine } from './lib/validate.js';
 import { DAY_KEYS, addDays, dayName, isMonday } from './availability.js';
+import { tx } from './i18n/index.js';
 
 // Ore lavorate: un elemento per persona e per settimana. Gli orari sono minuti dalla mezzanotte, a passi di 15.
 
-// Nome intero per la squadra, nome breve per il menu delle righe.
-export const AREAS = [
-  ['prodotto', 'Prodotto e tecnologia', 'Prodotto'],
-  ['clienti', 'Clienti e vendite', 'Clienti'],
-  ['numeri', 'Numeri e amministrazione', 'Numeri'],
-  ['ricerca', 'Ricerca e interviste', 'Ricerca'],
-  ['altro', 'Altro', 'Altro'],
-];
-export const AREA_KEYS = AREAS.map(([key]) => key);
+// Le chiavi delle aree sono quelle salvate. Nome intero per la squadra, nome breve per il menu delle righe.
+export const AREA_KEYS = ['prodotto', 'clienti', 'numeri', 'ricerca', 'altro']; // i18n-ignore: chiavi salvate
+export const AREAS = AREA_KEYS.map((key) => [key, tx.timesheet.areas[key].long, tx.timesheet.areas[key].short]);
 export const STEP = 15;
 export const DAY_MINUTES = 24 * 60;
 export const MAX_ENTRIES = 100;
@@ -20,8 +15,9 @@ export const MAX_PLEDGE = 80 * 60;
 export const HISTORY_WEEKS = 12;
 const ENTRY_ID_RE = /^[a-z0-9]{1,16}$/;
 
-export const areaLabel = (key) => AREAS.find(([k]) => k === key)?.[1] || 'Altro';
-export const areaShort = (key) => AREAS.find(([k]) => k === key)?.[2] || 'Altro';
+const areaOf = (key) => tx.timesheet.areas[AREA_KEYS.includes(key) ? key : 'altro'];
+export const areaLabel = (key) => areaOf(key).long;
+export const areaShort = (key) => areaOf(key).short;
 const isStep = (value, min, max) => Number.isInteger(value) && value >= min && value <= max && value % STEP === 0;
 
 export function sanitizeEntry(raw) {
@@ -71,13 +67,13 @@ export function overlap(entries) {
   return null;
 }
 
-const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
-
 export function timesheetProblem(data) {
-  if (!data.week) return 'Manca la settimana.';
-  if ((data.entries || []).length > MAX_ENTRIES) return `In una settimana ci stanno al massimo ${MAX_ENTRIES} righe.`;
+  const t = tx.timesheet.problems;
+  if (!data.week) return t.noWeek;
+  if ((data.entries || []).length > MAX_ENTRIES) return t.tooManyRows(MAX_ENTRIES);
   const pair = overlap(data.entries || []);
-  if (pair) return `${capital(dayName(pair[0].day))} due righe si accavallano: ${clockText(pair[0].start)}-${clockText(pair[0].end)} e ${clockText(pair[1].start)}-${clockText(pair[1].end)}.`;
+  const span = (entry) => `${clockText(entry.start)}-${clockText(entry.end)}`;
+  if (pair) return t.overlap(dayName(pair[0].day), span(pair[0]), span(pair[1]));
   return null;
 }
 
@@ -114,12 +110,13 @@ export function parseClock(text, { end = false } = {}) {
   return Math.min(minutes, end ? DAY_MINUTES : DAY_MINUTES - STEP);
 }
 
-// 150 diventa "2 h 30", 45 diventa "45 min", 0 diventa "0 h".
+// 150 diventa "2 h 30", 45 diventa "45 min", 0 diventa "0 h": la forma la danno i testi della lingua.
 export function durationText(minutes) {
+  const t = tx.timesheet.duration;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (!h && m) return `${m} min`;
-  return m ? `${h} h ${String(m).padStart(2, '0')}` : `${h} h`;
+  if (!h && m) return t.minutes(m);
+  return m ? t.hoursMinutes(h, String(m).padStart(2, '0')) : t.hours(h);
 }
 
 // La scheda della settimana vale per chi l'ha scritta: weeks è una mappa lunedì -> dati già puliti.

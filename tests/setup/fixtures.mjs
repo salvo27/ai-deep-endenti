@@ -3,6 +3,19 @@ export const ME = '00000000-0000-4000-8000-00000000000a';
 export const OTHER = '00000000-0000-4000-8000-00000000000b';
 export const ADVISOR = '00000000-0000-4000-8000-00000000000c';
 
+// Progetti di prova: il primo è quello aperto nei test dell'interfaccia.
+export const PROJECT = 'a0000000-0000-4000-8000-000000000001';
+export const PROJECT2 = 'a0000000-0000-4000-8000-000000000002';
+export const PROJECT3 = 'a0000000-0000-4000-8000-000000000003';
+
+// Come li restituisce my_projects(): in ordine di nome.
+export function projects() {
+  return [
+    { id: PROJECT, name: 'Alfa', role: 'admin', created_at: '2026-10-01T10:00:00Z' },
+    { id: PROJECT2, name: 'Beta', role: 'member', created_at: '2026-10-02T10:00:00Z' },
+  ];
+}
+
 export const IDS = {
   idea: '11111111-1111-4111-8111-111111111111',
   idea2: '11111111-1111-4111-8111-111111111112',

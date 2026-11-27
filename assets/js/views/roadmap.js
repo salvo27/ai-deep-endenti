@@ -2,6 +2,7 @@ import { h, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { snapshotOf } from '../lib/diff.js';
 import { fmtDate } from '../lib/format.js';
+import { tx } from '../i18n/index.js';
 import { roadmapState } from '../roadmap.js';
 import { roadmapMark } from '../schema.js';
 import { criteriaList, decisionsFor, getItem, ideas, isExample, itemsOf, memberName, scoreItems, singleton, state } from '../store.js';
@@ -9,8 +10,11 @@ import { conceptByKey } from '../concepts.js';
 import { conceptLink } from './concept-help.js';
 import { saveWithMerge } from './merge.js';
 
-// I passi aperti restano aperti quando la pagina si aggiorna dopo un salvataggio.
+const T = tx.roadmap.page;
+
+// I passi aperti restano aperti quando la pagina si aggiorna dopo un salvataggio. Le fasi della guida non hanno un'idea.
 const openSteps = new Map();
+const GUIDE = 'guide';
 
 export function roadmapContext(idea) {
   const ideaId = idea.id;
@@ -22,7 +26,7 @@ export function roadmapContext(idea) {
     canvases: itemsOf('canvas', { ideaId }),
     experiments: itemsOf('experiment', { ideaId }),
     interviews: itemsOf('interview', { ideaId }),
-    personas: itemsOf('persona', { ideaId }),
+    personas: itemsOf('persona', { ideaId }), // i18n-ignore: tipo di scheda salvato
     vpcs: itemsOf('vpc', { ideaId }),
     markets: itemsOf('market', { ideaId }),
     competitors: itemsOf('competitors', { ideaId }),
@@ -48,7 +52,7 @@ async function setMark(ideaId, step, markState) {
   else delete marks[step.key];
   if (Object.keys(marks).length) next.data.roadmap = marks;
   else delete next.data.roadmap;
-  const message = markState === 'skip' ? `Roadmap: «${step.title}» non serve` : markState ? `Roadmap: «${step.title}» fatto` : `Roadmap: «${step.title}» da fare`;
+  const message = T.saved[markState || 'todo'](step.title);
   try {
     const result = await saveWithMerge(item, base, next, message);
     return !result.cancelled;
@@ -68,16 +72,16 @@ function progressBar(done, total, label) {
 }
 
 function statusLine(s, example) {
-  if (s.suggested) return 'Sembra fatto dai dati del sito: spuntatelo se è davvero completo.';
-  if (s.status === 'skip') return `Non serve, segnato da ${memberName(s.mark.by)} il ${fmtDate(s.mark.at)}.`;
-  if (s.status === 'done') return s.mark ? `Fatto, segnato da ${memberName(s.mark.by)} il ${fmtDate(s.mark.at)}.` : example ? 'Fatto (esempio).' : 'Fatto.';
+  if (s.suggested) return T.suggested;
+  if (s.status === 'skip') return T.skippedBy(memberName(s.mark.by), fmtDate(s.mark.at));
+  if (s.status === 'done') return s.mark ? T.doneBy(memberName(s.mark.by), fmtDate(s.mark.at)) : example ? T.doneExample : T.done;
   return null;
 }
 
 function stepRow(s, { idea, writable, reference }) {
   const { step, status } = s;
   const done = status !== 'todo';
-  const opened = openSteps.get(idea?.id || 'guida') || new Set();
+  const opened = openSteps.get(idea?.id || GUIDE) || new Set();
   let control = null;
   if (!reference) {
     control = h('input', {
@@ -85,7 +89,7 @@ function stepRow(s, { idea, writable, reference }) {
       class: 'rm-check',
       checked: done,
       disabled: !writable,
-      'aria-label': `Fatto: ${step.title}`,
+      'aria-label': T.checkLabel(step.title),
       onChange: async (e) => {
         const box = e.target;
         box.disabled = true;
@@ -104,38 +108,38 @@ function stepRow(s, { idea, writable, reference }) {
       class: 'rm-details',
       open: opened.has(step.key) || (!reference && s.isNext),
       onToggle: (e) => {
-        const set = openSteps.get(idea?.id || 'guida') || new Set();
+        const set = openSteps.get(idea?.id || GUIDE) || new Set();
         if (e.target.open) set.add(step.key);
         else set.delete(step.key);
-        openSteps.set(idea?.id || 'guida', set);
+        openSteps.set(idea?.id || GUIDE, set);
       },
     },
     h(
       'summary',
       null,
       h('span', { class: 'rm-title' }, step.title),
-      step.optional ? h('span', { class: 'chip' }, 'se serve') : null,
+      step.optional ? h('span', { class: 'chip' }, T.optional) : null,
       s.progress && !reference ? h('span', { class: 'chip' }, s.progress) : null,
-      s.isNext && !reference ? h('span', { class: 'badge badge-strong' }, 'Prossimo passo') : null,
+      s.isNext && !reference ? h('span', { class: 'badge badge-strong' }, T.nextBadge) : null,
     ),
     h(
       'div',
       { class: 'rm-body' },
       h('p', null, step.what),
-      h('h4', null, 'Come si fa'),
+      h('h4', null, T.how),
       h('ul', null, step.how.map((text) => h('li', null, text))),
-      h('p', { class: 'rm-done' }, h('strong', null, 'Fatto quando: '), step.done),
-      h('p', { class: 'rm-mistake' }, h('strong', null, 'Errore da evitare: '), step.mistake),
+      h('p', { class: 'rm-done' }, h('strong', null, T.doneWhen), ' ', step.done),
+      h('p', { class: 'rm-mistake' }, h('strong', null, T.mistake), ' ', step.mistake),
       h(
         'div',
         { class: 'row rm-links' },
-        s.href && !reference ? h('a', { class: 'btn btn-ghost btn-small', href: s.href }, 'Vai alla pagina') : null,
-        step.concept ? conceptLink(step.concept, `Nel libro: ${conceptByKey(step.concept)?.term || 'concetto'}`) : null,
+        s.href && !reference ? h('a', { class: 'btn btn-ghost btn-small', href: s.href }, T.goToPage) : null,
+        step.concept ? conceptLink(step.concept, T.inTheBook(conceptByKey(step.concept)?.term || T.concept)) : null,
         writable && !reference && step.optional && status === 'todo'
-          ? h('button', { type: 'button', class: 'link-btn small', onClick: () => setMark(idea.id, step, 'skip') }, 'Non serve per questa idea')
+          ? h('button', { type: 'button', class: 'link-btn small', onClick: () => setMark(idea.id, step, 'skip') }, T.notNeeded)
           : null,
         writable && !reference && status === 'skip'
-          ? h('button', { type: 'button', class: 'link-btn small', onClick: () => setMark(idea.id, step, null) }, 'Riapri il passo')
+          ? h('button', { type: 'button', class: 'link-btn small', onClick: () => setMark(idea.id, step, null) }, T.reopen)
           : null,
       ),
     ),
@@ -153,41 +157,41 @@ export function phaseSection(p, { idea = null, writable = false, reference = fal
   const notOpenYet = !reference && phase.onlyChosen && idea && idea.status !== 'scelta';
   return h(
     'section',
-    { class: ['card', 'rm-phase', !reference && p.complete && 'is-complete'], id: `fase-${phase.key}` },
+    // L'indirizzo #/guida?fase=<chiave> porta a questa sezione: resta uguale in ogni lingua.
+    { class: ['card', 'rm-phase', !reference && p.complete && 'is-complete'], id: `fase-${phase.key}` }, // i18n-ignore: ancora dell'indirizzo
     h(
       'header',
       { class: 'rm-phase-head' },
       h('span', { class: 'rm-n' }, String(p.index + 1)),
       h('div', { class: 'rm-phase-title' }, h('h2', null, phase.title), h('p', { class: 'muted' }, phase.goal)),
-      reference ? null : h('div', { class: 'rm-phase-progress' }, h('span', { class: 'small' }, `${p.done} di ${p.total}`), progressBar(p.done, p.total, `Avanzamento della fase ${phase.title}`)),
+      reference ? null : h('div', { class: 'rm-phase-progress' }, h('span', { class: 'small' }, T.ofTotal(p.done, p.total)), progressBar(p.done, p.total, T.phaseProgress(phase.title))),
     ),
     phase.note ? h('p', { class: 'small muted' }, phase.note) : null,
-    notOpenYet ? h('p', { class: 'banner' }, 'Questa fase si apre quando l\'idea è «Scelta». Potete già leggerla per prepararvi.') : null,
+    notOpenYet ? h('p', { class: 'banner' }, T.opensWhenChosen) : null,
     !reference && !notOpenYet && p.previousIncomplete && p.done < p.total
-      ? h('p', { class: 'banner banner-warn' }, icon('flag', 14), ' La fase precedente non è completa. ', phase.skipRisk)
+      ? h('p', { class: 'banner banner-warn' }, icon('flag', 14), ' ', T.previousIncomplete, ' ', phase.skipRisk)
       : null,
     h('ol', { class: 'rm-steps' }, p.steps.map((s) => stepRow(s, { idea, writable, reference }))),
-    h('p', { class: 'rm-gate' }, icon('flag', 14), h('span', null, h('strong', null, 'Prima di andare avanti: '), phase.gate)),
+    h('p', { class: 'rm-gate' }, icon('flag', 14), h('span', null, h('strong', null, T.beforeMovingOn), ' ', phase.gate)),
   );
 }
 
 export function roadmapPanel(idea, { writable }) {
   const rm = ideaRoadmap(idea);
+  const where = [T.stepsDone(rm.done, rm.total), rm.current ? T.currentPhase(rm.current.phase.title) : null].filter(Boolean).join(' · ');
   return h(
     'div',
     { class: 'stack' },
     h(
       'section',
       { class: 'card rm-summary' },
-      h('div', { class: 'rm-summary-head' }, h('h2', null, icon('compass', 18), 'Roadmap dell\'idea'), h('strong', null, `${rm.percent}%`)),
-      progressBar(rm.done, rm.total, 'Avanzamento della roadmap'),
-      h('p', { class: 'small' }, `${rm.done} passi su ${rm.total}`, rm.current ? ` · fase attuale: ${rm.current.phase.title}` : ''),
-      rm.next ? h('p', null, h('strong', null, 'Prossimo passo: '), rm.next.step.title, h('span', { class: 'muted' }, ` (fase ${rm.next.phase.title})`)) : h('p', null, 'Tutti i passi sono completati.'),
-      h(
-        'p',
-        { class: 'muted small' },
-        'Un passo è fatto solo quando lo spuntate voi, e ogni spunta si può togliere. Se i dati del sito fanno pensare che un passo sia fatto, ve lo suggerisce. Le fasi vanno in ordine: saltarne una aumenta il rischio.',
-      ),
+      h('div', { class: 'rm-summary-head' }, h('h2', null, icon('compass', 18), T.title), h('strong', null, `${rm.percent}%`)),
+      progressBar(rm.done, rm.total, T.progress),
+      h('p', { class: 'small' }, where),
+      rm.next
+        ? h('p', null, h('strong', null, T.nextLabel), ' ', rm.next.step.title, ' ', h('span', { class: 'muted' }, T.inPhase(rm.next.phase.title)))
+        : h('p', null, T.allDone),
+      h('p', { class: 'muted small' }, T.howItWorks),
     ),
     rm.phases.map((p) => phaseSection(p, { idea, writable })),
   );
@@ -203,17 +207,16 @@ export function roadmapBox(idea, { sample } = {}) {
     h(
       'div',
       { class: 'next-step-head' },
-      h('h2', null, icon('compass', 18), `Prossimo passo · ${rm.next ? rm.next.phase.title : 'Roadmap completata'}`),
-      h('span', { class: 'muted small' }, `${rm.done} di ${rm.total} · ${rm.percent}%`),
+      h('h2', null, icon('compass', 18), T.boxTitle(rm.next ? rm.next.phase.title : T.complete)),
+      h('span', { class: 'muted small' }, `${T.ofTotal(rm.done, rm.total)} · ${rm.percent}%`),
     ),
-    progressBar(rm.done, rm.total, 'Avanzamento della roadmap'),
-    nextStep ? h('p', null, h('strong', null, nextStep.title), h('br'), h('span', { class: 'muted small' }, `Fatto quando: ${nextStep.done}`)) : h('p', null, 'Tutti i passi della roadmap sono completati.'),
+    progressBar(rm.done, rm.total, T.progress),
+    nextStep ? h('p', null, h('strong', null, nextStep.title), h('br'), h('span', { class: 'muted small' }, `${T.doneWhen} ${nextStep.done}`)) : h('p', null, T.boxAllDone),
     h(
       'div',
       { class: 'row' },
-      h('a', { class: 'btn btn-primary btn-small', href: `#/idea/${idea.id}/roadmap` }, icon('compass', 14), h('span', null, 'Apri la roadmap')),
-      sample ? h('a', { class: 'btn btn-example btn-small', href: `#/idea/${sample.id}/roadmap` }, icon('idea', 14), h('span', null, `Esempio: ${sample.title.split(':')[0]}`)) : null,
+      h('a', { class: 'btn btn-primary btn-small', href: `#/idea/${idea.id}/roadmap` }, icon('compass', 14), h('span', null, T.open)),
+      sample ? h('a', { class: 'btn btn-example btn-small', href: `#/idea/${sample.id}/roadmap` }, icon('idea', 14), h('span', null, T.example(sample.title.split(':')[0]))) : null,
     ),
   );
 }
-

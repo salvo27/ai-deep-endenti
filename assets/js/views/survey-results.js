@@ -1,7 +1,8 @@
 import { busy, confirmDialog, h, mount, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { downloadFile, fmtDate, fmtDateTime, plural, slugFile } from '../lib/format.js';
+import { dayKey, downloadFile, fmtDate, fmtDateTime, slugFile } from '../lib/format.js';
 import { api } from '../lib/api.js';
+import { language, locale, tx } from '../i18n/index.js';
 import { createItem, itemsOf } from '../store.js';
 import {
   DEVICE_LABELS,
@@ -25,8 +26,21 @@ import {
 } from '../survey-stats.js';
 import { errorBox, loading } from './components.js';
 
+const t = tx.surveyEditor;
+const texts = t.results;
+
+// Valori salvati: restano in italiano in ogni lingua.
+const TO_CONTACT = 'da_contattare'; // i18n-ignore
+
+// Excel divide le colonne con «;» se il computer è impostato in italiano, con «,» se è in inglese.
+const CSV_SEPARATOR = language === 'it' ? ';' : ',';
+
+// Mediane, minimi e massimi con i decimali e le migliaia della lingua in uso.
+const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
+const num = (value) => numberFormat.format(value);
+
 // Percentuale sempre con il numero accanto: «45% (9 su 20)».
-const shareText = (count, total) => `${fmtShare(share(count, total))} (${count} su ${total})`;
+const shareText = (count, total) => `${fmtShare(share(count, total))} (${texts.ofTotal(count, total)})`;
 
 function bar(label, count, total, { extra } = {}) {
   const value = share(count, total);
@@ -45,25 +59,26 @@ function funnelCard(funnel) {
   return h(
     'section',
     { class: 'card stack sv-funnel' },
-    h('h2', null, 'Imbuto'),
+    h('h2', null, texts.funnel),
     h('div', { class: 'sv-bars' }, funnel.steps.map((step) => bar(step.label, step.count, top))),
     h(
       'p',
       { class: 'small' },
-      h('strong', null, `Completamento: ${fmtShare(funnel.completionRate)}`),
-      ` (${funnel.steps[3].count} completati su ${funnel.starts} iniziati). Le percentuali sono sul numero più alto tra visite e inizi. Le visite si contano una volta per dispositivo.`,
+      h('strong', null, texts.completion(fmtShare(funnel.completionRate))),
+      ' ',
+      texts.funnelNote(funnel.steps[3].count, funnel.starts),
     ),
   );
 }
 
 function textList(stat, label) {
-  const items = stat.map((t) => h('li', { dataset: { text: t.text.toLowerCase() } }, h('span', { class: 'muted small' }, `Risposta ${t.n}: `), h('span', { class: 'text-block' }, t.text)));
+  const items = stat.map((x) => h('li', { dataset: { text: x.text.toLowerCase() } }, h('span', { class: 'muted small' }, `${texts.response(x.n)}: `), h('span', { class: 'text-block' }, x.text)));
   const list = h('ul', { class: 'sv-texts' }, items);
   const search = h('input', {
     class: 'input input-small',
     type: 'search',
-    placeholder: 'Cerca nelle risposte',
-    'aria-label': `Cerca nelle risposte: ${label}`,
+    placeholder: texts.search,
+    'aria-label': texts.searchIn(label),
     onInput: (e) => {
       const needle = e.target.value.trim().toLowerCase();
       for (const li of items) li.hidden = Boolean(needle) && !li.dataset.text.includes(needle);
@@ -74,12 +89,13 @@ function textList(stat, label) {
 
 function questionCard(stat, number) {
   const q = stat.question;
+  const other = q.other_label || t.other;
   const base = h(
     'p',
     { class: 'muted small' },
-    `Hanno risposto ${stat.answered} su ${stat.reached} arrivati fin qui · senza risposta ${shareText(stat.skipped, stat.reached)}`,
-    stat.breakoff ? ` · si sono fermati qui ${stat.breakoff}` : '',
-    stat.rushed ? h('span', { class: 'sv-rushed', title: 'Meno di 0,3 secondi per parola della domanda: difficile averla letta' }, ` · troppo in fretta ${stat.rushed}`) : null,
+    `${texts.answered(stat.answered, stat.reached)} · ${texts.noAnswer(shareText(stat.skipped, stat.reached))}`,
+    stat.breakoff ? ` · ${texts.stoppedHere(stat.breakoff)}` : '',
+    stat.rushed ? h('span', { class: 'sv-rushed', title: texts.rushedHint }, ` · ${texts.rushed(stat.rushed)}`) : null,
   );
   let body = null;
   if (stat.options) {
@@ -87,39 +103,40 @@ function questionCard(stat, number) {
       'div',
       { class: 'sv-bars' },
       stat.options.map((o) => bar(o.label, o.count, stat.answered)),
-      q.allow_other ? bar(q.other_label || 'Altro', stat.other.length, stat.answered) : null,
-      q.prefer_not ? bar('Preferisco non rispondere', stat.preferNot, stat.answered) : null,
-      stat.multiple ? h('p', { class: 'muted small' }, 'Più risposte possibili: le percentuali non sommano a 100.') : null,
-      stat.other.length ? h('details', { class: 'sv-other' }, h('summary', null, `Testi di «${q.other_label || 'Altro'}» (${stat.other.length})`), textList(stat.other, `${q.label}, ${q.other_label || 'Altro'}`)) : null,
+      q.allow_other ? bar(other, stat.other.length, stat.answered) : null,
+      q.prefer_not ? bar(t.preferNotToSay, stat.preferNot, stat.answered) : null,
+      stat.multiple ? h('p', { class: 'muted small' }, texts.multiple) : null,
+      stat.other.length ? h('details', { class: 'sv-other' }, h('summary', null, texts.otherTexts(other, stat.other.length)), textList(stat.other, `${q.label}, ${other}`)) : null,
     );
   } else if (stat.distribution) {
+    const label = Number.isInteger(stat.median) ? scaleLabel(q, stat.median) : '';
     body = h(
       'div',
       { class: 'sv-bars' },
       stat.distribution.map((d) => bar(`${d.value}${d.label ? ` ${d.label}` : ''}`, d.count, stat.answered)),
-      h('p', { class: 'small' }, stat.median === null ? 'Mediana: -' : `Mediana: ${String(stat.median).replace('.', ',')}${Number.isInteger(stat.median) && scaleLabel(q, stat.median) ? ` (${scaleLabel(q, stat.median)})` : ''} · n = ${stat.answered}`),
+      h('p', { class: 'small' }, stat.median === null ? texts.median('-') : `${texts.median(num(stat.median))}${label ? ` (${label})` : ''} · n = ${stat.answered}`),
     );
   } else if (q.type === 'numero') {
-    body = h('p', { class: 'small' }, stat.answered ? `Mediana ${String(stat.median).replace('.', ',')} · da ${stat.min} a ${stat.max} · n = ${stat.answered}` : 'Nessuna risposta.');
+    body = h('p', { class: 'small' }, stat.answered ? `${texts.numberSummary({ median: num(stat.median), min: num(stat.min), max: num(stat.max) })} · n = ${stat.answered}` : texts.noAnswers);
   } else if (q.type === 'email') {
-    body = h('p', { class: 'small' }, `Email lasciate: ${stat.answered}, di cui ${stat.recontact} chiedono di essere ricontattate.`);
+    body = h('p', { class: 'small' }, texts.emails(stat.answered, stat.recontact));
   } else {
-    body = stat.texts.length ? textList(stat.texts, q.label) : h('p', { class: 'muted small' }, 'Nessuna risposta.');
+    body = stat.texts.length ? textList(stat.texts, q.label) : h('p', { class: 'muted small' }, texts.noAnswers);
   }
-  return h('article', { class: 'card stack sv-question', dataset: { id: q.id } }, h('h3', null, `D${number}. ${q.label}`), base, body);
+  return h('article', { class: 'card stack sv-question', dataset: { id: q.id } }, h('h3', null, `${t.questionNumber(number)}. ${q.label}`), base, body);
 }
 
 function durationCard(stats) {
   return h(
     'section',
     { class: 'card stack' },
-    h('h2', null, 'Tempo di compilazione'),
+    h('h2', null, texts.duration),
     stats.n
       ? [
-          h('p', null, h('strong', null, `Mediana: ${fmtDuration(stats.median)}`), ` (n = ${stats.n} compilazioni complete)`),
-          h('ul', { class: 'sv-devices' }, stats.byDevice.map((d) => h('li', null, `${DEVICE_LABELS[d.device] || 'Dispositivo non indicato'}: ${fmtDuration(d.median)} (n = ${d.n})`))),
+          h('p', null, h('strong', null, texts.median(fmtDuration(stats.median))), ` ${texts.completeRuns(stats.n)}`),
+          h('ul', { class: 'sv-devices' }, stats.byDevice.map((d) => h('li', null, `${DEVICE_LABELS[d.device] || texts.unknownDevice}: ${fmtDuration(d.median)} (n = ${d.n})`))),
         ]
-      : h('p', { class: 'muted small' }, 'Ancora nessuna compilazione completa con la durata.'),
+      : h('p', { class: 'muted small' }, texts.noDurations),
   );
 }
 
@@ -129,22 +146,23 @@ function qualityCard(flags, exclude, onToggle) {
   return h(
     'section',
     { class: 'card stack sv-quality' },
-    h('h2', null, 'Qualità delle risposte'),
-    h('label', { class: 'check' }, toggle, `Escludi le risposte segnalate (${flags.size})`),
+    h('h2', null, texts.quality),
+    h('label', { class: 'check' }, toggle, texts.excludeFlagged(flags.size)),
     flags.size
       ? h('ul', { class: 'sv-flag-list' }, Object.entries(counts).filter(([, n]) => n).map(([code, n]) => h('li', null, `${FLAG_LABELS[code]}: ${n}`)))
-      : h('p', { class: 'muted small' }, 'Nessuna risposta segnalata.'),
-    h('p', { class: 'muted small' }, 'Le segnalazioni non cancellano nulla: guardate le risposte e decidete voi. La velocità si confronta con la mediana solo da 20 compilazioni complete in su. Una domanda è «troppo in fretta» se è stata risposta in meno di 0,3 secondi per parola: i tempi per domanda ci sono solo nelle compilazioni nuove.'),
+      : h('p', { class: 'muted small' }, texts.noFlags),
+    h('p', { class: 'muted small' }, texts.qualityNote),
   );
 }
 
 function responseDetails(survey, response, flags, { writable, onDelete }) {
-  const status = response.completed ? 'completata' : 'interrotta';
-  const parts = [`Risposta ${response.n}`, fmtDateTime(response.created_at), status];
+  const status = response.completed ? texts.complete : texts.unfinished;
+  const parts = [texts.response(response.n), fmtDateTime(response.created_at), status];
   if (Number.isFinite(response.duration_seconds)) parts.push(fmtDuration(response.duration_seconds));
   if (response.device) parts.push(DEVICE_LABELS[response.device] || response.device);
-  const remove = writable ? h('button', { type: 'button', class: 'btn btn-small btn-ghost' }, icon('trash', 14), h('span', null, 'Cancella questa risposta')) : null;
+  const remove = writable ? h('button', { type: 'button', class: 'btn btn-small btn-ghost' }, icon('trash', 14), h('span', null, texts.deleteOne)) : null;
   remove?.addEventListener('click', busy(remove, () => onDelete(response)));
+  const { yes, no } = tx.common.states;
   return h(
     'details',
     { class: 'sv-response', dataset: { n: String(response.n) } },
@@ -154,10 +172,10 @@ function responseDetails(survey, response, flags, { writable, onDelete }) {
       { class: 'sv-answers' },
       askedQuestions(survey).map((q) => {
         const value = answerText(q, response, { scaleWithLabel: true });
-        const rushed = isRushed(q, response) ? h('span', { class: 'badge badge-warn sv-rushed-badge', title: 'Meno di 0,3 secondi per parola della domanda' }, 'troppo in fretta') : null;
+        const rushed = isRushed(q, response) ? h('span', { class: 'badge badge-warn sv-rushed-badge', title: texts.rushedBadgeHint }, texts.rushedBadge) : null;
         return [h('dt', null, q.label), h('dd', { class: value === null ? 'muted' : 'text-block' }, value === null ? '-' : String(value), rushed)];
       }),
-      response.email ? [h('dt', null, 'Da ricontattare'), h('dd', null, response.recontact ? 'sì' : 'no')] : null,
+      response.email ? [h('dt', null, texts.contactAgain), h('dd', null, (response.recontact ? yes : no).toLowerCase())] : null,
     ),
     remove,
   );
@@ -166,22 +184,22 @@ function responseDetails(survey, response, flags, { writable, onDelete }) {
 function openCsvDialog(item, rows, flags) {
   const withEmail = h('input', { type: 'checkbox' });
   openModal({
-    title: 'Scarica le risposte',
+    title: texts.csvTitle,
     body: h(
       'div',
       { class: 'stack' },
-      h('p', null, `Un file CSV con ${plural(rows.length, 'riga', 'righe')}, una per risposta, che si apre con Excel, Numbers o Fogli Google.`),
-      h('label', { class: 'check' }, withEmail, 'Includi le email'),
-      h('p', { class: 'muted small' }, 'Le email sono dati personali: includile solo se servono e non condividete il file.'),
+      h('p', null, texts.csvIntro(rows.length)),
+      h('label', { class: 'check' }, withEmail, texts.csvEmails),
+      h('p', { class: 'muted small' }, texts.csvEmailsNote),
     ),
     actions: [
-      { label: 'Annulla', value: false },
+      { label: tx.common.actions.cancel, value: false },
       {
-        label: 'Scarica',
+        label: tx.common.actions.download,
         kind: 'primary',
         onClick: () => {
-          const csv = responsesCsv(item.data, rows, { includeEmail: withEmail.checked, flags });
-          downloadFile(`questionario-${slugFile(item.title)}-${new Date().toISOString().slice(0, 10)}.csv`, `﻿${csv}`, 'text/csv;charset=utf-8');
+          const csv = responsesCsv(item.data, rows, { includeEmail: withEmail.checked, flags, separator: CSV_SEPARATOR });
+          downloadFile(texts.csvFile(slugFile(item.title), dayKey(new Date())), `﻿${csv}`, 'text/csv;charset=utf-8');
           return false;
         },
       },
@@ -196,18 +214,18 @@ async function addContacts(item, entries) {
     await createItem(
       'contact',
       {
-        title: entry.persona ? `${entry.persona} (risposta ${entry.n})` : `Risposta ${entry.n} al questionario`,
-        status: 'da_contattare',
+        title: entry.persona ? texts.contactTitle(entry.persona, entry.n) : texts.contactTitleAnonymous(entry.n),
+        status: TO_CONTACT,
         idea_id: item.idea_id,
         data: {
           purpose: 'cliente',
           role: entry.persona || undefined,
-          via: `Questionario «${item.title}»`,
+          via: texts.contactVia(item.title),
           contact: entry.email,
-          notes: `La persona ha chiesto di essere ricontattata nella risposta ${entry.n} del ${fmtDate(entry.created_at)}.`,
+          notes: texts.contactNotes(entry.n, fmtDate(entry.created_at)),
         },
       },
-      `Dal questionario «${item.title}»`,
+      texts.contactMessage(item.title),
     );
     added += 1;
   }
@@ -218,13 +236,13 @@ function contactsCard(item, rows, { writable, rerender }) {
   const { fresh, already } = contactCandidates(item.data, rows, itemsOf('contact', { ideaId: item.idea_id }));
   const total = fresh.length + already.length;
   if (!total) return null;
-  const addButton = writable && fresh.length ? h('button', { type: 'button', class: 'btn btn-primary' }, icon('users', 16), h('span', null, `Aggiungi ai Contatti (${fresh.length})`)) : null;
+  const addButton = writable && fresh.length ? h('button', { type: 'button', class: 'btn btn-primary' }, icon('users', 16), h('span', null, texts.addToContacts(fresh.length))) : null;
   addButton?.addEventListener(
     'click',
     busy(addButton, async () => {
       try {
         const added = await addContacts(item, fresh);
-        toast(`${plural(added, 'persona aggiunta', 'persone aggiunte')} ai Contatti.`, { type: 'success' });
+        toast(texts.added(added), { type: 'success' });
       } catch (error) {
         toast(error.message, { type: 'error' });
       }
@@ -234,17 +252,17 @@ function contactsCard(item, rows, { writable, rerender }) {
   return h(
     'section',
     { class: 'card stack sv-contacts' },
-    h('h2', null, 'Persone da ricontattare'),
-    h('p', null, `${plural(total, 'persona ha', 'persone hanno')} lasciato l'email per essere ricontattat${total === 1 ? 'a' : 'e'}${already.length ? `; ${already.length} già nei Contatti` : ''}.`),
+    h('h2', null, texts.people),
+    h('p', null, texts.leftEmail(total, already.length)),
     h(
       'ul',
       { class: 'sv-people' },
       [...fresh, ...already].map((c) =>
-        h('li', null, h('span', null, c.email), c.persona ? h('span', { class: 'muted small' }, ` · ${c.persona}`) : null, already.includes(c) ? h('span', { class: 'badge badge-ok' }, 'già nei Contatti') : null),
+        h('li', null, h('span', null, c.email), c.persona ? h('span', { class: 'muted small' }, ' · ', c.persona) : null, already.includes(c) ? h('span', { class: 'badge badge-ok' }, texts.alreadyInContacts) : null),
       ),
     ),
     addButton,
-    fresh.length ? h('p', { class: 'muted small' }, 'Ogni persona diventa un contatto dell\'idea «da contattare», con l\'email e il questionario da cui arriva.') : null,
+    fresh.length ? h('p', { class: 'muted small' }, texts.contactsHelp) : null,
   );
 }
 
@@ -264,11 +282,11 @@ export function resultsPanel(item, { writable }) {
   }
 
   async function deleteOne(response) {
-    const ok = await confirmDialog(`La risposta ${response.n} verrà cancellata per sempre.`, { title: 'Cancellare la risposta?', okLabel: 'Cancella', danger: true });
+    const ok = await confirmDialog(texts.deleteOneText(response.n), { title: texts.deleteOneTitle, okLabel: texts.deleteOk, danger: true });
     if (!ok) return;
     try {
       await api.deleteSurveyResponses(item.id, [response.id]);
-      toast('Risposta cancellata.', { type: 'success' });
+      toast(texts.deletedOne, { type: 'success' });
       await load();
     } catch (error) {
       toast(error.message, { type: 'error' });
@@ -276,11 +294,11 @@ export function resultsPanel(item, { writable }) {
   }
 
   async function deleteAll() {
-    const ok = await confirmDialog(`Tutte le ${view.responses.length} risposte verranno cancellate per sempre, insieme al conteggio di visite e inizi.`, { title: 'Cancellare tutte le risposte?', okLabel: 'Cancella tutte', danger: true });
+    const ok = await confirmDialog(texts.deleteAllText(view.responses.length), { title: texts.deleteAllTitle, okLabel: texts.deleteAllOk, danger: true });
     if (!ok) return;
     try {
       const n = await api.deleteSurveyResponses(item.id);
-      toast(`${plural(n, 'risposta cancellata', 'risposte cancellate')}.`, { type: 'success' });
+      toast(texts.deleted(n), { type: 'success' });
       await load();
     } catch (error) {
       toast(error.message, { type: 'error' });
@@ -293,19 +311,19 @@ export function resultsPanel(item, { writable }) {
     const flags = qualityFlags(survey, all);
     const rows = view.exclude ? withoutFlagged(all, flags) : all;
     const stats = questionStats(survey, rows);
-    const refresh = h('button', { type: 'button', class: 'btn btn-small btn-ghost' }, icon('restore', 14), h('span', null, 'Aggiorna'));
+    const refresh = h('button', { type: 'button', class: 'btn btn-small btn-ghost' }, icon('restore', 14), h('span', null, texts.refresh));
     refresh.addEventListener('click', busy(refresh, load));
-    const removeAll = writable && all.length ? h('button', { type: 'button', class: 'btn btn-small btn-ghost sv-danger' }, icon('trash', 14), h('span', null, 'Cancella tutte le risposte')) : null;
+    const removeAll = writable && all.length ? h('button', { type: 'button', class: 'btn btn-small btn-ghost sv-danger' }, icon('trash', 14), h('span', null, texts.deleteAll)) : null;
     removeAll?.addEventListener('click', busy(removeAll, deleteAll));
     let number = 0;
     mount(
       host,
-      h('p', { class: 'banner sv-sample' }, 'Chi risponde a un link condiviso non è un campione rappresentativo: questi numeri descrivono chi ha risposto, non tutte le persone del vostro target. Servono soprattutto a trovare chi intervistare.'),
+      h('p', { class: 'banner sv-sample' }, texts.sample),
       h(
         'div',
         { class: 'toolbar toolbar-wrap' },
         refresh,
-        all.length ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => openCsvDialog(item, rows, flags) }, icon('download', 14), h('span', null, 'Scarica CSV')) : null,
+        all.length ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => openCsvDialog(item, rows, flags) }, icon('download', 14), h('span', null, texts.downloadCsv)) : null,
         removeAll,
       ),
       funnelCard(funnelSteps(view.funnel)),
@@ -317,16 +335,16 @@ export function resultsPanel(item, { writable }) {
             }),
             durationCard(durationStats(rows)),
             contactsCard(item, rows, { writable, rerender: render }),
-            h('h2', { class: 'section-title' }, `Domande (${plural(rows.length, 'risposta', 'risposte')}${view.exclude ? ', senza le segnalate' : ''})`),
+            h('h2', { class: 'section-title' }, texts.questionsTitle(rows.length, view.exclude)),
             stats.map((stat) => questionCard(stat, (number += 1))),
             h(
               'section',
               { class: 'stack' },
-              h('h2', null, `Singole risposte (${rows.length})`),
+              h('h2', null, texts.single(rows.length)),
               rows.map((r) => responseDetails(survey, r, flags, { writable, onDelete: deleteOne })),
             ),
           ]
-        : h('div', { class: 'empty' }, h('p', null, 'Ancora nessuna risposta. Aprite il questionario e condividete il link dalla scheda Condividi.')),
+        : h('div', { class: 'empty' }, h('p', null, texts.empty)),
     );
   }
 

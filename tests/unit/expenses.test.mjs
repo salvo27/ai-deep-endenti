@@ -49,6 +49,21 @@ test('amounts are parsed in Italian or English notation, in minor units, and ref
   assert.equal(parseAmount('1,5', 'JPY'), null);
 });
 
+test('uno zero davanti non apre mai un gruppo di migliaia: 0.500 non diventa 500 euro', () => {
+  for (const [typed, expected] of [
+    ['0.500', null],
+    ['0.500.000', null],
+    ['00.500', null],
+    ['0.50', 50],
+    ['0.5', 50],
+    ['1.500', 150000],
+    ['999.999', 99999900],
+  ]) {
+    assert.equal(parseAmount(typed), expected, typed);
+  }
+  assert.equal(parseAmount('0.500', 'JPY'), null, 'lo yen non ha decimali e 0.500 non sono migliaia');
+});
+
 test('amounts are shown with the currency and with the decimals of that currency', () => {
   assert.equal(currencyDigits('EUR'), 2);
   assert.equal(currencyDigits('JPY'), 0);

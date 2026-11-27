@@ -1,19 +1,24 @@
 import { h, mount, svg } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { shortId } from '../lib/format.js';
+import { tx } from '../i18n/index.js';
 import { IMPORTANCE, optionLabel } from '../schema.js';
 import { conceptButton } from './concept-help.js';
 import { fieldsGrid } from './components.js';
 
 const IMPORTANCE_ORDER = { alta: 0, media: 1, bassa: 2 };
 const importanceDef = { options: IMPORTANCE };
+// Stored keys: the column of "us" in the comparison cells and the type of each competitor.
 const US = 'noi';
+const DIRECT = 'diretto';
+const INDIRECT = 'indiretto';
 
-const columnsOf = (data) => [{ id: US, name: 'Noi', type: 'noi' }, ...(data.rivals || [])];
+const columnsOf = (data) => [{ id: US, name: tx.analysis.competitors.us, type: US }, ...(data.rivals || [])];
 
 export function benchmarkTable(data) {
+  const texts = tx.analysis.competitors;
   const features = [...(data.features || [])].sort((a, b) => IMPORTANCE_ORDER[a.importance] - IMPORTANCE_ORDER[b.importance]);
-  if (!features.length) return h('p', { class: 'muted' }, 'Nessuna funzionalità da confrontare.');
+  if (!features.length) return h('p', { class: 'muted' }, texts.noFeatures);
   const columns = columnsOf(data);
   return h(
     'div',
@@ -27,9 +32,9 @@ export function benchmarkTable(data) {
         h(
           'tr',
           null,
-          h('th', null, 'Funzionalità'),
-          h('th', null, 'Importanza'),
-          columns.map((col) => h('th', { class: col.id === US && 'is-us', title: col.type === 'indiretto' ? 'Concorrente indiretto' : undefined }, col.name, col.type === 'indiretto' ? h('span', { class: 'muted small' }, ' (ind.)') : null)),
+          h('th', null, texts.feature),
+          h('th', null, texts.importance),
+          columns.map((col) => h('th', { class: col.id === US && 'is-us', title: col.type === INDIRECT ? texts.indirectHint : undefined }, col.name, col.type === INDIRECT ? h('span', { class: 'muted small' }, ` ${texts.indirectShort}`) : null)),
         ),
       ),
       h(
@@ -43,7 +48,7 @@ export function benchmarkTable(data) {
             h('td', null, h('span', { class: ['badge', f.importance === 'alta' ? 'badge-strong' : 'badge-soft'] }, optionLabel(importanceDef, f.importance))),
             columns.map((col) => {
               const has = data.cells?.[`${f.id}:${col.id}`] === true;
-              return h('td', { class: ['bm-cell', has && 'has', col.id === US && 'is-us'], 'aria-label': has ? 'sì' : 'no' }, has ? icon('check', 16) : h('span', { class: 'muted' }, '-'));
+              return h('td', { class: ['bm-cell', has && 'has', col.id === US && 'is-us'], 'aria-label': has ? tx.common.states.yes : tx.common.states.no }, has ? icon('check', 16) : h('span', { class: 'muted' }, '-'));
             }),
           ),
         ),
@@ -53,11 +58,12 @@ export function benchmarkTable(data) {
 }
 
 export function positionChart(data) {
+  const texts = tx.analysis.competitors;
   const points = columnsOf(data)
     .map((col) => ({ ...col, ...(col.id === US ? data.us || {} : {}) }))
     .filter((p) => Number.isInteger(p.x) && Number.isInteger(p.y));
   const axes = data.axes || {};
-  if (!points.length) return h('p', { class: 'muted' }, 'Indica la posizione dei concorrenti per vedere il grafico.');
+  if (!points.length) return h('p', { class: 'muted' }, texts.noPositions);
   const px = (x) => 30 + x * 26;
   const py = (y) => 290 - y * 26;
   const shapes = [
@@ -70,36 +76,37 @@ export function positionChart(data) {
   ];
   for (const p of points) {
     const us = p.id === US;
-    shapes.push(svg('circle', { cx: px(p.x), cy: py(p.y), r: us ? 8 : 6, class: us ? 'pc-us' : p.type === 'indiretto' ? 'pc-indirect' : 'pc-direct' }));
+    shapes.push(svg('circle', { cx: px(p.x), cy: py(p.y), r: us ? 8 : 6, class: us ? 'pc-us' : p.type === INDIRECT ? 'pc-indirect' : 'pc-direct' }));
     shapes.push(svg('text', { x: px(p.x), y: py(p.y) - 11, class: ['pc-name', us && 'is-us'].filter(Boolean).join(' '), 'text-anchor': 'middle' }, p.name));
   }
   const missing = columnsOf(data).filter((col) => !points.some((p) => p.id === col.id));
   return h(
     'figure',
     { class: 'position-chart' },
-    svg('svg', { viewBox: '0 0 320 320', role: 'img', 'aria-label': `Grafico: ${axes.x?.label || 'asse orizzontale'} e ${axes.y?.label || 'asse verticale'}` }, ...shapes),
+    svg('svg', { viewBox: '0 0 320 320', role: 'img', 'aria-label': texts.chartLabel(axes.x?.label || texts.horizontalAxis, axes.y?.label || texts.verticalAxis) }, ...shapes),
     h(
       'figcaption',
       { class: 'muted small' },
-      `Orizzontale: ${axes.x?.label || '-'} · Verticale: ${axes.y?.label || '-'}`,
-      missing.length ? ` · Senza posizione: ${missing.map((m) => m.name).join(', ')}` : '',
+      texts.caption(axes.x?.label || '-', axes.y?.label || '-'),
+      missing.length ? ` · ${texts.noPosition(missing.map((m) => m.name).join(', '))}` : '',
     ),
   );
 }
 
 export function competitorsView(item) {
+  const texts = tx.analysis.competitors;
   const data = item.data;
   const rivals = data.rivals || [];
   return h(
     'div',
     { class: 'stack' },
-    h('div', { class: 'section-label' }, 'Tabella di confronto', conceptButton('benchmarking')),
+    h('div', { class: 'section-label' }, texts.comparison, conceptButton('benchmarking')),
     benchmarkTable(data),
     h('div', { class: 'competitors-bottom' }, positionChart(data), rivals.length
       ? h(
           'ul',
           { class: 'list rival-list' },
-          rivals.map((r) => h('li', null, h('strong', null, r.name), h('span', { class: 'badge badge-soft' }, r.type === 'indiretto' ? 'Indiretto' : 'Diretto'), r.note ? h('span', { class: 'muted small' }, r.note) : null)),
+          rivals.map((r) => h('li', null, h('strong', null, r.name), h('span', { class: 'badge badge-soft' }, r.type === INDIRECT ? texts.indirect : texts.direct), r.note ? h('span', { class: 'muted small' }, r.note) : null)),
         )
       : null),
     fieldsGrid(item),
@@ -123,6 +130,7 @@ function numberInput(value, onSet, label, placeholder = '') {
 }
 
 export function competitorsEditor(working, onChange) {
+  const texts = tx.analysis.competitors;
   const d = working.data;
   d.rivals = d.rivals || [];
   d.features = d.features || [];
@@ -147,7 +155,7 @@ export function competitorsEditor(working, onChange) {
             h(
               'table',
               { class: 'table benchmark' },
-              h('thead', null, h('tr', null, h('th', null, 'Chi offre cosa'), columns.map((col) => h('th', { class: col.id === US && 'is-us' }, col.name || 'Senza nome')))),
+              h('thead', null, h('tr', null, h('th', null, texts.whoOffers), columns.map((col) => h('th', { class: col.id === US && 'is-us' }, col.name || texts.unnamed)))),
               h(
                 'tbody',
                 null,
@@ -155,7 +163,7 @@ export function competitorsEditor(working, onChange) {
                   h(
                     'tr',
                     null,
-                    h('th', { scope: 'row' }, f.label || 'Senza nome'),
+                    h('th', { scope: 'row' }, f.label || texts.unnamed),
                     columns.map((col) => {
                       const key = `${f.id}:${col.id}`;
                       return h(
@@ -164,7 +172,7 @@ export function competitorsEditor(working, onChange) {
                         h('input', {
                           type: 'checkbox',
                           checked: d.cells[key] === true,
-                          'aria-label': `${f.label} offerta da ${col.name}`,
+                          'aria-label': texts.offeredBy(f.label, col.name),
                           onChange: (e) => {
                             if (e.target.checked) d.cells[key] = true;
                             else delete d.cells[key];
@@ -178,7 +186,7 @@ export function competitorsEditor(working, onChange) {
               ),
             ),
           )
-        : h('p', { class: 'muted small' }, 'Aggiungi le funzionalità per compilare la tabella.'),
+        : h('p', { class: 'muted small' }, texts.addFeaturesFirst),
     );
   };
 
@@ -189,17 +197,17 @@ export function competitorsEditor(working, onChange) {
         h(
           'div',
           { class: 'edit-row' },
-          h('input', { class: 'input', type: 'text', maxlength: 80, value: rival.name || '', placeholder: 'Nome del concorrente', 'aria-label': 'Nome del concorrente', onInput: (e) => { rival.name = e.target.value; onChange(); renderMatrix(); } }),
+          h('input', { class: 'input', type: 'text', maxlength: 80, value: rival.name || '', placeholder: texts.rivalName, 'aria-label': texts.rivalName, onInput: (e) => { rival.name = e.target.value; onChange(); renderMatrix(); } }),
           h(
             'select',
-            { class: 'input input-small', 'aria-label': 'Tipo di concorrente', onChange: (e) => { rival.type = e.target.value; onChange(); } },
-            h('option', { value: 'diretto', selected: rival.type !== 'indiretto' }, 'Diretto'),
-            h('option', { value: 'indiretto', selected: rival.type === 'indiretto' }, 'Indiretto'),
+            { class: 'input input-small', 'aria-label': texts.rivalType, onChange: (e) => { rival.type = e.target.value; onChange(); } },
+            h('option', { value: DIRECT, selected: rival.type !== INDIRECT }, texts.direct),
+            h('option', { value: INDIRECT, selected: rival.type === INDIRECT }, texts.indirect),
           ),
-          numberInput(rival.x, (v) => { rival.x = v; onChange(); }, `Posizione orizzontale di ${rival.name}`, 'Oriz.'),
-          numberInput(rival.y, (v) => { rival.y = v; onChange(); }, `Posizione verticale di ${rival.name}`, 'Vert.'),
-          h('input', { class: 'input', type: 'text', maxlength: 300, value: rival.note || '', placeholder: 'Nota: prezzo, punti di forza', 'aria-label': 'Nota sul concorrente', onInput: (e) => { rival.note = e.target.value; onChange(); } }),
-          h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Togli ${rival.name || 'concorrente'}`, onClick: () => {
+          numberInput(rival.x, (v) => { rival.x = v; onChange(); }, texts.horizontalOf(rival.name), texts.horizontalShort),
+          numberInput(rival.y, (v) => { rival.y = v; onChange(); }, texts.verticalOf(rival.name), texts.verticalShort),
+          h('input', { class: 'input', type: 'text', maxlength: 300, value: rival.note || '', placeholder: texts.notePlaceholder, 'aria-label': texts.noteLabel, onInput: (e) => { rival.note = e.target.value; onChange(); } }),
+          h('button', { type: 'button', class: 'icon-btn', 'aria-label': texts.remove(rival.name || texts.rival), onClick: () => {
             d.rivals.splice(index, 1);
             for (const key of Object.keys(d.cells)) if (key.endsWith(`:${rival.id}`)) delete d.cells[key];
             onChange();
@@ -208,8 +216,8 @@ export function competitorsEditor(working, onChange) {
         ),
       ),
       d.rivals.length < 15
-        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.rivals.push({ id: newId('c'), name: '', type: 'diretto' }); renderAll(); } }, icon('plus', 14), h('span', null, 'Aggiungi un concorrente'))
-        : h('p', { class: 'muted small' }, 'Massimo 15 concorrenti: tieni quelli che contano per il cliente.'),
+        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.rivals.push({ id: newId('c'), name: '', type: DIRECT }); renderAll(); } }, icon('plus', 14), h('span', null, texts.addRival))
+        : h('p', { class: 'muted small' }, texts.maxRivals),
     );
   };
 
@@ -220,13 +228,13 @@ export function competitorsEditor(working, onChange) {
         h(
           'div',
           { class: 'edit-row' },
-          h('input', { class: 'input', type: 'text', maxlength: 120, value: feature.label || '', placeholder: 'Funzionalità che conta per il cliente', 'aria-label': 'Funzionalità', onInput: (e) => { feature.label = e.target.value; onChange(); renderMatrix(); } }),
+          h('input', { class: 'input', type: 'text', maxlength: 120, value: feature.label || '', placeholder: texts.featurePlaceholder, 'aria-label': texts.feature, onInput: (e) => { feature.label = e.target.value; onChange(); renderMatrix(); } }),
           h(
             'select',
-            { class: 'input input-small', 'aria-label': 'Importanza per il cliente', onChange: (e) => { feature.importance = e.target.value; onChange(); } },
-            IMPORTANCE.map(([value, label]) => h('option', { value, selected: (feature.importance || 'media') === value }, `Importanza ${label.toLowerCase()}`)),
+            { class: 'input input-small', 'aria-label': texts.importanceLabel, onChange: (e) => { feature.importance = e.target.value; onChange(); } },
+            IMPORTANCE.map(([value, label]) => h('option', { value, selected: (feature.importance || 'media') === value }, texts.importanceOption(label))),
           ),
-          h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Togli ${feature.label || 'funzionalità'}`, onClick: () => {
+          h('button', { type: 'button', class: 'icon-btn', 'aria-label': texts.remove(feature.label || texts.featureWord), onClick: () => {
             d.features.splice(index, 1);
             for (const key of Object.keys(d.cells)) if (key.startsWith(`${feature.id}:`)) delete d.cells[key];
             onChange();
@@ -235,7 +243,7 @@ export function competitorsEditor(working, onChange) {
         ),
       ),
       d.features.length < 20
-        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.features.push({ id: newId('f'), label: '', importance: 'alta' }); renderAll(); } }, icon('plus', 14), h('span', null, 'Aggiungi una funzionalità'))
+        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.features.push({ id: newId('f'), label: '', importance: 'alta' }); renderAll(); } }, icon('plus', 14), h('span', null, texts.addFeature))
         : null,
     );
   };
@@ -257,8 +265,8 @@ export function competitorsEditor(working, onChange) {
           type: 'text',
           maxlength: prop === 'label' ? 60 : 40,
           value: d.axes[axis][prop] || '',
-          placeholder: { label: 'Cosa misura', low: 'Valore basso (0)', high: 'Valore alto (10)' }[prop],
-          'aria-label': `${name}: ${prop}`,
+          placeholder: texts.axisPlaceholders[prop],
+          'aria-label': `${name}: ${texts.axisPlaceholders[prop]}`,
           onInput: (e) => { d.axes[axis][prop] = e.target.value; onChange(); },
         }),
       ),
@@ -268,16 +276,16 @@ export function competitorsEditor(working, onChange) {
   return h(
     'div',
     { class: 'competitors-editor stack' },
-    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, 'Concorrenti', conceptButton('concorrenti')), h('p', { class: 'muted small' }, 'Diretti e indiretti. Le due cifre (da 0 a 10) sono la posizione nel grafico.'), rivalsHost),
-    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, 'Funzionalità da confrontare', conceptButton('benchmarking')), h('p', { class: 'muted small' }, 'Solo quelle importanti per il cliente; evita quelle che hanno tutti.'), featuresHost),
-    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, 'Tabella di confronto'), matrixHost),
+    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, texts.rivalsTitle, conceptButton('concorrenti')), h('p', { class: 'muted small' }, texts.rivalsHelp), rivalsHost),
+    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, texts.featuresTitle, conceptButton('benchmarking')), h('p', { class: 'muted small' }, texts.featuresHelp), featuresHost),
+    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, texts.comparison), matrixHost),
     h(
       'section',
       { class: 'stack' },
-      h('h2', { class: 'form-group-title' }, 'Grafico a due assi'),
-      axisInputs('x', 'Asse orizzontale'),
-      axisInputs('y', 'Asse verticale'),
-      h('div', { class: 'edit-row' }, h('span', { class: 'field-label' }, 'La nostra posizione'), numberInput(d.us.x, (v) => { d.us.x = v; onChange(); }, 'Nostra posizione orizzontale', 'Oriz.'), numberInput(d.us.y, (v) => { d.us.y = v; onChange(); }, 'Nostra posizione verticale', 'Vert.')),
+      h('h2', { class: 'form-group-title' }, texts.chartTitle),
+      axisInputs('x', texts.horizontal),
+      axisInputs('y', texts.vertical),
+      h('div', { class: 'edit-row' }, h('span', { class: 'field-label' }, texts.ourPosition), numberInput(d.us.x, (v) => { d.us.x = v; onChange(); }, texts.ourHorizontal, texts.horizontalShort), numberInput(d.us.y, (v) => { d.us.y = v; onChange(); }, texts.ourVertical, texts.verticalShort)),
     ),
   );
 }

@@ -32,33 +32,41 @@ import {
   scaleEnds,
 } from '../scoring.js';
 import { navigate, setLeaveGuard } from '../router.js';
+import { textsFor, tx } from '../i18n/index.js';
+import { LANGUAGES } from '../i18n/languages.js';
 import { archiveWithConfirm } from './actions.js';
 import { saveWithMerge } from './merge.js';
 import { avatar, button, emptyState, errorBox, itemLink, pageHeader } from './components.js';
 
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const t = tx.scoring;
 const signed = (n) => (n > 0 ? `+${n}` : String(n));
 const fmtMean = (v) => (v === null ? '-' : v.toFixed(1));
-const placing = (p) => (p ? `${p.rank}° · ${p.score}` : '-');
+const placing = (p) => (p ? t.place(p.rank, p.score) : '-');
+
+// Gli indirizzi della pagina restano uguali in ogni lingua.
+const PAGE = '#/valutazione'; // i18n-ignore
+const MINE_HREF = '#/valutazione?vista=miei'; // i18n-ignore
+const PHOTOS_PATH = '/valutazione?vista=fotografie'; // i18n-ignore
+const compareHref = (from, to) => `#${PHOTOS_PATH}&da=${from}&a=${to}`; // i18n-ignore
 
 // Cosa manca a una descrizione per spiegare la scala; stringa vuota se è chiara.
 function endsProblem(description) {
   const { high, low } = scaleEnds(description);
   if (high && low) return '';
-  if (!high && !low) return 'Non dice cosa vuol dire 5 e cosa vuol dire 1.';
-  return high ? 'Non dice cosa vuol dire 1.' : 'Non dice cosa vuol dire 5.';
+  if (!high && !low) return t.criterion.noEnds;
+  return high ? t.criterion.noLow : t.criterion.noHigh;
 }
 
 export function criteriaEditor(current, onSave) {
   const rows = current.map((c) => ({ ...c }));
   const host = h('div');
-  const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: 'Perché cambiano i criteri? (facoltativo)' });
+  const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: t.editor.messagePlaceholder });
   const criterionRow = (row, i) => {
     const warning = h('small', { class: 'crit-warn' });
     const tr = h(
       'tr',
       null,
-      h('td', null, h('input', { class: 'input', value: row.label, maxlength: 80, 'aria-label': 'Nome del criterio', onInput: (e) => (row.label = e.target.value) })),
+      h('td', null, h('input', { class: 'input', value: row.label, maxlength: 80, 'aria-label': t.editor.criterionName, onInput: (e) => (row.label = e.target.value) })),
       h(
         'td',
         null,
@@ -67,7 +75,7 @@ export function criteriaEditor(current, onSave) {
           value: row.description || '',
           maxlength: 240,
           placeholder: '5 = ...; 1 = ...',
-          'aria-label': 'Descrizione',
+          'aria-label': t.editor.description,
           onInput: (e) => {
             row.description = e.target.value;
             check();
@@ -75,13 +83,13 @@ export function criteriaEditor(current, onSave) {
         }),
         warning,
       ),
-      h('td', null, h('select', { class: 'input', 'aria-label': 'Peso', onChange: (e) => (row.weight = Number(e.target.value)) }, [0, 1, 2, 3, 4, 5].map((w) => h('option', { value: w, selected: w === row.weight }, `×${w}`)))),
+      h('td', null, h('select', { class: 'input', 'aria-label': t.editor.weight, onChange: (e) => (row.weight = Number(e.target.value)) }, [0, 1, 2, 3, 4, 5].map((w) => h('option', { value: w, selected: w === row.weight }, `×${w}`)))),
       h(
         'td',
         { class: 'row-actions' },
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Su', disabled: i === 0, onClick: () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; render(); } }, '↑'),
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Giù', disabled: i === rows.length - 1, onClick: () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; render(); } }, '↓'),
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Rimuovi', onClick: () => { rows.splice(i, 1); render(); } }, '×'),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.editor.up, disabled: i === 0, onClick: () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; render(); } }, '↑'),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.editor.down, disabled: i === rows.length - 1, onClick: () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; render(); } }, '↓'),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.editor.remove, onClick: () => { rows.splice(i, 1); render(); } }, '×'),
       ),
     );
     // Si aggiorna mentre si scrive, senza ridisegnare la tabella e perdere il cursore.
@@ -96,49 +104,45 @@ export function criteriaEditor(current, onSave) {
   };
   const render = () => {
     mount(host,
-      h('p', { class: 'muted small' }, 'Nella descrizione scrivi cosa vuol dire 5 e cosa vuol dire 1, per esempio «5 = ...; 1 = ...»: così nessuno legge la scala al contrario.'),
+      h('p', { class: 'muted small' }, t.editor.help),
       h(
         'table',
         { class: 'table criteria-table' },
-        h('thead', null, h('tr', null, h('th', null, 'Criterio'), h('th', null, 'Descrizione'), h('th', null, 'Peso'), h('th', null, ''))),
+        h('thead', null, h('tr', null, h('th', null, t.editor.criterion), h('th', null, t.editor.description), h('th', null, t.editor.weight), h('th', null, ''))),
         h('tbody', null, rows.map(criterionRow)),
       ),
-      h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { rows.push({ key: `${slugKey('nuovo')}-${shortId().slice(0, 4)}`, label: 'Nuovo criterio', description: '', weight: 1 }); render(); } }, icon('plus', 14), 'Aggiungi criterio'),
-      h(
-        'p',
-        { class: 'muted small' },
-        'Peso ×0 = il criterio si vota ma non conta nel punteggio. Togliere un criterio non cancella i voti già dati: tornano se lo rimetti. Se cambi i pesi, aggiungi o togli criteri, prima si salva da sola una fotografia dei voti, per poter confrontare prima e dopo.',
-      ),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Messaggio della modifica'), message),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { rows.push({ key: newKey(), label: t.editor.newCriterion, description: '', weight: 1 }); render(); } }, icon('plus', 14), t.editor.add),
+      h('p', { class: 'muted small' }, t.editor.rules),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.editor.message), message),
     );
   };
   render();
   openModal({
-    title: 'Criteri di valutazione',
+    title: t.editor.title,
     wide: true,
     body: host,
     actions: [
-      { label: 'Annulla', value: false },
-      { label: 'Salva i criteri', kind: 'primary', onClick: async () => !(await onSave(rows, message.value)) },
+      { label: tx.common.actions.cancel, value: false },
+      { label: t.editor.save, kind: 'primary', onClick: async () => !(await onSave(rows, message.value)) },
     ],
   });
 }
+
+// La chiave di un criterio nuovo è un dato salvato: resta la stessa in ogni lingua.
+const newKey = () => `${slugKey('nuovo')}-${shortId().slice(0, 4)}`; // i18n-ignore
 
 // Prima di un cambio che sposta la classifica si salva una fotografia, per poter confrontare prima e dopo.
 // Restituisce false se la fotografia non riesce e si sceglie di non continuare.
 async function photoBeforeCriteria(before, after) {
   const hasVotes = scoreItems().some((s) => Object.keys(s.data?.scores || {}).length);
   if (!hasVotes || !criteriaWeightsChanged(before, after)) return true;
-  const title = `${nextPhotoName()}, prima di cambiare i criteri`;
+  const title = t.photos.beforeCriteria(nextPhotoName());
   try {
-    await createItem('scoresnap', { title, data: currentPhoto() }, `Fotografia: ${title}`);
-    toast(`Prima di cambiare i criteri è stata salvata la fotografia «${title}».`, { type: 'success' });
+    await createItem('scoresnap', { title, data: currentPhoto() }, t.photos.message(title));
+    toast(t.photos.savedBeforeCriteria(title), { type: 'success' });
     return true;
   } catch (error) {
-    return confirmDialog(
-      `Non è stato possibile salvare una fotografia dei voti prima del cambio (${error.message}). Senza fotografia non potrai confrontare la classifica di prima con quella nuova. Salvare comunque i criteri?`,
-      { title: 'Fotografia non salvata', okLabel: 'Salva comunque i criteri' },
-    );
+    return confirmDialog(t.photos.failedQuestion(error.message), { title: t.photos.failedTitle, okLabel: t.photos.saveAnyway });
   }
 }
 
@@ -149,12 +153,12 @@ async function saveCriteria(rows, message) {
       const next = sanitizeSnapshot('criteria', { data: { criteria: rows } }).data.criteria;
       if (!(await photoBeforeCriteria(item.data?.criteria || [], next))) return false;
       const base = snapshotOf(item);
-      const result = await saveWithMerge(item, base, { ...base, data: { criteria: rows } }, message || 'Criteri aggiornati');
+      const result = await saveWithMerge(item, base, { ...base, data: { criteria: rows } }, message || t.editor.updateMessage);
       if (result.cancelled) return false;
     } else {
-      await createItem('criteria', { title: 'Criteri di valutazione', data: { criteria: rows } }, message || 'Criteri iniziali');
+      await createItem('criteria', { title: t.editor.title, data: { criteria: rows } }, message || t.editor.firstMessage);
     }
-    toast('Criteri salvati.', { type: 'success' });
+    toast(t.editor.saved, { type: 'success' });
     return true;
   } catch (error) {
     toast(error.message, { type: 'error' });
@@ -188,15 +192,15 @@ function evidenceChips(evidence) {
   return h(
     'div',
     { class: 'evidence' },
-    h('span', { class: ['ev-chip', !e.conversations && 'is-warn'] }, e.conversations ? plural(e.conversations, 'conversazione', 'conversazioni') : 'Nessuna conversazione'),
-    h('span', { class: ['ev-chip', !e.commitments && 'is-zero'] }, plural(e.commitments, 'impegno', 'impegni')),
-    h('span', { class: ['ev-chip', !e.experiments && 'is-zero'] }, plural(e.experiments, 'esperimento concluso', 'esperimenti conclusi')),
+    h('span', { class: ['ev-chip', !e.conversations && 'is-warn'] }, e.conversations ? t.evidence.conversations(e.conversations) : t.evidence.noConversations),
+    h('span', { class: ['ev-chip', !e.commitments && 'is-zero'] }, t.evidence.commitments(e.commitments)),
+    h('span', { class: ['ev-chip', !e.experiments && 'is-zero'] }, t.evidence.experiments(e.experiments)),
   );
 }
 
-const EVIDENCE_LEGEND = 'Sotto ogni idea: conversazioni vere (interviste fatte, senza le ricerche a tavolino), impegni concreti (disponibili a un pilota o a pagare) ed esperimenti conclusi.';
+const EVIDENCE_LEGEND = t.evidence.legend;
 
-const closeAction = [{ label: 'Chiudi', value: false }];
+const closeAction = [{ label: tx.common.actions.close, value: false }];
 
 function showCriterion(c) {
   const problem = endsProblem(c.description);
@@ -205,9 +209,9 @@ function showCriterion(c) {
     body: h(
       'div',
       { class: 'stack' },
-      c.description ? h('p', null, c.description) : h('p', { class: 'muted' }, 'Nessuna descrizione.'),
-      h('p', { class: 'muted' }, c.weight ? `Peso ×${c.weight}.` : 'Peso ×0: si vota ma non conta nel punteggio.'),
-      problem ? h('p', { class: 'crit-warn' }, `${problem} Prima di votare chiedete a chi gestisce i criteri di scriverlo.`) : null,
+      c.description ? h('p', null, c.description) : h('p', { class: 'muted' }, t.criterion.noDescription),
+      h('p', { class: 'muted' }, c.weight ? t.criterion.weight(c.weight) : t.criterion.weightZero),
+      problem ? h('p', { class: 'crit-warn' }, t.criterion.unclear(problem)) : null,
     ),
     actions: closeAction,
   });
@@ -222,16 +226,10 @@ function showCell({ idea, criterion, stats, voters, nameOf }) {
       'div',
       { class: 'stack cell-detail' },
       criterion.description ? h('p', { class: 'muted' }, criterion.description) : null,
-      h('p', null, h('strong', null, stats.mean === null ? 'Nessun voto.' : `Media: ${fmtMean(stats.mean)} su 5`)),
+      h('p', null, h('strong', null, stats.mean === null ? t.cell.noVotes : t.cell.mean(fmtMean(stats.mean)))),
       stats.byMember.length ? h('ul', null, stats.byMember.map((v) => h('li', null, `${nameOf(v.memberId)}: ${v.value}`))) : null,
-      missing.length ? h('p', { class: 'muted' }, `${missing.length === 1 ? 'Non ha ancora votato' : 'Non hanno ancora votato'}: ${missing.map(nameOf).join(', ')}.`) : null,
-      stats.disagreement
-        ? h(
-            'p',
-            { class: 'crit-warn' },
-            `Segnalata come disaccordo: i voti vanno da ${stats.min} a ${stats.max}, cioè distano ${stats.spread} punti. Il segnale scatta da ${DISAGREEMENT_SPREAD} punti in su: conviene parlarne.`,
-          )
-        : null,
+      missing.length ? h('p', { class: 'muted' }, t.cell.notYet(missing.length, missing.map(nameOf).join(', '))) : null,
+      stats.disagreement ? h('p', { class: 'crit-warn' }, t.cell.disagreement(stats.min, stats.max, stats.spread, DISAGREEMENT_SPREAD)) : null,
     ),
     actions: closeAction,
   });
@@ -240,19 +238,19 @@ function showCell({ idea, criterion, stats, voters, nameOf }) {
 function showMissing(idea, missing, criteria) {
   const labelOf = new Map(criteria.map((c) => [c.key, c.label]));
   openModal({
-    title: 'Voti mancanti',
+    title: t.missing.title,
     body: h(
       'div',
       { class: 'stack' },
-      h('p', null, `Su «${idea.title}» mancano ancora questi voti:`),
+      h('p', null, t.missing.intro(idea.title)),
       h(
         'ul',
         null,
         missing.map((m) =>
-          h('li', null, `${memberName(m.memberId)}: ${m.keys.length === criteria.length ? 'nessun voto su questa idea' : m.keys.map((k) => labelOf.get(k)).join(', ')}`),
+          h('li', null, `${memberName(m.memberId)}: ${m.keys.length === criteria.length ? t.missing.allOfIdea : m.keys.map((k) => labelOf.get(k)).join(', ')}`),
         ),
       ),
-      h('p', { class: 'muted' }, 'Ognuno vota dalla scheda «I miei voti».'),
+      h('p', { class: 'muted' }, t.missing.where),
     ),
     actions: closeAction,
   });
@@ -273,10 +271,9 @@ function hrefWith(query, changes) {
     else next.set(key, value);
   }
   const search = next.toString();
-  return `#/valutazione${search ? `?${search}` : ''}`;
+  return `${PAGE}${search ? `?${search}` : ''}`;
 }
 
-const PHOTOS_PATH = '/valutazione?vista=fotografie';
 const photoItems = () => itemsOf('scoresnap').sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
 // La situazione di adesso nello stesso formato di una fotografia, per salvarla o confrontarla.
@@ -292,20 +289,23 @@ function currentPhoto() {
   }).data;
 }
 
-// Il numero continua anche dopo archiviazioni e rinomine, così non si ripete.
+// Il numero continua anche dopo archiviazioni e rinomine, così non si ripete: vale anche per i nomi dati
+// in un'altra lingua da chi ha il sito in italiano o in inglese («Fotografia 3», "Snapshot 4").
+const PHOTO_NUMBER = new RegExp(`^(?:${LANGUAGES.map((lang) => textsFor(lang).scoring.photos.prefix).join('|')}) (\\d+)\\b`);
+
 function nextPhotoName() {
   const all = itemsOf('scoresnap', { includeDeleted: true });
-  const numbers = all.map((p) => Number(/^Fotografia (\d+)\b/.exec(p.title)?.[1]) || 0);
-  return `Fotografia ${Math.max(all.length, ...numbers) + 1}`;
+  const numbers = all.map((p) => Number(PHOTO_NUMBER.exec(p.title)?.[1]) || 0);
+  return t.photos.numbered(Math.max(all.length, ...numbers) + 1);
 }
 
 function nameDialog({ title, value, okLabel, intro, save }) {
-  const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.title, value, 'aria-label': 'Nome della fotografia' });
+  const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.title, value, 'aria-label': t.photos.nameLabel });
   openModal({
     title,
-    body: h('div', { class: 'stack' }, intro ? h('p', { class: 'muted' }, intro) : null, h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome'), name)),
+    body: h('div', { class: 'stack' }, intro ? h('p', { class: 'muted' }, intro) : null, h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.photos.name), name)),
     actions: [
-      { label: 'Annulla', value: false },
+      { label: tx.common.actions.cancel, value: false },
       {
         label: okLabel,
         kind: 'primary',
@@ -325,13 +325,13 @@ function nameDialog({ title, value, okLabel, intro, save }) {
 
 function takePhoto() {
   nameDialog({
-    title: 'Salva una fotografia',
+    title: t.photos.takeTitle,
     value: nextPhotoName(),
-    okLabel: 'Salva fotografia',
-    intro: 'Salva criteri, pesi e voti di tutti come sono adesso. Potrai confrontarla con le fotografie successive o con la situazione del momento.',
+    okLabel: t.photos.take,
+    intro: t.photos.takeIntro,
     save: async (title) => {
-      await createItem('scoresnap', { title, data: currentPhoto() }, `Fotografia: ${title}`);
-      toast('Fotografia salvata.', { type: 'success' });
+      await createItem('scoresnap', { title, data: currentPhoto() }, t.photos.message(title));
+      toast(t.photos.saved, { type: 'success' });
       navigate(PHOTOS_PATH, { replace: true });
     },
   });
@@ -339,14 +339,14 @@ function takePhoto() {
 
 function renamePhoto(photo) {
   nameDialog({
-    title: 'Rinomina la fotografia',
+    title: t.photos.renameTitle,
     value: photo.title,
-    okLabel: 'Rinomina',
+    okLabel: tx.common.actions.rename,
     save: async (title) => {
       const current = getItem(photo.id) || photo;
       const base = snapshotOf(current);
-      const result = await saveWithMerge(current, base, { ...base, title }, `Fotografia rinominata in «${title}»`);
-      if (!result.cancelled) toast('Fotografia rinominata.', { type: 'success' });
+      const result = await saveWithMerge(current, base, { ...base, title }, t.photos.renamedMessage(title));
+      if (!result.cancelled) toast(t.photos.renamed, { type: 'success' });
     },
   });
 }
@@ -361,14 +361,14 @@ function matrix(criteria, lastLabel, body) {
   const header = h(
     'tr',
     null,
-    h('th', null, 'Idea'),
+    h('th', null, t.idea),
     criteria.map((c) =>
       h(
         'th',
         { class: 'crit', scope: 'col' },
         h(
           'button',
-          { type: 'button', class: 'crit-btn', title: c.description || undefined, 'aria-label': `${c.label}, peso ${c.weight}: mostra la descrizione`, onClick: () => showCriterion(c) },
+          { type: 'button', class: 'crit-btn', title: c.description || undefined, 'aria-label': t.matrix.criterionButton(c.label, c.weight), onClick: () => showCriterion(c) },
           h('span', null, c.label),
           h('small', null, `×${c.weight}`),
         ),
@@ -398,7 +398,7 @@ function teamBody(rows, criteria, { nameOf = memberName, linkOf = itemLink, evid
           { class: 'voters' },
           r.voters.map((id) => avatar(id, 18)),
           count
-            ? h('button', { type: 'button', class: 'missing-btn', onClick: () => showMissing(r.idea, missing, criteria) }, count === 1 ? 'Manca 1 voto' : `Mancano ${count} voti`)
+            ? h('button', { type: 'button', class: 'missing-btn', onClick: () => showMissing(r.idea, missing, criteria) }, t.matrix.missingVotes(count))
             : null,
         ),
       ),
@@ -407,13 +407,13 @@ function teamBody(rows, criteria, { nameOf = memberName, linkOf = itemLink, evid
         const tip = s.byMember.map((v) => `${nameOf(v.memberId)}: ${v.value}`).join('\n');
         return h(
           'td',
-          { class: ['score-cell', s.mean !== null && `m${Math.round(s.mean)}`, s.disagreement && 'is-disagreement'], title: tip || 'Nessun voto' },
+          { class: ['score-cell', s.mean !== null && `m${Math.round(s.mean)}`, s.disagreement && 'is-disagreement'], title: tip || t.matrix.noVotes },
           h(
             'button',
             {
               type: 'button',
               class: 'cell-btn',
-              'aria-label': `${c.label}: ${s.mean === null ? 'nessun voto' : `media ${fmtMean(s.mean)}`}${s.disagreement ? ', disaccordo' : ''}. Mostra i voti di ciascuno`,
+              'aria-label': t.matrix.cell(c.label, s.mean === null ? null : fmtMean(s.mean), s.disagreement),
               onClick: () => showCell({ idea: r.idea, criterion: c, stats: s, voters, nameOf }),
             },
             fmtMean(s.mean),
@@ -427,30 +427,30 @@ function teamBody(rows, criteria, { nameOf = memberName, linkOf = itemLink, evid
 }
 
 function moveLabel(row) {
-  if (row.move === null) return row.after ? 'nuova' : 'non più votata';
+  if (row.move === null) return row.after ? t.compare.newIdea : t.compare.notScored;
   if (row.move > 0) return `▲ ${row.move}`;
   if (row.move < 0) return `▼ ${-row.move}`;
   return '=';
 }
 
 const CRITERIA_CHANGE = {
-  added: (c) => `Aggiunto «${c.label}» (×${c.to})`,
-  removed: (c) => `Tolto «${c.label}» (era ×${c.from})`,
-  weight: (c) => `«${c.label}»: peso da ×${c.from} a ×${c.to}`,
-  renamed: (c) => `«${c.from}» rinominato in «${c.label}»`,
+  added: (c) => t.compare.added(c.label, c.to),
+  removed: (c) => t.compare.removed(c.label, c.from),
+  weight: (c) => t.compare.weight(c.label, c.from, c.to),
+  renamed: (c) => t.compare.renamed(c.from, c.label),
 };
 
 function voterLabel(v) {
   const parts = [
-    v.changed && plural(v.changed, 'voto cambiato', 'voti cambiati'),
-    v.added && plural(v.added, 'voto nuovo', 'voti nuovi'),
-    v.removed && plural(v.removed, 'voto tolto', 'voti tolti'),
+    v.changed && t.compare.changedVotes(v.changed),
+    v.added && t.compare.newVotes(v.added),
+    v.removed && t.compare.removedVotes(v.removed),
   ].filter(Boolean);
   return `${v.name || memberName(v.memberId)}: ${parts.join(', ')}`;
 }
 
 function comparisonView(cmp) {
-  if (!cmp.rows.length) return emptyState('Nessuna idea con voti da confrontare.');
+  if (!cmp.rows.length) return emptyState(t.compare.noIdeas);
   const trend = (n) => ['delta', n > 0 && 'is-up', n < 0 && 'is-down'];
   const changed = cmp.rows.filter((r) => r.means.length);
   return h(
@@ -462,7 +462,7 @@ function comparisonView(cmp) {
       h(
         'table',
         { class: 'table compare-table' },
-        h('thead', null, h('tr', null, h('th', null, 'Idea'), h('th', null, 'Prima'), h('th', null, 'Dopo'), h('th', null, 'Punti'), h('th', null, 'Posizione'))),
+        h('thead', null, h('tr', null, h('th', null, t.idea), h('th', null, t.photos.before), h('th', null, t.photos.after), h('th', null, t.compare.points), h('th', null, t.compare.position))),
         h(
           'tbody',
           null,
@@ -486,28 +486,28 @@ function comparisonView(cmp) {
       h(
         'section',
         null,
-        h('h3', null, 'Criteri'),
+        h('h3', null, t.compare.criteria),
         cmp.criteria.length
           ? h('ul', null, cmp.criteria.map((c) => h('li', null, CRITERIA_CHANGE[c.change](c))))
-          : h('p', { class: 'muted' }, 'Nessun cambiamento nei criteri.'),
+          : h('p', { class: 'muted' }, t.compare.noCriteriaChanges),
       ),
       h(
         'section',
         null,
-        h('h3', null, 'Voti'),
-        cmp.voters.length ? h('ul', null, cmp.voters.map((v) => h('li', null, voterLabel(v)))) : h('p', { class: 'muted' }, 'Nessun voto cambiato.'),
+        h('h3', null, t.compare.votes),
+        cmp.voters.length ? h('ul', null, cmp.voters.map((v) => h('li', null, voterLabel(v)))) : h('p', { class: 'muted' }, t.compare.noVoteChanges),
       ),
     ),
     changed.length
       ? h(
           'section',
           null,
-          h('h3', null, 'Medie cambiate per idea'),
+          h('h3', null, t.compare.means),
           changed.map((r) =>
             h(
               'details',
               { class: 'compare-means' },
-              h('summary', null, `${r.title}: ${plural(r.means.length, 'criterio', 'criteri')}`),
+              h('summary', null, `${r.title}: ${t.compare.criteriaCount(r.means.length)}`),
               h('ul', null, r.means.map((m) => h('li', null, `${m.label}: ${fmtMean(m.from)} → ${fmtMean(m.to)}`))),
             ),
           ),
@@ -518,16 +518,17 @@ function comparisonView(cmp) {
 
 function photosPanel(query, keep) {
   const list = photoItems();
-  const saveButton = canWrite() ? button('Salva fotografia', { kind: 'primary', iconName: 'image', onClick: takePhoto }) : null;
+  const saveButton = canWrite() ? button(t.photos.take, { kind: 'primary', iconName: 'image', onClick: takePhoto }) : null;
   if (!list.length) {
-    return emptyState('Nessuna fotografia. Salvane una prima di cambiare voti o criteri: potrai confrontarla con quelle successive.', saveButton);
+    return emptyState(t.photos.empty, saveButton);
   }
   const valid = (value) => value === 'adesso' || list.some((p) => p.id === value);
-  const from = valid(query.get('da')) ? query.get('da') : list[0].id;
+  const asked = query.get('da'); // i18n-ignore: parametro dell'indirizzo
+  const from = valid(asked) ? asked : list[0].id;
   const to = valid(query.get('a')) ? query.get('a') : 'adesso';
   const dataOf = (value) => (value === 'adesso' ? currentPhoto() : list.find((p) => p.id === value).data);
   const options = (selected) => [
-    h('option', { value: 'adesso', selected: selected === 'adesso' }, 'Adesso'),
+    h('option', { value: 'adesso', selected: selected === 'adesso' }, t.photos.now),
     list.map((p) => h('option', { value: p.id, selected: selected === p.id }, `${p.title} · ${fmtDateTime(p.created_at)}`)),
   ];
   const pick = (label, selected, onPick) =>
@@ -538,18 +539,18 @@ function photosPanel(query, keep) {
     h(
       'div',
       { class: 'row compare-bar' },
-      pick('Prima', from, (value) => navigate(hrefWith(query, { da: value, a: to }).slice(1), { replace: true })),
-      pick('Dopo', to, (value) => navigate(hrefWith(query, { da: from, a: value }).slice(1), { replace: true })),
+      pick(t.photos.before, from, (value) => navigate(hrefWith(query, { da: value, a: to }).slice(1), { replace: true })),
+      pick(t.photos.after, to, (value) => navigate(hrefWith(query, { da: from, a: value }).slice(1), { replace: true })),
     ),
-    from === to ? h('p', { class: 'muted' }, 'Hai scelto la stessa fotografia due volte.') : comparisonView(comparePhotos(dataOf(from), dataOf(to), keep)),
-    h('div', { class: 'section-head' }, h('h2', null, 'Fotografie salvate'), saveButton),
+    from === to ? h('p', { class: 'muted' }, t.photos.sameTwice) : comparisonView(comparePhotos(dataOf(from), dataOf(to), keep)),
+    h('div', { class: 'section-head' }, h('h2', null, t.photos.savedList), saveButton),
     h(
       'div',
       { class: 'table-scroll' },
       h(
         'table',
         { class: 'table' },
-        h('thead', null, h('tr', null, h('th', null, 'Nome'), h('th', null, 'Data'), h('th', null, 'Salvata da'), h('th', null, ''))),
+        h('thead', null, h('tr', null, h('th', null, t.photos.name), h('th', null, t.photos.date), h('th', null, t.photos.savedBy), h('th', null, ''))),
         h(
           'tbody',
           null,
@@ -563,10 +564,10 @@ function photosPanel(query, keep) {
               h(
                 'td',
                 { class: 'row-actions' },
-                h('a', { class: 'btn btn-ghost btn-small', href: hrefWith(query, { da: p.id, a: 'adesso' }) }, 'Confronta con adesso'),
-                canWrite() ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => renamePhoto(p) }, 'Rinomina') : null,
+                h('a', { class: 'btn btn-ghost btn-small', href: hrefWith(query, { da: p.id, a: 'adesso' }) }, t.photos.compareNow),
+                canWrite() ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => renamePhoto(p) }, tx.common.actions.rename) : null,
                 canWrite()
-                  ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => archiveWithConfirm(p, { backTo: PHOTOS_PATH }) }, 'Archivia')
+                  ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => archiveWithConfirm(p, { backTo: PHOTOS_PATH }) }, tx.common.actions.archive)
                   : null,
               ),
             ),
@@ -581,12 +582,12 @@ export function scoringView(outlet, params, query) {
   const photoId = query.get('foto');
   const view = query.get('vista');
   const mode = photoId ? 'photo' : view === 'miei' ? 'mine' : view === 'fotografie' ? 'photos' : 'team';
-  const includeAll = query.get('tutte') === '1';
-  const keep = (idea) => includeAll || idea.status !== 'scartata';
+  const includeAll = query.get('tutte') === '1'; // i18n-ignore: parametro dell'indirizzo
+  const keep = (idea) => includeAll || idea.status !== 'scartata'; // i18n-ignore: stored value
   let working = null;
   let dirty = false;
-  const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: 'Nota sul voto (facoltativa)' });
-  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, 'Salva i miei voti'));
+  const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: t.mine.notePlaceholder });
+  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, t.mine.save));
   const errorHost = h('div');
   const missingHost = h('div', { class: 'missing-summary', role: 'status' });
   // Sul telefono «I miei voti» diventa una scheda per idea; cambiando larghezza si ridisegna con gli stessi voti non salvati.
@@ -614,13 +615,13 @@ export function scoringView(outlet, params, query) {
     }
     const { votes, ideas: count } = countMissing(shown.ideas.map((i) => i.id), shown.criteria, working.scores);
     if (!votes) {
-      mount(missingHost, h('span', { class: 'missing-ok' }, 'Hai votato tutti i criteri di tutte le idee.'));
+      mount(missingHost, h('span', { class: 'missing-ok' }, t.mine.allDone));
       return;
     }
     mount(
       missingHost,
-      h('span', null, `Ti ${votes === 1 ? 'manca' : 'mancano'} ${plural(votes, 'voto', 'voti')} su ${plural(count, 'idea', 'idee')}`),
-      h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: jumpToMissing }, 'Vai al primo'),
+      h('span', null, t.mine.toGive(votes, count)),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: jumpToMissing }, t.mine.goToFirst),
     );
   };
 
@@ -629,7 +630,7 @@ export function scoringView(outlet, params, query) {
     const clean = sanitizeSnapshot('score', { data: working }).data;
     dirty = !deepEqual(clean, mine?.data || { scores: {}, notes: {} });
     saveButton.disabled = !dirty;
-    setLeaveGuard(dirty ? () => confirmDialog('Hai voti non salvati. Uscire comunque?', { title: 'Voti non salvati', okLabel: 'Esci', danger: true }) : null);
+    setLeaveGuard(dirty ? () => confirmDialog(t.mine.leaveQuestion, { title: t.mine.leaveTitle, okLabel: t.mine.leave, danger: true }) : null);
     updateMissing();
   };
 
@@ -648,7 +649,7 @@ export function scoringView(outlet, params, query) {
       rows: tag === 'textarea' ? 2 : undefined,
       maxlength: 2000,
       value: working.notes[idea.id] || '',
-      'aria-label': `Nota su ${idea.title}`,
+      'aria-label': t.mine.noteOn(idea.title),
       onInput: (e) => {
         working.notes[idea.id] = e.target.value;
         updateDirty();
@@ -688,14 +689,14 @@ export function scoringView(outlet, params, query) {
               myVote(idea, c),
             ),
           ),
-          h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nota'), noteField(idea, 'textarea')),
+          h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.note), noteField(idea, 'textarea')),
         ),
       ),
     );
 
   const photoContent = (photo, evidence) => {
     if (photo?.kind !== 'scoresnap' || photo.deleted_at) {
-      return emptyState('Fotografia non trovata: forse è stata archiviata.', button('Tutte le fotografie', { href: `#${PHOTOS_PATH}` }));
+      return emptyState(t.photos.notFound, button(t.photos.all, { href: `#${PHOTOS_PATH}` }));
     }
     const rows = photoRanking(photo.data, keep);
     const nameOf = (id) => photo.data.names?.[id] || memberName(id);
@@ -708,14 +709,14 @@ export function scoringView(outlet, params, query) {
       ? h(
           'div',
           { class: 'stack' },
-          h('p', { class: 'muted small' }, `${EVIDENCE_LEGEND} Sono quelli di adesso, non del giorno della fotografia.`),
+          h('p', { class: 'muted small' }, `${EVIDENCE_LEGEND} ${t.evidence.now}`),
           matrix(
             photo.data.criteria,
-            'Punteggio',
+            t.score,
             teamBody(rows, photo.data.criteria, { nameOf, linkOf: photoIdeaLink, evidenceOf, voters: Object.keys(photo.data.votes || {}) }),
           ),
         )
-      : emptyState('Nessuna idea in questa fotografia.');
+      : emptyState(t.photos.noIdeas);
   };
 
   const teamContent = (visibleIdeas, criteria, evidence) => {
@@ -726,7 +727,7 @@ export function scoringView(outlet, params, query) {
       h('p', { class: 'muted small' }, EVIDENCE_LEGEND),
       matrix(
         criteria,
-        'Punteggio',
+        t.score,
         teamBody(ranking(visibleIdeas, criteria, scoreItems()), criteria, {
           evidenceOf: (idea) => evidence.get(idea.id) || NO_EVIDENCE,
           voters,
@@ -742,15 +743,9 @@ export function scoringView(outlet, params, query) {
       'div',
       { class: 'stack' },
       h('p', { class: 'muted small' }, EVIDENCE_LEGEND),
-      withoutTalks ? h('p', { class: 'evidence-hint' }, 'Per le idee senza conversazioni, i voti sul problema e sul mercato sono solo ipotesi.') : null,
-      narrow?.matches ? myVoteCards(visibleIdeas, criteria, evidence) : matrix(criteria, 'Nota', myVotesBody(visibleIdeas, criteria, evidence)),
+      withoutTalks ? h('p', { class: 'evidence-hint' }, t.evidence.withoutTalks) : null,
+      narrow?.matches ? myVoteCards(visibleIdeas, criteria, evidence) : matrix(criteria, t.note, myVotesBody(visibleIdeas, criteria, evidence)),
     );
-  };
-
-  const SUBTITLES = {
-    team: 'Media dei voti del team, pesata con i criteri. Il punto esclamativo segnala dove i voti distano almeno 2 punti: è lì che conviene discutere. Tocca una cella per vedere i voti di ciascuno, o il nome di un criterio per leggerne la descrizione.',
-    mine: 'I tuoi voti da 1 a 5. Gli altri vedono la media e, toccando una cella, i voti di ciascuno. Tocca il nome di un criterio per leggerne la descrizione.',
-    photos: 'Ogni fotografia salva criteri, pesi e voti di tutti in quel momento. Scegli due fotografie, o una fotografia e la situazione di adesso, per vedere cosa è cambiato.',
   };
 
   const render = () => {
@@ -758,10 +753,10 @@ export function scoringView(outlet, params, query) {
     if (!criteria.length && (mode === 'team' || mode === 'mine')) {
       mount(
         outlet,
-        pageHeader({ title: 'Valutazione' }),
+        pageHeader({ title: t.title }),
         emptyState(
-          'Non ci sono ancora criteri di valutazione.',
-          canWrite() ? button('Crea i criteri predefiniti', { kind: 'primary', onClick: () => saveCriteria(DEFAULT_CRITERIA, 'Criteri predefiniti') }) : null,
+          t.noCriteria,
+          canWrite() ? button(t.createDefaults, { kind: 'primary', onClick: () => saveCriteria(DEFAULT_CRITERIA, t.defaultsMessage) }) : null,
         ),
       );
       return;
@@ -774,7 +769,7 @@ export function scoringView(outlet, params, query) {
     let content;
     if (mode === 'photo') content = photoContent(photo, evidence);
     else if (mode === 'photos') content = photosPanel(query, keep);
-    else if (!visibleIdeas.length) content = emptyState('Nessuna idea da valutare.');
+    else if (!visibleIdeas.length) content = emptyState(t.noIdeas);
     else if (mode === 'team') content = teamContent(visibleIdeas, criteria, evidence);
     else content = mineContent(visibleIdeas, criteria, evidence);
     updateMissing();
@@ -782,29 +777,29 @@ export function scoringView(outlet, params, query) {
     const tab = (label, href, active) => h('a', { class: ['btn', 'btn-small', active ? 'btn-primary' : 'btn-ghost'], href, dataset: { replace: '' } }, label);
     const subtitle =
       mode === 'photo' && photo?.kind === 'scoresnap'
-        ? `Fotografia «${photo.title}» del ${fmtDateTime(photo.created_at)}, salvata da ${memberName(photo.created_by)}. Criteri, pesi e voti sono quelli di quel momento: tocca una cella per vedere i voti di ciascuno.`
-        : SUBTITLES[mode] || '';
+        ? t.subtitles.photo(photo.title, fmtDateTime(photo.created_at), memberName(photo.created_by))
+        : t.subtitles[mode] || '';
 
     mount(
       outlet,
       pageHeader({
-        title: 'Valutazione',
+        title: t.title,
         subtitle,
         actions: [
-          tab('Media del team', '#/valutazione', mode === 'team'),
-          tab('I miei voti', '#/valutazione?vista=miei', mode === 'mine'),
-          tab('Fotografie', `#${PHOTOS_PATH}`, mode === 'photos' || mode === 'photo'),
-          mode === 'photo' && photo?.kind === 'scoresnap' ? button('Confronta con adesso', { iconName: 'diff', href: `#${PHOTOS_PATH}&da=${photo.id}&a=adesso` }) : null,
-          canWrite() && mode === 'photo' && photo?.kind === 'scoresnap' && !photo.deleted_at ? button('Rinomina', { iconName: 'edit', onClick: () => renamePhoto(photo) }) : null,
-          canWrite() && mode === 'team' ? button('Salva fotografia', { iconName: 'image', onClick: takePhoto }) : null,
-          canWrite() ? button('Criteri', { iconName: 'edit', onClick: () => criteriaEditor(criteria, saveCriteria) }) : null,
+          tab(t.tabs.team, PAGE, mode === 'team'),
+          tab(t.tabs.mine, MINE_HREF, mode === 'mine'),
+          tab(t.tabs.photos, `#${PHOTOS_PATH}`, mode === 'photos' || mode === 'photo'),
+          mode === 'photo' && photo?.kind === 'scoresnap' ? button(t.photos.compareNow, { iconName: 'diff', href: compareHref(photo.id, 'adesso') }) : null,
+          canWrite() && mode === 'photo' && photo?.kind === 'scoresnap' && !photo.deleted_at ? button(tx.common.actions.rename, { iconName: 'edit', onClick: () => renamePhoto(photo) }) : null,
+          canWrite() && mode === 'team' ? button(t.photos.take, { iconName: 'image', onClick: takePhoto }) : null,
+          canWrite() ? button(t.criteriaButton, { iconName: 'edit', onClick: () => criteriaEditor(criteria, saveCriteria) }) : null,
         ],
       }),
       h(
         'label',
         { class: 'check' },
         h('input', { type: 'checkbox', checked: includeAll, onChange: (e) => navigate(hrefWith(query, { tutte: e.target.checked ? '1' : null }).slice(1), { replace: true }) }),
-        'Mostra anche le idee scartate',
+        t.showDiscarded,
       ),
       content,
       errorHost,
@@ -817,19 +812,19 @@ export function scoringView(outlet, params, query) {
     busy(saveButton, async () => {
       mount(errorHost);
       const mine = myScoreItem();
-      const title = `Voti di ${state.me?.display_name || 'membro'}`;
+      const title = t.mine.itemTitle(state.me?.display_name || tx.common.roles.member.toLowerCase());
       try {
         if (mine) {
           const base = snapshotOf(mine);
-          const result = await saveWithMerge(mine, base, { ...base, data: working }, message.value || 'Voti aggiornati');
+          const result = await saveWithMerge(mine, base, { ...base, data: working }, message.value || t.mine.updateMessage);
           if (result.cancelled) return;
         } else {
-          await createItem('score', { title, data: working }, message.value || 'Primi voti');
+          await createItem('score', { title, data: working }, message.value || t.mine.firstMessage);
         }
         message.value = '';
         startWorking();
         updateDirty();
-        toast('Voti salvati.', { type: 'success' });
+        toast(t.mine.saved, { type: 'success' });
         render();
       } catch (error) {
         mount(errorHost, errorBox(error));

@@ -1,7 +1,7 @@
 // Aggiorna in index.html l'elenco dei moduli da precaricare: node scripts/update-preload.mjs
 // Senza elenco il browser scopre gli import uno alla volta, a cascata; con l'elenco li chiede tutti insieme.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,7 +23,8 @@ export function moduleGraph(entry = join(ROOT, 'assets/js/main.js')) {
   };
   visit(entry);
   seen.delete(entry);
-  return { local: [...seen].map((file) => relative(ROOT, file)).sort(), remote: [...remote] };
+  // Always forward slashes: on Windows relative() gives backslashes, which would end up in index.html and break the links.
+  return { local: [...seen].map((file) => relative(ROOT, file).split(sep).join('/')).sort(), remote: [...remote] };
 }
 
 async function cdnGraph(urls) {

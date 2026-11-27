@@ -1,7 +1,8 @@
 import { h, mount, busy, toast } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { icon } from '../lib/icons.js';
-import { fmtDate, plural } from '../lib/format.js';
+import { fmtDate } from '../lib/format.js';
+import { locale, tx } from '../i18n/index.js';
 import { IDEA_CHILD_KINDS, KINDS, isHeldConversation, optionLabel } from '../schema.js';
 import { api } from '../lib/api.js';
 import {
@@ -52,33 +53,27 @@ import {
   tabs,
 } from './components.js';
 
-const EXAMPLE_TABS = new Set(['panoramica', 'roadmap', 'canvas', 'clienti', 'mercato', 'deeptech', 'esperimenti', 'interviste']);
+// Section keys and addresses of the site: their Italian words are part of the URL (#/idea/<id>/commenti), not text
+// the reader sees, so they stay as they are in every language.
+const S = { overview: 'panoramica', roadmap: 'roadmap', canvas: 'canvas', customers: 'clienti', market: 'mercato', deeptech: 'deeptech', experiments: 'esperimenti', interviews: 'interviste', surveys: 'questionari', notes: 'appunti', comments: 'commenti', votes: 'voti', history: 'storico' }; // i18n-ignore
+const PATHS = { generator: '#/generatore', edit: '#/modifica/', history: '#/storico/', create: '#/nuovo/', survey: '#/questionario/', contacts: '#/contatti', scoring: '#/valutazione', vote: '#/valutazione?vista=miei', trash: '#/cestino', ideas: '#/idee', contact: 'contatto' }; // i18n-ignore
+const OPEN_SURVEY = 'aperto'; // i18n-ignore (survey status)
+const CUSTOMER_KINDS = ['persona', 'vpc']; // i18n-ignore (kinds)
 
-const SECTIONS = {
-  panoramica: 'Panoramica',
-  roadmap: 'Roadmap',
-  canvas: 'Lean Canvas',
-  clienti: 'Clienti',
-  mercato: 'Mercato',
-  deeptech: 'Deep tech',
-  esperimenti: 'Esperimenti',
-  interviste: 'Persone e interviste',
-  questionari: 'Questionari',
-  appunti: 'Appunti',
-  commenti: 'Commenti',
-  voti: 'Voti',
-  storico: 'Storico',
-};
+const EXAMPLE_TABS = new Set([S.overview, S.roadmap, S.canvas, S.customers, S.market, S.deeptech, S.experiments, S.interviews]);
+
+// Lean Canvas, Roadmap and Deep tech have the same name in every language.
+const SECTIONS = { ...tx.idea.sections, roadmap: 'Roadmap', canvas: 'Lean Canvas', deeptech: 'Deep tech' };
 
 // Sei schede con le sezioni sotto. L'indirizzo tiene la sezione (#/idea/<id>/commenti apre Discussione su Commenti); quello della scheda apre la prima sezione.
 const GROUPS = [
-  ['panoramica', 'Panoramica', ['panoramica']],
-  ['roadmap', 'Roadmap', ['roadmap']],
-  ['analisi', 'Analisi', ['canvas', 'clienti', 'mercato', 'deeptech']],
-  ['validazione', 'Validazione', ['esperimenti', 'interviste', 'questionari']],
-  ['appunti', 'Appunti', ['appunti']],
-  ['discussione', 'Discussione', ['commenti', 'voti', 'storico']],
-];
+  [S.overview, [S.overview]],
+  [S.roadmap, [S.roadmap]],
+  ['analisi', [S.canvas, S.customers, S.market, S.deeptech]],
+  ['validazione', [S.experiments, S.interviews, S.surveys]], // i18n-ignore: the address of the tab
+  [S.notes, [S.notes]],
+  ['discussione', [S.comments, S.votes, S.history]],
+].map(([key, sections]) => [key, key === S.roadmap ? 'Roadmap' : tx.idea.groups[key], sections]);
 
 function visibleGroups(example) {
   return GROUPS.map(([key, label, sections]) => [key, label, sections.filter((s) => !example || EXAMPLE_TABS.has(s))]).filter(([, , sections]) => sections.length);
@@ -87,7 +82,7 @@ function visibleGroups(example) {
 function sectionFor(param, groups) {
   const group = groups.find(([key]) => key === param);
   if (group) return group[2][0];
-  return groups.some(([, , sections]) => sections.includes(param)) ? param : 'panoramica';
+  return groups.some(([, , sections]) => sections.includes(param)) ? param : S.overview;
 }
 
 function ideaTabs(idea, groups, section, counts) {
@@ -97,7 +92,7 @@ function ideaTabs(idea, groups, section, counts) {
   return h(
     'div',
     { class: 'idea-tabs' },
-    tabs(groups.map(([key, label, sections]) => [key, label, total(sections)]), activeKey, href, { ariaLabel: 'Schede dell\'idea', className: 'idea-groups' }),
+    tabs(groups.map(([key, label, sections]) => [key, label, total(sections)]), activeKey, href, { ariaLabel: tx.idea.tabsLabel, className: 'idea-groups' }),
     activeSections.length > 1
       ? tabs(activeSections.map((key) => [key, SECTIONS[key], counts[key]]), section, href, { ariaLabel: activeLabel, className: 'subtabs' })
       : null,
@@ -110,7 +105,7 @@ function childIds(ideaId) {
 }
 
 const BOARD_VIEWS = { canvas: canvasView, deeptech: deeptechView, vpc: vpcView, market: marketView, competitors: competitorsView };
-const EXTRA_KINDS = ['persona', 'vpc', 'market', 'competitors', 'deeptech'];
+const EXTRA_KINDS = [...CUSTOMER_KINDS, 'market', 'competitors', 'deeptech'];
 
 export function ideaContext(ideaId) {
   return {
@@ -126,7 +121,7 @@ export function ideaContext(ideaId) {
 function chatButton(idea) {
   const chat = ideaChat(idea.id);
   const unread = chat ? unreadOf(chat.id) : 0;
-  const el = button(unread ? `Chat dell'idea (${unread})` : 'Chat dell\'idea', { iconName: 'comment' });
+  const el = button(unread ? tx.idea.chatUnread(unread) : tx.idea.chat, { iconName: 'comment' });
   el.addEventListener(
     'click',
     busy(el, async () => {
@@ -149,7 +144,7 @@ function originNote(idea) {
   if (!idea.data.origin) return null;
   const [rowId, colId] = idea.data.origin.split(':');
   if (!singleton('generator')) return null;
-  return h('p', { class: 'muted small' }, 'Nata nel generatore: ', h('a', { href: '#/generatore' }, `${labelContext.axisLabel(rowId) || rowId} × ${labelContext.axisLabel(colId) || colId}`));
+  return h('p', { class: 'muted small' }, tx.idea.bornInGenerator, ' ', h('a', { href: PATHS.generator }, `${labelContext.axisLabel(rowId) || rowId} × ${labelContext.axisLabel(colId) || colId}`));
 }
 
 function decisionsSection(idea) {
@@ -158,7 +153,7 @@ function decisionsSection(idea) {
   return h(
     'section',
     { class: 'idea-decisions' },
-    h('h2', null, 'Decisioni'),
+    h('h2', null, tx.idea.decisions),
     decisions.map((d) =>
       h(
         'article',
@@ -173,20 +168,21 @@ function decisionsSection(idea) {
 
 // Validazione a un clic dalla Panoramica: esperimenti, interviste fatte e, dei questionari, solo quelli aperti.
 function validationRow(idea) {
+  const texts = tx.idea;
   const base = `#/idea/${idea.id}`;
   const chip = (href, iconName, text) => h('a', { class: 'validation-chip', href }, icon(iconName, 14), h('span', null, text));
   const experiments = itemsOf('experiment', { ideaId: idea.id });
   const running = experiments.filter((e) => e.status === 'in_corso').length;
   const held = itemsOf('interview', { ideaId: idea.id }).filter(isHeldConversation).length;
   const chips = [
-    chip(`${base}/esperimenti`, 'experiment', experiments.length ? `${plural(experiments.length, 'esperimento', 'esperimenti')}${running ? `, ${running} in corso` : ''}` : 'Nessun esperimento'),
-    chip(`${base}/interviste`, 'interview', held ? plural(held, 'intervista fatta', 'interviste fatte') : 'Nessuna intervista fatta'),
+    chip(`${base}/${S.experiments}`, 'experiment', texts.experiments(experiments.length, running)),
+    chip(`${base}/${S.interviews}`, 'interview', texts.heldInterviews(held)),
   ];
   if (!isExample(idea)) {
-    const open = itemsOf('survey', { ideaId: idea.id }).filter((s) => s.status === 'aperto');
-    chips.push(...(open.length ? open.map((s) => chip(`#/questionario/${s.id}`, 'list', `Questionario aperto: ${s.title}`)) : [chip(`${base}/questionari`, 'list', 'Nessun questionario aperto')]));
+    const open = itemsOf('survey', { ideaId: idea.id }).filter((s) => s.status === OPEN_SURVEY);
+    chips.push(...(open.length ? open.map((s) => chip(`${PATHS.survey}${s.id}`, 'list', texts.openSurvey(s.title))) : [chip(`${base}/${S.surveys}`, 'list', texts.noOpenSurvey)]));
   }
-  return h('nav', { class: 'validation-row', 'aria-label': 'Validazione' }, h('span', { class: 'validation-label' }, 'Validazione'), chips);
+  return h('nav', { class: 'validation-row', 'aria-label': texts.validation }, h('span', { class: 'validation-label' }, texts.validation), chips);
 }
 
 function overviewTab(idea) {
@@ -196,6 +192,7 @@ function overviewTab(idea) {
 function boardSection(item, idea, writable) {
   const example = isExample(idea);
   const view = BOARD_VIEWS[item.kind];
+  const comments = state.commentCounts.get(item.id);
   return h(
     'section',
     { class: 'canvas-section' },
@@ -206,13 +203,13 @@ function boardSection(item, idea, writable) {
       h(
         'div',
         { class: 'row' },
-        example ? null : aiButton('critique', () => ({ ...ideaContext(idea.id), item }), { item, label: 'Critica' }),
-        writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
-        example ? null : button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
-        state.commentCounts.get(item.id)
-          ? h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}/commenti`, title: 'Commenti su questa scheda' }, icon('comment', 16), h('span', null, String(state.commentCounts.get(item.id))))
+        example ? null : aiButton('critique', () => ({ ...ideaContext(idea.id), item }), { item, label: tx.idea.critique }),
+        writable ? button(tx.common.actions.edit, { iconName: 'edit', href: `${PATHS.edit}${item.id}` }) : null,
+        example ? null : button(tx.idea.versions, { iconName: 'history', href: `${PATHS.history}${item.id}` }),
+        comments
+          ? h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}/${S.comments}`, title: tx.idea.boardComments }, icon('comment', 16), h('span', null, String(comments)))
           : null,
-        h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}` }, 'Apri'),
+        h('a', { class: 'btn btn-ghost', href: `#/elemento/${item.id}` }, tx.common.actions.open),
       ),
     ),
     view ? view(item) : fieldsGrid(item),
@@ -220,38 +217,20 @@ function boardSection(item, idea, writable) {
   );
 }
 
-const KIND_INFO = {
-  canvas: { concept: 'lean-canvas', empty: 'Nessun Lean Canvas. Lo precompilo con problema, cliente e soluzione dell\'idea.', add: 'Nuovo Lean Canvas' },
-  persona: { concept: 'buyer-persona', empty: 'Nessuna buyer persona. Una per ogni tipo di cliente, basata sulle interviste.', add: 'Nuova buyer persona' },
-  vpc: { concept: 'vpc', empty: 'Nessun Value Proposition Canvas. Si compila prima il profilo del cliente, poi la mappa del valore.', add: 'Nuovo Value Proposition Canvas' },
-  market: { concept: 'tam-sam-som', empty: 'Nessuna stima del mercato. TAM, SAM e SOM in euro all\'anno, con fonti e ragionamento.', add: 'Nuova stima del mercato' },
-  competitors: { concept: 'concorrenti', empty: 'Nessuna analisi dei concorrenti. «Non abbiamo concorrenti» non è mai vero.', add: 'Nuova analisi dei concorrenti' },
-  deeptech: {
-    concept: 'deep-tech',
-    empty: 'Nessuna scheda deep tech. Serve se l\'idea nasce da una ricerca: maturità della tecnologia, proprietà intellettuale, rapporti con l\'ateneo, bandi.',
-    add: 'Nuova scheda deep tech',
-  },
-};
+const CONCEPTS = { canvas: 'lean-canvas', persona: 'buyer-persona', vpc: 'vpc', market: 'tam-sam-som', competitors: 'concorrenti', deeptech: 'deep-tech', interviews: 'intervista-validazione' }; // i18n-ignore (concept ids)
 
 function kindBlock(idea, writable, kind) {
-  const info = KIND_INFO[kind];
+  const info = tx.idea.kinds[kind];
   const items = itemsOf(kind, { ideaId: idea.id });
-  const list =
-    kind === 'persona'
-      ? h(
-          'div',
-          { class: 'cards' },
-          items.map((p) => personaCard(p)),
-        )
-      : items.map((item) => boardSection(item, idea, writable));
+  const list = kind === CUSTOMER_KINDS[0] ? h('div', { class: 'cards' }, items.map((p) => personaCard(p))) : items.map((item) => boardSection(item, idea, writable));
   return h(
     'section',
     { class: 'kind-block stack' },
     h(
       'div',
       { class: 'section-head' },
-      h('h2', null, KINDS[kind].plural, conceptButton(info.concept)),
-      writable ? button(info.add, { kind: items.length ? 'ghost' : 'primary', iconName: 'plus', href: `#/nuovo/${kind}?idea=${idea.id}` }) : null,
+      h('h2', null, KINDS[kind].plural, conceptButton(CONCEPTS[kind])),
+      writable ? button(info.add, { kind: items.length ? 'ghost' : 'primary', iconName: 'plus', href: `${PATHS.create}${kind}?idea=${idea.id}` }) : null,
     ),
     items.length ? list : h('p', { class: 'muted' }, info.empty),
   );
@@ -261,16 +240,21 @@ function boardsTab(idea, writable, kinds) {
   return h('div', { class: 'stack' }, kinds.map((kind) => kindBlock(idea, writable, kind)));
 }
 
-const JAVELIN_ROWS = [
-  ['Cliente', (e) => e.data.customer],
-  ['Problema', (e) => e.data.problem],
-  ['Soluzione', (e) => e.data.solution],
-  ['Assunzione più rischiosa', (e) => e.data.assumption],
-  ['Metodo e criterio di successo', (e) => [e.data.method ? optionLabel(KINDS.experiment.fields.find((f) => f.key === 'method'), e.data.method) : null, e.data.success_criterion].filter(Boolean).join('\n')],
-  null,
-  ['Risultato e decisione', (e) => [e.data.result, e.data.decision ? `Decisione: ${optionLabel(KINDS.experiment.fields.find((f) => f.key === 'decision'), e.data.decision)}` : null].filter(Boolean).join('\n')],
-  ['Cosa abbiamo imparato', (e) => e.data.learnings],
-];
+const fieldOfExperiment = (key) => KINDS.experiment.fields.find((f) => f.key === key);
+
+function javelinRows() {
+  const texts = tx.idea.javelin;
+  return [
+    [texts.customer, (e) => e.data.customer],
+    [texts.problem, (e) => e.data.problem],
+    [texts.solution, (e) => e.data.solution],
+    [texts.assumption, (e) => e.data.assumption],
+    [texts.method, (e) => [e.data.method ? optionLabel(fieldOfExperiment('method'), e.data.method) : null, e.data.success_criterion].filter(Boolean).join('\n')],
+    null,
+    [texts.result, (e) => [e.data.result, e.data.decision ? texts.decision(optionLabel(fieldOfExperiment('decision'), e.data.decision)) : null].filter(Boolean).join('\n')],
+    [texts.learnings, (e) => e.data.learnings],
+  ];
+}
 
 function javelinBoard(experiments) {
   const sorted = [...experiments].sort((a, b) => (a.data.start_date || '9999').localeCompare(b.data.start_date || '9999'));
@@ -283,15 +267,15 @@ function javelinBoard(experiments) {
       h(
         'thead',
         null,
-        h('tr', null, h('th', null, 'Esperimenti'), sorted.map((e, i) => h('th', null, h('span', { class: 'javelin-n' }, String(i + 1)), itemLink(e), h('div', null, statusPill('experiment', e.status))))),
+        h('tr', null, h('th', null, tx.idea.javelin.experiments), sorted.map((e, i) => h('th', null, h('span', { class: 'javelin-n' }, String(i + 1)), itemLink(e), h('div', null, statusPill('experiment', e.status))))),
       ),
       h(
         'tbody',
         null,
-        JAVELIN_ROWS.map((row) =>
+        javelinRows().map((row) =>
           row
             ? h('tr', null, h('th', { scope: 'row' }, row[0]), sorted.map((e) => h('td', null, row[1](e) ? h('div', { class: 'text-block' }, row[1](e)) : h('span', { class: 'muted' }, '-'))))
-            : h('tr', { class: 'javelin-divider' }, h('th', { colspan: sorted.length + 1 }, 'Esci dall\'ufficio: si va a parlare con i clienti')),
+            : h('tr', { class: 'javelin-divider' }, h('th', { colspan: sorted.length + 1 }, tx.idea.javelin.outOfBuilding)),
         ),
       ),
     ),
@@ -299,21 +283,23 @@ function javelinBoard(experiments) {
 }
 
 function experimentsTab(idea, writable, javelin) {
+  const texts = tx.idea.experimentsTab;
   const experiments = itemsOf('experiment', { ideaId: idea.id });
-  const base = `#/idea/${idea.id}/esperimenti`;
+  const base = `#/idea/${idea.id}/${S.experiments}`;
+  const label = (text) => h('strong', null, text, ' ');
   return h(
     'div',
     { class: 'stack' },
     h(
       'div',
       { class: 'row' },
-      writable ? button('Nuovo esperimento', { kind: 'primary', iconName: 'plus', href: `#/nuovo/experiment?idea=${idea.id}` }) : null,
-      isExample(idea) ? null : aiButton('next_experiment', () => ideaContext(idea.id), { item: idea, label: 'Proponi il prossimo esperimento' }),
+      writable ? button(texts.add, { kind: 'primary', iconName: 'plus', href: `${PATHS.create}experiment?idea=${idea.id}` }) : null,
+      isExample(idea) ? null : aiButton('next_experiment', () => ideaContext(idea.id), { item: idea, label: texts.suggest }),
       experiments.length
         ? h(
             'span',
             { class: 'toolbar' },
-            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-ghost' : 'btn-primary'], href: base, dataset: { replace: '' } }, icon('columns', 14), 'Schede'),
+            h('a', { class: ['btn', 'btn-small', javelin ? 'btn-ghost' : 'btn-primary'], href: base, dataset: { replace: '' } }, icon('columns', 14), texts.cards),
             h('a', { class: ['btn', 'btn-small', javelin ? 'btn-primary' : 'btn-ghost'], href: `${base}?vista=javelin`, dataset: { replace: '' } }, icon('list', 14), 'Javelin'),
             conceptButton('javelin'),
           )
@@ -330,37 +316,39 @@ function experimentsTab(idea, writable, javelin) {
               'article',
               { class: 'card' },
               h('div', { class: 'card-head' }, itemLink(e), statusPill('experiment', e.status)),
-              e.data.assumption ? h('p', null, h('strong', null, 'Assunzione: '), e.data.assumption) : null,
-              e.data.success_criterion ? h('p', { class: 'muted small' }, h('strong', null, 'Criterio: '), e.data.success_criterion) : null,
-              e.data.result ? h('p', { class: 'small' }, h('strong', null, 'Risultato: '), e.data.result) : null,
-              h('div', { class: 'card-foot' }, e.data.owner && !isExample(e) ? avatar(e.data.owner, 20) : null, e.data.end_date ? h('span', { class: 'muted small' }, `Scadenza ${fmtDate(e.data.end_date)}`) : null),
+              e.data.assumption ? h('p', null, label(texts.assumption), e.data.assumption) : null,
+              e.data.success_criterion ? h('p', { class: 'muted small' }, label(texts.criterion), e.data.success_criterion) : null,
+              e.data.result ? h('p', { class: 'small' }, label(texts.result), e.data.result) : null,
+              h('div', { class: 'card-foot' }, e.data.owner && !isExample(e) ? avatar(e.data.owner, 20) : null, e.data.end_date ? h('span', { class: 'muted small' }, texts.due(fmtDate(e.data.end_date))) : null),
             ),
           ),
         )
-      : emptyState('Nessun esperimento. Parti dall\'assunzione più rischiosa.'),
+      : emptyState(texts.none),
   );
 }
 
 const CONTACT_ORDER = Object.fromEntries(KINDS.contact.statuses.map(([value], index) => [value, index]));
 
 function contactsBlock(idea, writable) {
+  const texts = tx.idea.contacts;
   const example = isExample(idea);
   const contacts = itemsOf('contact', { ideaId: idea.id }).sort(
     (a, b) => CONTACT_ORDER[a.status] - CONTACT_ORDER[b.status] || (a.data.next_date || '9999').localeCompare(b.data.next_date || '9999'),
   );
   const purpose = KINDS.contact.fields.find((f) => f.key === 'purpose');
+  const headers = texts.headers;
   return h(
     'section',
     { class: 'kind-block stack' },
     h(
       'div',
       { class: 'section-head' },
-      h('h2', null, 'Persone con cui interfacciarsi', conceptButton('fuori-dall-ufficio')),
+      h('h2', null, texts.title, conceptButton('fuori-dall-ufficio')),
       h(
         'div',
         { class: 'row' },
-        contacts.length && !example ? button('Apri in Contatti', { iconName: 'users', href: `#/contatti?idea=${idea.id}`, title: 'Responsabili, date e stati da cambiare direttamente in tabella' }) : null,
-        writable ? button('Aggiungi una persona', { kind: contacts.length ? 'ghost' : 'primary', iconName: 'plus', href: `#/nuovo/contact?idea=${idea.id}` }) : null,
+        contacts.length && !example ? button(texts.openInContacts, { iconName: 'users', href: `${PATHS.contacts}?idea=${idea.id}`, title: texts.openInContactsHint }) : null,
+        writable ? button(texts.add, { kind: contacts.length ? 'ghost' : 'primary', iconName: 'plus', href: `${PATHS.create}contact?idea=${idea.id}` }) : null,
       ),
     ),
     contacts.length
@@ -370,7 +358,7 @@ function contactsBlock(idea, writable) {
           h(
             'table',
             { class: 'table' },
-            h('thead', null, h('tr', null, ['Chi', 'Perché', 'Come ci arriviamo', 'Chi se ne occupa', 'Prossimo contatto', 'Stato', ''].map((t) => h('th', null, t)))),
+            h('thead', null, h('tr', null, [headers.who, headers.why, headers.how, headers.owner, headers.next, headers.status, ''].map((t) => h('th', null, t)))),
             h(
               'tbody',
               null,
@@ -388,9 +376,9 @@ function contactsBlock(idea, writable) {
                     'td',
                     null,
                     c.data.interview_id
-                      ? itemLink(getItem(c.data.interview_id), 'Intervista')
+                      ? itemLink(getItem(c.data.interview_id), texts.interview)
                       : writable && c.status !== 'chiusa'
-                      ? button('Intervista', { iconName: 'interview', href: `#/nuovo/interview?contatto=${c.id}`, title: 'Crea l\'intervista con i dati di questa persona' })
+                      ? button(texts.interview, { iconName: 'interview', href: `${PATHS.create}interview?${PATHS.contact}=${c.id}`, title: texts.createInterview })
                       : null,
                   ),
                 ),
@@ -398,29 +386,31 @@ function contactsBlock(idea, writable) {
             ),
           ),
         )
-      : h('p', { class: 'muted' }, 'Nessuno in lista. Scrivete qui chi intervistare e con chi interfacciarsi per realizzare l\'idea: clienti, esperti, fornitori, ateneo, investitori.'),
+      : h('p', { class: 'muted' }, texts.none),
   );
 }
 
 function interviewsTab(idea, writable) {
+  const texts = tx.idea.interviews;
+  const headers = texts.headers;
   const interviews = itemsOf('interview', { ideaId: idea.id }).sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''));
   return h(
     'div',
     { class: 'stack' },
     contactsBlock(idea, writable),
-    h('h2', { class: 'section-title' }, 'Interviste', conceptButton('intervista-validazione')),
+    h('h2', { class: 'section-title' }, texts.title, conceptButton(CONCEPTS.interviews)),
     h(
       'div',
       { class: 'row' },
-      writable ? button('Nuova intervista', { kind: 'primary', iconName: 'plus', href: `#/nuovo/interview?idea=${idea.id}` }) : null,
-      isExample(idea) ? null : aiButton('interview_questions', () => ideaContext(idea.id), { item: idea, label: 'Domande per le interviste' }),
-      interviews.length && !isExample(idea) ? aiButton('interview_synthesis', () => ideaContext(idea.id), { item: idea, label: 'Sintesi delle interviste' }) : null,
+      writable ? button(texts.add, { kind: 'primary', iconName: 'plus', href: `${PATHS.create}interview?idea=${idea.id}` }) : null,
+      isExample(idea) ? null : aiButton('interview_questions', () => ideaContext(idea.id), { item: idea, label: texts.questions }),
+      interviews.length && !isExample(idea) ? aiButton('interview_synthesis', () => ideaContext(idea.id), { item: idea, label: texts.synthesis }) : null,
     ),
     interviews.length
       ? h(
           'table',
           { class: 'table' },
-          h('thead', null, h('tr', null, ['Data', 'Intervista', 'Stato', 'Impegno', 'Problema sentito'].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, [headers.date, headers.interview, headers.status, headers.commitment, headers.problem].map((t) => h('th', null, t)))),
           h(
             'tbody',
             null,
@@ -437,22 +427,27 @@ function interviewsTab(idea, writable) {
             ),
           ),
         )
-      : emptyState('Nessuna intervista. Chiedi del passato e dei fatti, non delle intenzioni future.'),
+      : emptyState(texts.none),
   );
 }
 
+// The average of the votes, with one decimal in the format of the language in use (3.5 in English, 3,5 in Italian).
+const oneDecimal = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
 function votesTab(idea) {
+  const texts = tx.idea.votes;
   const criteria = criteriaList();
-  if (!criteria.length) return emptyState('Mancano i criteri di valutazione.', button('Vai alla valutazione', { href: '#/valutazione' }));
+  if (!criteria.length) return emptyState(texts.noCriteria, button(texts.goToScoring, { href: PATHS.scoring }));
   const result = ideaScore(idea.id, criteria, scoreItems());
+  const headers = texts.headers;
   return h(
     'div',
     { class: 'stack' },
-    h('p', null, 'Punteggio del team: ', h('strong', null, result.score === null ? 'nessun voto' : `${result.score}/100`), ` · ${result.voters.length} votanti`),
+    h('p', null, texts.teamScore, ' ', h('strong', null, result.score === null ? texts.noVotes : `${result.score}/100`), ` · ${texts.voters(result.voters.length)}`),
     h(
       'table',
       { class: 'table' },
-      h('thead', null, h('tr', null, h('th', null, 'Criterio'), h('th', null, 'Peso'), h('th', null, 'Voti'), h('th', null, 'Media'))),
+      h('thead', null, h('tr', null, h('th', null, headers.criterion), h('th', null, headers.weight), h('th', null, headers.votes), h('th', null, headers.mean))),
       h(
         'tbody',
         null,
@@ -464,12 +459,12 @@ function votesTab(idea) {
             h('td', { title: c.description }, c.label),
             h('td', null, `×${c.weight}`),
             h('td', null, h('div', { class: 'votes' }, stats.byMember.map((v) => h('span', { class: 'vote' }, avatar(v.memberId, 20), String(v.value))))),
-            h('td', null, stats.mean === null ? '-' : stats.mean.toFixed(1), stats.disagreement ? h('span', { class: 'badge badge-warn' }, 'disaccordo') : null),
+            h('td', null, stats.mean === null ? '-' : oneDecimal.format(stats.mean), stats.disagreement ? h('span', { class: 'badge badge-warn' }, texts.disagreement) : null),
           );
         }),
       ),
     ),
-    button('Vota nella matrice', { kind: 'primary', href: '#/valutazione?vista=miei' }),
+    button(texts.voteInMatrix, { kind: 'primary', href: PATHS.vote }),
   );
 }
 
@@ -477,12 +472,13 @@ function historyTab(idea) {
   const host = h('div', { class: 'stack' }, loading());
   api
     .listRevisions({ ideaId: idea.id, limit: 100 })
-    .then((revs) => mount(host, revs.length ? h('ul', { class: 'log' }, revs.map(revisionLine)) : emptyState('Nessuna modifica.'), button('Versioni dell\'idea', { iconName: 'history', href: `#/storico/${idea.id}` })))
+    .then((revs) => mount(host, revs.length ? h('ul', { class: 'log' }, revs.map(revisionLine)) : emptyState(tx.idea.history.none), button(tx.idea.history.versions, { iconName: 'history', href: `${PATHS.history}${idea.id}` })))
     .catch((error) => mount(host, errorBox(error)));
   return host;
 }
 
 export function ideaView(outlet, params, query = new URLSearchParams()) {
+  const texts = tx.idea;
   const example = isExample(getItem(params.id));
   const groups = visibleGroups(example);
   const tab = sectionFor(params.tab, groups);
@@ -493,62 +489,62 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
   const render = () => {
     const idea = getItem(params.id);
     if (!idea || idea.kind !== 'idea') {
-      mount(outlet, errorBox({ message: 'Idea non trovata.' }));
+      mount(outlet, errorBox({ message: texts.notFound }));
       return;
     }
     const writable = canWrite() && !idea.deleted_at && !example;
     const statusSelect = writable
       ? h(
           'select',
-          { class: 'input input-small', 'aria-label': 'Stato', onChange: (e) => changeStatus(getItem(idea.id), e.target.value) },
+          { class: 'input input-small', 'aria-label': texts.status, onChange: (e) => changeStatus(getItem(idea.id), e.target.value) },
           KINDS.idea.statuses.map(([v, label]) => h('option', { value: v, selected: v === idea.status }, label)),
         )
       : statusPill('idea', idea.status);
     const count = (...kinds) => kinds.reduce((sum, kind) => sum + itemsOf(kind, { ideaId: idea.id }).length, 0);
     const counts = {
-      roadmap: `${ideaRoadmap(idea).percent}%`,
-      canvas: count('canvas'),
-      clienti: count('persona', 'vpc'),
-      mercato: count('market', 'competitors'),
-      deeptech: count('deeptech'),
-      esperimenti: itemsOf('experiment', { ideaId: idea.id }).length,
-      interviste: count('interview', 'contact'),
-      questionari: count('survey'),
-      appunti: count('note'),
-      commenti: [idea.id, ...childIds(idea.id)].reduce((sum, id) => sum + (state.commentCounts.get(id) || 0), 0),
+      [S.roadmap]: `${ideaRoadmap(idea).percent}%`,
+      [S.canvas]: count('canvas'),
+      [S.customers]: count(...CUSTOMER_KINDS),
+      [S.market]: count('market', 'competitors'),
+      [S.deeptech]: count('deeptech'),
+      [S.experiments]: itemsOf('experiment', { ideaId: idea.id }).length,
+      [S.interviews]: count('interview', 'contact'),
+      [S.surveys]: count('survey'),
+      [S.notes]: count('note'),
+      [S.comments]: [idea.id, ...childIds(idea.id)].reduce((sum, id) => sum + (state.commentCounts.get(id) || 0), 0),
     };
 
     commentsEl?.cleanup?.();
     commentsEl = null;
     let body;
-    if (tab === 'panoramica') body = overviewTab(idea);
-    else if (tab === 'roadmap') body = roadmapPanel(idea, { writable });
-    else if (tab === 'canvas') body = boardsTab(idea, writable, ['canvas']);
-    else if (tab === 'clienti') body = boardsTab(idea, writable, ['persona', 'vpc']);
-    else if (tab === 'mercato') body = boardsTab(idea, writable, ['market', 'competitors']);
-    else if (tab === 'deeptech') body = boardsTab(idea, writable, ['deeptech']);
-    else if (tab === 'esperimenti') body = experimentsTab(idea, writable, query.get('vista') === 'javelin');
-    else if (tab === 'interviste') body = interviewsTab(idea, writable);
-    else if (tab === 'questionari') body = ideaSurveysTab(idea, writable);
-    else if (tab === 'appunti') body = notesTab(idea, writable);
-    else if (tab === 'voti') body = votesTab(idea);
-    else if (tab === 'commenti') body = commentsEl = commentsPanel(idea, { related: childIds(idea.id) });
+    if (tab === S.overview) body = overviewTab(idea);
+    else if (tab === S.roadmap) body = roadmapPanel(idea, { writable });
+    else if (tab === S.canvas) body = boardsTab(idea, writable, ['canvas']);
+    else if (tab === S.customers) body = boardsTab(idea, writable, CUSTOMER_KINDS);
+    else if (tab === S.market) body = boardsTab(idea, writable, ['market', 'competitors']);
+    else if (tab === S.deeptech) body = boardsTab(idea, writable, ['deeptech']);
+    else if (tab === S.experiments) body = experimentsTab(idea, writable, query.get('vista') === 'javelin');
+    else if (tab === S.interviews) body = interviewsTab(idea, writable);
+    else if (tab === S.surveys) body = ideaSurveysTab(idea, writable);
+    else if (tab === S.notes) body = notesTab(idea, writable);
+    else if (tab === S.votes) body = votesTab(idea);
+    else if (tab === S.comments) body = commentsEl = commentsPanel(idea, { related: childIds(idea.id) });
     else body = historyTab(idea);
 
     mount(
       outlet,
-      idea.deleted_at ? h('div', { class: 'banner banner-warn' }, 'Questa idea è nel cestino. ', h('a', { href: '#/cestino' }, 'Vai al cestino')) : null,
+      idea.deleted_at ? h('div', { class: 'banner banner-warn' }, texts.inTrash, ' ', h('a', { href: PATHS.trash }, texts.goToTrash)) : null,
       example ? exampleBanner(idea) : null,
       pageHeader({
-        back: { href: '#/idee' },
+        back: { href: PATHS.ideas },
         title: idea.title,
         subtitle: h('span', { class: 'row' }, statusSelect, idea.data.sector ? h('span', { class: 'muted' }, idea.data.sector) : null, metaLine(idea), hereHost),
         actions: [
-          example ? null : aiButton('critique', () => ideaContext(idea.id), { item: idea, label: 'Critica l\'idea' }),
+          example ? null : aiButton('critique', () => ideaContext(idea.id), { item: idea, label: texts.critiqueIdea }),
           example ? null : chatButton(idea),
-          writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${idea.id}` }) : null,
-          button('', { iconName: 'file', title: 'Esporta in Markdown', onClick: () => exportIdeaMarkdown(idea) }),
-          writable ? button('', { iconName: 'trash', title: 'Archivia', onClick: () => archiveWithConfirm(idea, { backTo: '/idee' }) }) : null,
+          writable ? button(tx.common.actions.edit, { iconName: 'edit', href: `${PATHS.edit}${idea.id}` }) : null,
+          button('', { iconName: 'file', title: texts.exportMarkdown, onClick: () => exportIdeaMarkdown(idea) }),
+          writable ? button('', { iconName: 'trash', title: tx.common.actions.archive, onClick: () => archiveWithConfirm(idea, { backTo: PATHS.ideas.slice(1) }) }) : null,
         ],
       }),
       ideaTabs(idea, groups, tab, counts),
@@ -561,7 +557,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
   trackPresence({ route: `/idea/${params.id}` });
   const offs = [
     on('item', ({ item }) => {
-      if (tab === 'commenti') {
+      if (tab === S.comments) {
         if (item.id === params.id) render();
         return;
       }
@@ -569,7 +565,7 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     }),
     on('presence', renderHere),
     on('comment-counts', () => {
-      if (tab !== 'commenti') render();
+      if (tab !== S.comments) render();
     }),
   ];
   return () => {
@@ -577,4 +573,3 @@ export function ideaView(outlet, params, query = new URLSearchParams()) {
     offs.forEach((off) => off());
   };
 }
-

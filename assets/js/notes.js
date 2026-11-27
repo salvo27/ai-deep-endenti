@@ -3,14 +3,19 @@ import { h } from './lib/dom.js';
 import { fmtDate } from './lib/format.js';
 import { renderMarkdown } from './lib/markdown.js';
 import { mentionChip } from './views/mention-chip.js';
-import { canWrite, readLocal, writeLocal } from './store.js';
+import { canWrite, currentProjectId, readLocal, writeLocal } from './store.js';
+import { ALL, MENTION_SOURCE } from './lib/mentions.js';
+import { tx } from './i18n/index.js';
+
+const t = tx.notes;
 
 // Immagini delle note: file JPEG nello spazio privato «note-immagini», indicati nel testo con ![descrizione](immagine:idea/uuid.jpg).
+// The immagine: mark is stored syntax, the same in every language.
 
 export const MAX_NOTE_IMAGES = 20;
 const PATH = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.jpg';
 export const IMAGE_PATH_RE = new RegExp(`^${PATH}$`);
-const POINTER_RE = new RegExp(`!\\[([^\\]\\n]*)\\]\\(immagine:(${PATH})\\)`, 'g');
+const POINTER_RE = new RegExp(`!\\[([^\\]\\n]*)\\]\\(immagine:(${PATH})\\)`, 'g'); // i18n-ignore: stored syntax
 const EMBEDDED_RE = /!\[([^\]\n]*)\]\((data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+)\)/g;
 
 // La prima riga non vuota è il titolo, senza i segni di Markdown.
@@ -20,7 +25,7 @@ export function noteTitle(text) {
     .replace(/!\[[^\]\n]*\]\([^)]*\)/g, '')
     .replace(/^\s*#{1,6}\s+/, '')
     .replace(/^\s*([-*+]|\d{1,3}[.)])\s+/, '')
-    .replace(/\*\*|__|[*_`]/g, '')
+    .replace(/\*\*|__|[*_\x60]/g, '') // \x60 is the backtick, written so for the text scanner of the tests
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 200);
@@ -35,20 +40,20 @@ export function noteBody(text, title) {
 }
 
 export const imagePaths = (text) => new Set([...String(text || '').matchAll(POINTER_RE)].map((m) => m[2]));
-export const imagePointer = (path, alt = 'immagine') => `![${String(alt).replace(/[[\]\n]/g, ' ').trim() || 'immagine'}](immagine:${path})`;
+export const imagePointer = (path, alt = t.images.description) => `![${String(alt).replace(/[[\]\n]/g, ' ').trim() || t.images.description}](immagine:${path})`; // i18n-ignore: stored syntax
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_BYTES = 900 * 1024;
 
 // Ridotta e ricodificata in JPEG: niente metadati dell'originale (GPS, dispositivo) e peso sotto 1 MB.
 export async function resizeNoteImage(source) {
-  if (!source || !/^image\//.test(source.type || '')) throw new Error('Scegli un\'immagine JPEG, PNG o WebP.');
-  if (source.size > MAX_FILE_BYTES) throw new Error('L\'immagine è troppo grande: massimo 25 MB.');
+  if (!source || !/^image\//.test(source.type || '')) throw new Error(t.images.chooseImage);
+  if (source.size > MAX_FILE_BYTES) throw new Error(t.images.tooLarge);
   let bitmap;
   try {
     bitmap = await createImageBitmap(source);
   } catch {
-    throw new Error('Formato non supportato: usa un\'immagine JPEG, PNG o WebP.');
+    throw new Error(t.images.unsupported);
   }
   try {
     for (const side of [1600, 1200, 900]) {
@@ -57,7 +62,7 @@ export async function resizeNoteImage(source) {
       canvas.width = Math.max(1, Math.round(bitmap.width * scale));
       canvas.height = Math.max(1, Math.round(bitmap.height * scale));
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Il browser non riesce a elaborare l\'immagine.');
+      if (!ctx) throw new Error(t.images.cannotProcess);
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       for (const quality of [0.82, 0.7]) {
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
@@ -67,7 +72,7 @@ export async function resizeNoteImage(source) {
   } finally {
     bitmap.close?.();
   }
-  throw new Error('Non riesco a ridurre abbastanza l\'immagine.');
+  throw new Error(t.images.cannotReduce);
 }
 
 const urls = new Map();
@@ -98,12 +103,14 @@ export async function uploadNoteImage(ideaId, source) {
   return path;
 }
 
-// Dopo un salvataggio: le immagini tolte dal testo si cancellano, se nessun'altra nota le usa (lo decide il database).
+// Dopo un salvataggio: le immagini tolte dal testo si cancellano, se nessun'altra nota le usa (lo decide il database, guardando
+// il progetto aperto). Without a project nothing is deleted.
 export async function removeUnusedImages(beforeText, afterText) {
+  const project = currentProjectId();
   const after = imagePaths(afterText);
   const removed = [...imagePaths(beforeText)].filter((path) => !after.has(path));
-  if (!removed.length) return [];
-  const orphans = await api.noteImageOrphans(removed);
+  if (!removed.length || !project) return [];
+  const orphans = await api.noteImageOrphans(removed, project);
   await api.removeNoteImages(orphans);
   orphans.forEach((path) => urls.delete(path));
   return orphans;
@@ -111,14 +118,17 @@ export async function removeUnusedImages(beforeText, afterText) {
 
 const SWEEP_EVERY = 12 * 3600 * 1000;
 
-// Pulizia periodica: immagini di note cancellate definitivamente o mai salvate, caricate da più di 24 ore.
+// Pulizia periodica: immagini di note cancellate definitivamente o mai salvate, caricate da più di 24 ore. Only those of the
+// open project, each project with its own turn; without a project nothing is swept.
 export async function sweepNoteImages() {
-  if (!canWrite()) return 0;
-  const last = Number(readLocal('pulizieImmagini', 0)) || 0;
+  const project = currentProjectId();
+  if (!project || !canWrite()) return 0;
+  const key = `pulizieImmagini:${project}`;
+  const last = Number(readLocal(key, 0)) || 0;
   if (Date.now() - last < SWEEP_EVERY) return 0;
-  writeLocal('pulizieImmagini', Date.now());
+  writeLocal(key, Date.now());
   try {
-    const orphans = await api.noteImageOrphans(null);
+    const orphans = await api.noteImageOrphans(null, project);
     for (let i = 0; i < orphans.length; i += 100) await api.removeNoteImages(orphans.slice(i, i + 100));
     return orphans.length;
   } catch {
@@ -146,7 +156,7 @@ function dataUrlToBlob(dataUrl) {
 export async function noteToMarkdown(note) {
   let body = noteBody(note.data?.body, note.title);
   for (const [pointer, alt, path] of [...body.matchAll(POINTER_RE)]) {
-    let replacement = `*[immagine non disponibile: ${alt}]*`;
+    let replacement = `*[${t.markdown.unavailable(alt)}]*`;
     try {
       replacement = `![${alt}](${await blobToDataUrl(await api.downloadNoteImage(path))})`;
     } catch {
@@ -154,7 +164,7 @@ export async function noteToMarkdown(note) {
     }
     body = body.replace(pointer, () => replacement);
   }
-  const date = note.data?.date ? `Data: ${note.data.date}\n\n` : '';
+  const date = note.data?.date ? `${t.markdown.date(note.data.date)}\n\n` : '';
   return `# ${note.title}\n\n${date}${body}\n`;
 }
 
@@ -164,7 +174,7 @@ export async function markdownToNote(text, ideaId, { onProgress } = {}) {
   const embedded = [...body.matchAll(EMBEDDED_RE)];
   let done = 0;
   for (const [match, alt, dataUrl] of embedded) {
-    let replacement = `*[immagine non importata: ${alt || 'senza nome'}]*`;
+    let replacement = `*[${t.markdown.notImported(alt || t.markdown.unnamed)}]*`;
     if (done < MAX_NOTE_IMAGES) {
       replacement = imagePointer(await uploadNoteImage(ideaId, dataUrlToBlob(dataUrl)), alt);
       done += 1;
@@ -176,13 +186,13 @@ export async function markdownToNote(text, ideaId, { onProgress } = {}) {
 }
 
 export function noteImageNode(path, alt) {
-  const img = h('img', { class: 'note-image is-loading', alt: alt || 'Immagine della nota', loading: 'lazy' });
+  const img = h('img', { class: 'note-image is-loading', alt: alt || t.images.alt, loading: 'lazy' });
   imageUrl(path).then((url) => {
     if (url) {
       img.src = url;
       img.classList.remove('is-loading');
     } else {
-      img.replaceWith(h('span', { class: 'note-image-missing' }, `Immagine non più disponibile${alt ? `: ${alt}` : ''}`));
+      img.replaceWith(h('span', { class: 'note-image-missing' }, t.images.missing(alt)));
     }
   });
   return img;
@@ -234,11 +244,18 @@ export async function printNote(note) {
   window.print();
 }
 
+// A tag is stored as @[Name] or @[tutti] in every language: as plain text it reads @Name, or @ and the reader's word
+// for everyone.
+const MENTIONS = new RegExp(MENTION_SOURCE, 'g');
+const mentionWords = (_, name) => `@${name.trim().toLowerCase() === ALL ? tx.mentions.everyone : name.trim()}`;
+
+/** A short plain text of a note or a message, for alerts, quotes and cards: no images, links as their words, tags said. */
 export function noteExcerpt(text, max = 180) {
   const plain = String(text || '')
+    .replace(MENTIONS, mentionWords)
     .replace(/!\[[^\]\n]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]\n]+)\]\([^)]*\)/g, '$1')
-    .replace(/[#*_`>|]/g, ' ')
+    .replace(/[#*_\x60>|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;

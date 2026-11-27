@@ -1,4 +1,5 @@
 import { JSDOM } from 'jsdom';
+import { pinNavigator } from './language.mjs';
 
 // DOM simulato per i test dell'interfaccia. Va chiamato prima di importare le viste.
 export function setupDom(url = 'https://board.example/#/') {
@@ -22,6 +23,8 @@ export function setupDom(url = 'https://board.example/#/') {
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
+  // jsdom says en-US: the language of the tests is pinned here too.
+  pinNavigator(window.navigator);
   Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true, writable: true });
   return dom;
 }

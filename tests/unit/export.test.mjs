@@ -62,3 +62,17 @@ test('ideaMarkdown exports the idea with canvas, experiments and interviews but 
   assert.doesNotMatch(md, /rossi@azienda\.example/);
   assert.doesNotMatch(md, /\n{3,}/);
 });
+
+test('un solo votante si dice al singolare, nessun voto e più votanti al plurale', () => {
+  const IDEA = '10000000-0000-4000-8000-000000000001';
+  const at = '2026-10-10T10:00:00Z';
+  const base = { status: null, idea_id: null, version: 1, created_at: at, updated_at: at, deleted_at: null };
+  store.applyItem({ ...base, id: IDEA, kind: 'idea', title: 'Idea alfa', status: 'nuova', data: {}, created_by: ME, updated_by: ME });
+  store.applyItem({ ...base, id: '10000000-0000-4000-8000-000000000002', kind: 'criteria', title: 'Criteri', data: { criteria: [{ key: 'cliente', label: 'Cliente', description: '', weight: 1 }] }, created_by: ME, updated_by: ME });
+  const vote = (id, by, value) => store.applyItem({ ...base, id, kind: 'score', title: 'Voti', data: { scores: { [IDEA]: { cliente: value } } }, created_by: by, updated_by: by });
+  assert.match(ideaMarkdown(store.getItem(IDEA)), /Punteggio: nessun voto \(0 votanti\)/);
+  vote('10000000-0000-4000-8000-000000000003', ME, 5);
+  assert.match(ideaMarkdown(store.getItem(IDEA)), /Punteggio: 100\/100 \(1 votante\)/);
+  vote('10000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-00000000000b', 1);
+  assert.match(ideaMarkdown(store.getItem(IDEA)), /Punteggio: \d+\/100 \(2 votanti\)/);
+});

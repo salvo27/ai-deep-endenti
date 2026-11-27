@@ -1,0 +1,68 @@
+// Testi in italiano: è la lingua di riferimento, l'inglese ne segue la forma.
+export const chat = {
+  // La chat generale si salva come «Generale» in ogni progetto e si mostra con questo nome, nella lingua di chi legge.
+  general: 'Generale',
+  // Il nome di una chat che non c'è (ancora) nell'elenco o senza titolo.
+  fallbackTitle: 'chat',
+  // Avviso del browser per un messaggio arrivato mentre il sito è in un'altra scheda.
+  alert: (who, title, excerpt) => `${who} in «${title}»: ${excerpt}`,
+  list: {
+    label: 'Elenco delle chat',
+    title: 'Chat',
+    newChat: 'Nuova',
+    wholeTeam: 'Tutta la squadra',
+    noMessages: 'Nessun messaggio',
+    showArchived: (count) => `Mostra le archiviate (${count})`,
+    hideArchived: (count) => `Nascondi le archiviate (${count})`,
+  },
+  create: {
+    title: 'Nuova chat',
+    name: 'Nome',
+    namePlaceholder: 'Per esempio: Nutrizione',
+    idea: 'Idea collegata',
+    noIdea: 'Nessuna: argomento libero',
+    archiveNote: 'Le chat si possono archiviare, non cancellare.',
+    create: 'Crea',
+  },
+  panel: {
+    choose: 'Scegli una chat dall\'elenco, o creane una nuova per un argomento o un\'idea.',
+    notFound: 'Chat non trovata.',
+    allChats: 'Tutte le chat',
+    archivedBadge: 'archiviata',
+    linkedIdea: 'Idea:',
+    generalSubtitle: 'La chat di tutta la squadra',
+    renameTitle: 'Rinomina la chat',
+    renameLabel: 'Nome',
+    archiveConfirm: 'Archiviare la chat? Resterà leggibile tra le archiviate, ma non ci si potrà più scrivere.',
+    archived: 'Chat archiviata: si può leggere, ma non scrivere.',
+    reactivate: 'Riattivala',
+  },
+  messages: {
+    label: 'Messaggi',
+    earlier: 'Messaggi precedenti',
+    loading: 'Caricamento dei messaggi…',
+    emptyGeneral: 'Nessun messaggio ancora: scrivete qui alla squadra.',
+    empty: 'Nessun messaggio ancora in questa chat.',
+    deleted: 'Messaggio eliminato',
+    edited: 'modificato',
+    sending: 'Invio…',
+    notSent: 'Non inviato',
+    discard: 'Scarta',
+    reply: 'Rispondi',
+    replyLabel: 'Rispondi al messaggio',
+    editLabel: 'Modifica il messaggio',
+    deleteLabel: 'Elimina il messaggio',
+    deleteConfirm: 'Eliminare il messaggio? Il testo verrà cancellato.',
+  },
+  quote: {
+    missing: 'Messaggio precedente',
+    image: 'Immagine',
+    replyingTo: 'Rispondi a',
+    cancelReply: 'Annulla la risposta',
+  },
+  composer: {
+    placeholder: 'Scrivi un messaggio; @ per taggare. Invio per mandarlo, Maiusc+Invio per andare a capo.',
+    label: 'Messaggio',
+    addImage: 'Aggiungi un\'immagine',
+  },
+};

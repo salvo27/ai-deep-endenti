@@ -1,4 +1,4 @@
-import { PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
+import { ALREADY_SUBMITTED, PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
 import { estimateMinutes } from './survey-time.js';
 import {
   LIMITS,
@@ -18,6 +18,7 @@ import {
   otherKey,
   progressFor,
   readStored,
+  reasonText,
   screenOf,
   seenKey,
   seenRecently,
@@ -31,15 +32,40 @@ import {
   validateQuestion,
   validateScreen,
 } from './survey-flow.js';
+import { language, locale, texts } from './texts.js';
 
 // Pagina pubblica dei questionari (q.html#<codice>): chi risponde non ha account e non carica nulla del sito.
 // Tutti i testi del questionario entrano come testo, mai come HTML; dell'aspetto si usano solo tema, colore e l'immagine
 // dello spazio dei questionari, già controllati.
 
-const ALREADY_SENT = /già state inviate/i;
-const SEND_ERROR = 'Invio non riuscito. Riprova tra poco.';
-const THANKS = 'Le tue risposte sono arrivate.';
+// The page speaks the respondent's language (texts.js); the survey's own texts are the team's.
+const t = texts;
+const SEND_ERROR = t.errors.send;
 const asText = (value) => (typeof value === 'string' ? value : '');
+// Stored values: the same in every language.
+const SECTION = 'sezione'; // i18n-ignore
+const ONE_PER_SCREEN = 'una'; // i18n-ignore
+const NO_PROGRESS = 'nessuno'; // i18n-ignore
+const OPEN = 'aperto'; // i18n-ignore
+const CLOSED = 'chiuso'; // i18n-ignore
+
+// The data layer sends codes: too many attempts and no network have their own words, anything else the fallback.
+function errorText(error, fallback) {
+  if (!(error instanceof PublicSurveyError)) return fallback;
+  if (error.code === 'rate_limit') return t.errors.rateLimit;
+  if (error.code === 'network') return t.errors.network;
+  return fallback;
+}
+
+// The day of an earlier answer (yyyy-mm-dd, saved on the device) written the way the respondent reads dates, with the
+// month in words: respondents can be anywhere, and 04/03 is 4 March for some and 3 April for others.
+const dayFormat = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+function dayText(day) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day));
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? '' : dayFormat.format(date);
+}
 const CHOICE_TYPES = new Set(['scelta', 'scelte', 'scala']);
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -133,19 +159,19 @@ const storage = {
 
 function buildShell(root) {
   const fill = h('span', { class: 'progress-fill' });
-  const bar = h('div', { class: 'progress-bar', role: 'progressbar', 'aria-label': 'Avanzamento', 'aria-valuemin': '0' }, fill);
+  const bar = h('div', { class: 'progress-bar', role: 'progressbar', 'aria-label': t.progressLabel, 'aria-valuemin': '0' }, fill);
   const counter = h('p', { class: 'progress-text' });
   const progress = h('div', { class: 'progress', hidden: true }, counter, bar);
   // Fascia colorata dell'introduzione e del grazie, sopra il resto.
   const band = h('header', { class: 'band', hidden: true });
-  const screen = h('div', { class: 'screen' }, h('p', { class: 'loading', role: 'status' }, 'Caricamento…'));
+  const screen = h('div', { class: 'screen' }, h('p', { class: 'loading', role: 'status' }, t.loading));
   const alert = h('p', { class: 'alert', 'aria-live': 'polite' });
   const nav = h('div', { class: 'nav' });
   // Sotto i pulsanti: l'informativa dell'introduzione, così «Inizia» resta visibile anche sul telefono.
   const after = h('div', { class: 'after' });
   // Campo trappola per i bot: invisibile e fuori dal giro del tasto Tab, chi risponde non lo vede mai.
   const trap = h('input', { type: 'text', id: 'website', name: 'website', tabindex: '-1', autocomplete: 'off' });
-  const honeypot = h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website' }, 'Sito web'), trap);
+  const honeypot = h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website' }, t.honeypot), trap);
   const sheet = h('div', { class: 'sheet' }, progress, screen, alert, nav, after, honeypot);
   const form = h('form', { class: 'card', novalidate: true, 'data-mode': 'loading' }, band, sheet);
   form.addEventListener('submit', onSubmit);
@@ -195,24 +221,23 @@ function showMessage(title, text, retry = null) {
   ui.progress.hidden = true;
   mount([h('h1', { class: 'title', tabindex: '-1' }, title), h('p', { class: 'text' }, text)]);
   ui.nav.textContent = '';
-  if (retry) ui.nav.append(h('button', { type: 'button', class: 'btn btn-primary', onclick: retry }, 'Riprova'));
+  if (retry) ui.nav.append(h('button', { type: 'button', class: 'btn btn-primary', onclick: retry }, t.retry));
 }
 
-const showNotFound = () =>
-  showMessage('Questionario non trovato', 'Il link potrebbe essere incompleto o non più valido. Controlla di averlo copiato per intero, oppure chiedilo di nuovo a chi te l\'ha mandato.');
+const showNotFound = () => showMessage(t.notFound.title, t.notFound.text);
 
-const showClosed = () => showMessage('Questionario chiuso', 'Questo questionario non accetta più risposte. Grazie comunque per il tuo interesse.');
+const showClosed = () => showMessage(t.closed.title, t.closed.text);
 
 // Informativa a due livelli: chiusa sotto «Inizia», si apre sul posto con un tocco.
 function privacyBlock(text) {
   const body = h('p', { class: 'privacy-text', id: 'privacy-testo', hidden: true }, text);
-  const toggle = h('button', { type: 'button', class: 'link-btn privacy-toggle', 'aria-expanded': 'false', 'aria-controls': body.id }, 'Leggi l\'informativa sulla privacy');
+  const toggle = h('button', { type: 'button', class: 'link-btn privacy-toggle', 'aria-expanded': 'false', 'aria-controls': body.id }, t.intro.privacyToggle);
   toggle.addEventListener('click', () => {
     const open = toggle.getAttribute('aria-expanded') !== 'true';
     body.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
   });
-  return h('section', { class: 'privacy', 'aria-label': 'Informativa sulla privacy' }, toggle, body);
+  return h('section', { class: 'privacy', 'aria-label': t.intro.privacyLabel }, toggle, body);
 }
 
 // Copertina: l'immagine scelta dal team o, senza immagine (o se non si carica), una fascia leggera con un'icona.
@@ -235,8 +260,8 @@ function showIntro() {
   const facts = [];
   if (survey.show_time) facts.push(['clock', durationText(estimateMinutes(survey, survey.median_seconds))]);
   const email = emailQuestion(survey);
-  if (email) facts.push(['mail', email.required ? 'Alla fine ti chiederemo un indirizzo email.' : 'Alla fine, se vuoi, potrai lasciarci la tua email.']);
-  facts.push(['saved', 'Le risposte si salvano a ogni passaggio: se ti fermi, riprendi da dove eri.']);
+  if (email) facts.push(['mail', email.required ? t.intro.emailRequired : t.intro.emailOptional]);
+  facts.push(['saved', t.intro.saved]);
   mount(
     [
       h('h1', { class: 'title' }, survey.title),
@@ -246,7 +271,7 @@ function showIntro() {
     cover(),
   );
   ui.nav.textContent = '';
-  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Inizia'));
+  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, t.intro.start));
   if (survey.privacy) ui.after.append(privacyBlock(survey.privacy));
 }
 
@@ -255,29 +280,20 @@ function showWelcomeBack() {
   const survey = state.survey;
   state.mode = 'ritorno';
   ui.progress.hidden = true;
-  const asked = survey.questions.filter((q) => q.type !== 'sezione').length;
+  const asked = survey.questions.filter((q) => q.type !== SECTION).length;
   const missing = unanswered(survey.questions, state.draft).length;
-  const left = missing === 1 ? 'Ti manca una domanda' : `Ti mancano ${missing} domande`;
-  mount(
-    [
-      h('h1', { class: 'title' }, survey.title),
-      h('p', { class: 'text' }, `${left} su ${asked}: le risposte che avevi dato sono ancora qui, riprendi da dove eri.`),
-    ],
-    cover(),
-  );
+  mount([h('h1', { class: 'title' }, survey.title), h('p', { class: 'text' }, t.welcomeBack.text(missing, asked))], cover());
   ui.nav.textContent = '';
-  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, 'Riprendi'));
+  ui.nav.append(h('button', { type: 'submit', class: 'btn btn-primary' }, t.welcomeBack.resume));
 }
 
 // Chi ha già inviato da questo dispositivo non ricomincia: niente compilazioni doppie per sbaglio.
 function showAlreadySent(day) {
   state.mode = 'done';
-  document.title = 'Hai già risposto';
+  document.title = t.alreadySent.pageTitle;
   ui.progress.hidden = true;
-  const [y, m, d] = String(day).split('-');
-  const when = y && m && d ? ` il ${d}/${m}/${y}` : '';
   mount(
-    [h('h1', { class: 'title', tabindex: '-1' }, 'Hai già risposto, grazie!'), h('p', { class: 'text' }, `Le tue risposte sono arrivate${when}: non serve compilarlo di nuovo. Ora puoi chiudere questa pagina.`)],
+    [h('h1', { class: 'title', tabindex: '-1' }, t.alreadySent.title), h('p', { class: 'text' }, t.alreadySent.text(dayText(day)))],
     { band: [h('span', { class: 'band-mark' }, icon('check', 40))] },
   );
   ui.nav.textContent = '';
@@ -334,12 +350,12 @@ function choiceControls(q, block, keyed) {
         maxlength: LIMITS.other,
         autocomplete: 'off',
         placeholder: q.other_placeholder || undefined,
-        'aria-label': `${q.other_label}: scrivi la tua risposta`,
+        'aria-label': t.question.otherField(q.other_label),
         value: asText(state.draft[otherKey(q.id)]),
       });
       rows.push(block.otherField);
     }
-    if (q.prefer_not) rows.push(row(PREFER_NOT, h('span', { class: 'opt-label' }, 'Preferisco non rispondere'), 'opt-prefer'));
+    if (q.prefer_not) rows.push(row(PREFER_NOT, h('span', { class: 'opt-label' }, t.preferNot), 'opt-prefer'));
   }
   return h('div', { class: 'opts' }, rows);
 }
@@ -373,17 +389,17 @@ function fieldControl(q, block, describedBy, last) {
   // Dominio quasi uguale a uno noto (gmial.com): si propone la correzione quando si esce dal campo, senza bloccare.
   block.suggest = h('p', { class: 'email-suggest', 'aria-live': 'polite' });
   const consent = h('input', { type: 'checkbox', name: 'recontact', class: 'opt-input', 'data-q': q.id, checked: state.recontact });
-  return [input, block.suggest, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, 'Potete ricontattarmi per una breve chiacchierata'), h('span', { class: 'opt-mark is-box' }))];
+  return [input, block.suggest, h('label', { class: 'opt opt-consent' }, consent, h('span', { class: 'opt-label' }, t.question.consent), h('span', { class: 'opt-mark is-box' }))];
 }
 
 function questionBlock(q, level, last, keyed) {
   const base = `q-${q.id}`;
-  const block = { q, node: null, title: null, inputs: [], otherField: null, error: h('p', { class: 'q-error', id: `${base}-errore`, hidden: true }) };
+  const block = { q, node: null, title: null, inputs: [], otherField: null, error: h('p', { class: 'q-error', id: `${base}-errore`, hidden: true }) }; // i18n-ignore: element id
   const help = q.help ? h('p', { class: 'q-help', id: `${base}-aiuto` }, q.help) : null;
   const hint = q.type === 'numero' ? h('p', { class: 'q-help', id: `${base}-limiti` }, numberHint(q.number)) : null;
   const describedBy = [help?.id, hint?.id, block.error.id].filter(Boolean).join(' ');
-  const label = [q.label, q.required ? h('span', { class: 'q-required' }, ' (obbligatoria)') : null];
-  block.title = h(level, { class: 'q-title', id: `${base}-titolo`, tabindex: '-1' });
+  const label = [q.label, q.required ? h('span', { class: 'q-required' }, ` ${t.question.required}`) : null];
+  block.title = h(level, { class: 'q-title', id: `${base}-titolo`, tabindex: '-1' }); // i18n-ignore: element id
   if (q.type === 'scelta' || q.type === 'scelte' || q.type === 'scala') {
     block.title.append(...label.filter(Boolean));
     const controls = choiceControls(q, block, keyed);
@@ -400,8 +416,8 @@ function questionBlock(q, level, last, keyed) {
 
 function updateProgress() {
   const mode = state.survey.progress;
-  ui.progress.hidden = mode === 'nessuno';
-  if (mode === 'nessuno') return;
+  ui.progress.hidden = mode === NO_PROGRESS;
+  if (mode === NO_PROGRESS) return;
   const p = progressFor(state.screens, state.index);
   ui.fill.style.width = `${Math.round(p.ratio * 1000) / 10}%`;
   ui.bar.setAttribute('aria-valuemax', String(p.total));
@@ -420,7 +436,7 @@ function showQuestions({ focus = true, enter = null } = {}) {
   state.mode = 'question';
   blocks = new Map();
   const screen = state.screens[state.index];
-  const one = state.survey.layout === 'una';
+  const one = state.survey.layout === ONE_PER_SCREEN;
   const last = state.index === state.screens.length - 1;
   const keyed = screen.questions.length === 1 && CHOICE_TYPES.has(screen.questions[0].type);
   const nodes = [];
@@ -434,9 +450,9 @@ function showQuestions({ focus = true, enter = null } = {}) {
   if (keyed) shortcuts = blocks.get(screen.questions[0].id).inputs;
   updateProgress();
   ui.nav.textContent = '';
-  if (state.index > 0) ui.nav.append(h('button', { type: 'button', class: 'btn btn-back', 'aria-label': 'Indietro', title: 'Indietro', onclick: goBack }, icon('back')));
-  ui.submit = h('button', { type: 'submit', class: 'btn btn-primary', 'aria-keyshortcuts': 'Enter' }, last ? 'Invia' : 'Avanti');
-  ui.nav.append(h('span', { class: 'key-hint', 'aria-hidden': 'true' }, 'oppure premi Invio ↵'), ui.submit);
+  if (state.index > 0) ui.nav.append(h('button', { type: 'button', class: 'btn btn-back', 'aria-label': t.question.back, title: t.question.back, onclick: goBack }, icon('back')));
+  ui.submit = h('button', { type: 'submit', class: 'btn btn-primary', 'aria-keyshortcuts': 'Enter' }, last ? t.question.send : t.question.next);
+  ui.nav.append(h('span', { class: 'key-hint', 'aria-hidden': 'true' }, t.question.keyHint), ui.submit);
   for (const area of ui.screen.querySelectorAll('textarea')) grow(area);
   if (focus) {
     window.scrollTo(0, 0);
@@ -482,7 +498,7 @@ function setError(id, message) {
 function showErrors(errors) {
   for (const id of blocks.keys()) setError(id, null);
   for (const { id, message } of errors) setError(id, message);
-  setAlert(errors.length === 1 ? errors[0].message : 'Controlla le risposte segnate, per favore.');
+  setAlert(errors.length === 1 ? errors[0].message : t.question.checkMarked);
   const first = blocks.get(errors[0]?.id);
   if (!first) return;
   const other = first.otherField && !first.otherField.hidden && first.error.textContent !== MESSAGES.required;
@@ -508,7 +524,7 @@ function suggestEmail(block, input) {
   const suggestion = emailSuggestion(input.value);
   block.suggest.textContent = '';
   if (!suggestion) return;
-  const fix = h('button', { type: 'button', class: 'btn-fix' }, 'Sì, correggi');
+  const fix = h('button', { type: 'button', class: 'btn-fix' }, t.question.suggestFix);
   fix.addEventListener('click', () => {
     input.value = suggestion;
     state.draft[block.q.id] = suggestion;
@@ -516,7 +532,7 @@ function suggestEmail(block, input) {
     afterChange(block.q.id);
     input.focus();
   });
-  block.suggest.append(h('span', {}, 'Intendevi ', h('strong', {}, suggestion), '?'), fix);
+  block.suggest.append(h('span', {}, `${t.question.suggestBefore} `, h('strong', {}, suggestion), t.question.suggestAfter), fix);
 }
 
 function onInput(event) {
@@ -644,17 +660,17 @@ function showThanks() {
   storage.clear();
   storage.markSent();
   state.mode = 'done';
-  document.title = 'Grazie';
+  document.title = t.thanks.pageTitle;
   ui.progress.hidden = true;
-  const title = h('h1', { class: 'title', tabindex: '-1' }, 'Grazie!');
-  const text = (contact && state.survey.thanks_contact) || state.survey.thanks || THANKS;
+  const title = h('h1', { class: 'title', tabindex: '-1' }, t.thanks.title);
+  const text = (contact && state.survey.thanks_contact) || state.survey.thanks || t.thanks.received;
   mount(
     [
       title,
       h('p', { class: 'text' }, text),
-      contact ? h('p', { class: 'thanks-mail' }, h('span', {}, 'Ti scriveremo a'), h('strong', {}, address)) : null,
+      contact ? h('p', { class: 'thanks-mail' }, h('span', {}, t.thanks.writeTo), h('strong', {}, address)) : null,
       thanksImage(),
-      h('p', { class: 'thanks-close' }, 'Ora puoi chiudere questa pagina.'),
+      h('p', { class: 'thanks-close' }, t.thanks.close),
     ].filter(Boolean),
     { band: [h('span', { class: 'band-mark' }, icon('check', 40))], enter: 'next' },
   );
@@ -683,7 +699,7 @@ async function finish() {
   }
   if (remindSkipped()) return;
   state.sending = true;
-  setBusy(true, 'Invio in corso…');
+  setBusy(true, t.sending.busy);
   setAlert('');
   let result;
   try {
@@ -691,18 +707,18 @@ async function finish() {
     result = await submitSurvey(state.token, answers, meta(true, answers));
   } catch (error) {
     state.sending = false;
-    setBusy(false, 'Riprova');
-    setAlert(error instanceof PublicSurveyError ? error.message : SEND_ERROR);
+    setBusy(false, t.retry);
+    setAlert(errorText(error, SEND_ERROR));
     return;
   }
   state.sending = false;
-  setBusy(false, 'Invia');
+  setBusy(false, t.question.send);
   // «Già inviate» arriva quando il primo invio era passato ma la risposta si è persa per strada.
-  if (result?.status === 'ok' || ALREADY_SENT.test(asText(result?.reason))) {
+  if (result?.status === 'ok' || result?.reason === ALREADY_SUBMITTED) {
     showThanks();
     return;
   }
-  const reason = asText(result?.reason) || SEND_ERROR;
+  const reason = reasonText(result?.reason) || SEND_ERROR;
   const target = result?.question ? screenOf(state.screens, result.question) : -1;
   if (target < 0) {
     setAlert(reason);
@@ -723,8 +739,8 @@ function remindSkipped() {
   state.reminded = true;
   const skipped = unanswered(state.survey.questions, state.draft).filter((q) => q.type !== 'email');
   if (!skipped.length) return false;
-  const title = h('p', { class: 'reminder-title', tabindex: '-1' }, skipped.length === 1 ? 'Hai lasciato senza risposta una domanda:' : `Hai lasciato senza risposta ${skipped.length} domande:`);
-  const review = h('button', { type: 'button', class: 'btn btn-quiet' }, skipped.length === 1 ? 'Rispondi' : 'Rispondi a quelle saltate');
+  const title = h('p', { class: 'reminder-title', tabindex: '-1' }, t.reminder.title(skipped.length));
+  const review = h('button', { type: 'button', class: 'btn btn-quiet' }, t.reminder.review(skipped.length));
   review.addEventListener('click', () => {
     closeScreen();
     state.index = screenOf(state.screens, skipped[0].id);
@@ -733,15 +749,15 @@ function remindSkipped() {
   });
   const box = h(
     'section',
-    { class: 'reminder', 'aria-label': 'Domande senza risposta' },
+    { class: 'reminder', 'aria-label': t.reminder.label },
     title,
     h('ul', { class: 'reminder-list' }, skipped.slice(0, 5).map((q) => h('li', {}, q.label))),
-    skipped.length > 5 ? h('p', { class: 'reminder-more' }, `e altre ${skipped.length - 5}.`) : null,
-    h('p', { class: 'reminder-text' }, 'Non sono obbligatorie: se preferisci, invia pure così.'),
+    skipped.length > 5 ? h('p', { class: 'reminder-more' }, t.reminder.more(skipped.length - 5)) : null,
+    h('p', { class: 'reminder-text' }, t.reminder.text),
     review,
   );
   ui.screen.append(box);
-  if (ui.submit) ui.submit.textContent = 'Invia comunque';
+  if (ui.submit) ui.submit.textContent = t.sending.anyway;
   title.focus({ preventScroll: true });
   ui.nav.scrollIntoView({ block: 'nearest' });
   return true;
@@ -784,19 +800,18 @@ async function load() {
   try {
     data = await loadPublicSurvey(state.token);
   } catch (error) {
-    const text = error instanceof PublicSurveyError ? error.message : 'Questionario non disponibile. Riprova più tardi.';
-    showMessage('Non riesco ad aprire il questionario', text, () => {
-      mount([h('p', { class: 'loading', role: 'status' }, 'Caricamento…')]);
+    showMessage(t.loadFailed, errorText(error, t.errors.load), () => {
+      mount([h('p', { class: 'loading', role: 'status' }, t.loading)]);
       ui.nav.textContent = '';
       load();
     });
     return;
   }
-  if (data?.status === 'chiuso') {
+  if (data?.status === CLOSED) {
     showClosed();
     return;
   }
-  if (data?.status !== 'aperto') {
+  if (data?.status !== OPEN) {
     showNotFound();
     return;
   }
@@ -834,6 +849,9 @@ async function load() {
 
 const root = document.getElementById('survey');
 if (root) {
+  // The language of the respondent, for screen readers and the browser's translator; the title until the survey arrives.
+  document.documentElement.lang = language;
+  document.title = t.defaultTitle;
   buildShell(root);
   load();
 }

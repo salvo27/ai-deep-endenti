@@ -1,0 +1,36 @@
+// Testi in italiano: è la lingua di riferimento, l'inglese ne segue la forma.
+const giorni = (n) => `${n} ${n === 1 ? 'giorno' : 'giorni'}`;
+
+export const dashboard = {
+  late: (days) => `scaduto da ${giorni(days)}`,
+  dueToday: 'scade oggi',
+  dueIn: (days) => `scade tra ${giorni(days)}`,
+  hello: (name) => `Ciao, ${name}`,
+  subtitle: 'Le idee del team, gli esperimenti in corso e cosa è cambiato.',
+  newIdea: 'Nuova idea',
+  empty: 'La board è vuota. Crea la prima idea, oppure parti dal generatore.',
+  openGenerator: 'Apri il generatore',
+  stats: {
+    activeIdeas: () => 'idee attive',
+    running: () => 'esperimenti in corso',
+    interviews: () => 'interviste negli ultimi 30 giorni',
+    commitments: () => 'impegni concreti (piloti)',
+  },
+  ranking: 'Classifica',
+  disagreementsHint: 'Criteri su cui il team non è d\'accordo',
+  disagreements: (n) => `${n} disaccordi`,
+  noVotes: 'Nessun voto ancora.',
+  voteIdeas: 'Vota le idee',
+  pipeline: 'Pipeline delle idee',
+  running: 'Esperimenti in corso',
+  noRunning: 'Nessun esperimento in corso.',
+  todo: 'Le tue cose da fare',
+  nothingPending: 'Niente in sospeso.',
+  unowned: (n) => `${n} ${n === 1 ? 'persona' : 'persone'} senza responsabile`,
+  chooseOwner: ': scegli chi se ne occupa.',
+  newsSince: 'Novità dall\'ultima visita',
+  latest: 'Ultime modifiche',
+  noNewsSince: 'Nessuna novità dagli altri dalla tua ultima visita.',
+  noChanges: 'Ancora nessuna modifica.',
+  fullHistory: 'Apri lo storico completo',
+};

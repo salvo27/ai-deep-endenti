@@ -1,9 +1,11 @@
-// Tempo stimato di un questionario, per la pagina pubblica e per l'editor. Nessuna dipendenza: lo usa anche la pagina senza login.
+// Tempo stimato di un questionario, per la pagina pubblica e per l'editor. Dipende solo dai testi della pagina pubblica:
+// lo usa anche la pagina senza login.
 // Lettura a 4 parole al secondo (238 al minuto, Brysbaert 2019) di introduzione e domande, più un tempo fisso per tipo
 // di domanda, il tutto per 1,1: sul telefono si va un po' più piano (Antoun e Cernat 2020), ma con una domanda per
 // schermata si scorre e si scrive poco. L'informativa è chiusa e si apre a richiesta, quindi non conta.
 // Né gonfiata né sottostimata: una durata lunga fa iniziare meno persone, una troppo corta fa abbandonare di più
 // (Galesic e Bosnjak 2009). Tarata sulla prima compilazione completa vera (223 secondi per una stima di 259).
+import { pageLanguage, textsFor } from './texts.js';
 
 export const WORDS_PER_SECOND = 4;
 export const PHONE_FACTOR = 1.1;
@@ -50,4 +52,5 @@ export function estimateMinutes(survey, medianSeconds = null) {
   return Math.max(1, Math.round(seconds / 60));
 }
 
-export const minutesLabel = (minutes) => (minutes === 1 ? 'circa 1 minuto' : `circa ${minutes} minuti`);
+// In the language of the page that shows it (the site or q.html), unless the caller names one.
+export const minutesLabel = (minutes, lang = pageLanguage()) => textsFor(lang).time.about(minutes);

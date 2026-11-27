@@ -1,11 +1,13 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setupDom, flush } from '../setup/dom.mjs';
 import { IDS, ME, boardItems, members, revision, XSS } from '../setup/fixtures.mjs';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+// fileURLToPath and not .pathname: on Windows the pathname starts with /C:/ and the files are not found.
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -102,7 +104,8 @@ test('no source file builds HTML from strings or evaluates code', () => {
 test('views fill elements through the null-safe helpers', () => {
   for (const file of sourceFiles(join(ROOT, 'assets/js'))) {
     const source = readFileSync(file, 'utf8');
-    if (!file.endsWith('lib/dom.js') && !file.endsWith('router.js')) assert.doesNotMatch(source, /\.replaceChildren\(/, `${file}: usa mount()`);
+    const name = file.split(sep).join('/');
+    if (!name.endsWith('lib/dom.js') && !name.endsWith('router.js')) assert.doesNotMatch(source, /\.replaceChildren\(/, `${file}: usa mount()`);
   }
 });
 
@@ -143,7 +146,8 @@ test('every public table in the schema has row level security', () => {
   const schema = readFileSync(join(ROOT, 'supabase/schema.sql'), 'utf8');
   const tables = [...schema.matchAll(/create table if not exists public\.(\w+)/g)].map((m) => m[1]);
   assert.deepEqual(tables.sort(), [
-    'ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions', 'revisions',
+    'ai_usage', 'audit_log', 'chat_messages', 'chat_reads', 'chats', 'comments', 'email_prefs', 'email_weekly', 'items', 'member_activity', 'members', 'mentions',
+    'platform_admins', 'profiles', 'projects', 'revisions',
     'survey_counts', 'survey_event_counts', 'survey_events', 'survey_limits', 'survey_responses', 'survey_salts',
   ]);
   for (const table of tables) {

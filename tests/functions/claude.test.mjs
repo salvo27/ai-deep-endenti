@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpError, MAX_BODY_BYTES, createHandler, extractText, parseOrigins, readRequest } from '../../supabase/functions/claude/handler.js';
 import { TASKS, systemPrompt, userMessage } from '../../supabase/functions/claude/prompts.js';
+import { ERRORS } from '../../supabase/functions/claude/texts.js';
 
 const ORIGIN = 'https://salvo27.github.io';
 const USER = '00000000-0000-4000-8000-00000000000a';
+const PROJECT = 'aaaaaaaa-0000-4000-8000-000000000001';
 
 function setup(over = {}) {
   const logs = [];
@@ -13,7 +15,8 @@ function setup(over = {}) {
   const deps = {
     allowedOrigins: `${ORIGIN}, http://localhost:8080/ ,not-an-origin`,
     dailyLimit: 3,
-    verifyCaller: async (auth) => (auth === 'Bearer buono' ? { userId: USER, member: true } : auth === 'Bearer estraneo' ? { userId: 'x', member: false } : null),
+    verifyCaller: async (auth) => (auth === 'Bearer buono' ? { userId: USER } : auth === 'Bearer estraneo' ? { userId: 'x' } : null),
+    canRead: async (auth, project) => auth === 'Bearer buono' && project === PROJECT,
     countUsageToday: async () => usage.count,
     recordUsage: async (u) => {
       usage.recorded.push(u);
@@ -30,7 +33,7 @@ function setup(over = {}) {
   return { handle: createHandler(deps), logs, usage, claudeCalls };
 }
 
-function request({ method = 'POST', origin = ORIGIN, auth = 'Bearer buono', body = { task: 'critique', context: 'Idea: alfa' }, headers = {} } = {}) {
+function request({ method = 'POST', origin = ORIGIN, auth = 'Bearer buono', body = { task: 'critique', context: 'Idea: alfa', project: PROJECT }, headers = {} } = {}) {
   const h = { 'content-type': 'application/json', ...headers };
   if (origin) h.origin = origin;
   if (auth) h.authorization = auth;
@@ -64,13 +67,13 @@ test('requests from other origins or with other methods are refused', async () =
   assert.equal(claudeCalls.length, 0);
 });
 
-test('only team members with two factors can use Claude', async () => {
+test('only members of the project with two factors can use Claude', async () => {
   const { handle, claudeCalls } = setup();
   assert.equal((await handle(request({ auth: null }))).status, 401);
   assert.equal((await handle(request({ auth: 'Bearer falso' }))).status, 401);
   const outsider = await handle(request({ auth: 'Bearer estraneo' }));
   assert.equal(outsider.status, 403);
-  assert.match((await outsider.json()).error, /verifica in due passaggi/);
+  assert.deepEqual(await outsider.json(), { error: ERRORS.en.not_member, code: 'not_member' });
   assert.equal(claudeCalls.length, 0);
 });
 
@@ -81,13 +84,13 @@ test('the body is validated by size, then format, then task and content', async 
     [{ body: 'x'.repeat(MAX_BODY_BYTES + 10) }, 413],
     [{ body: '{non json' }, 400],
     [{ body: '[1,2]' }, 400],
-    [{ body: { task: 'critique', context: 'x', extra: true } }, 400],
-    [{ body: { task: 'critique', context: 42 } }, 400],
-    [{ body: { task: 'inventato', context: 'x' } }, 400],
-    [{ body: { task: '__proto__', context: 'x' } }, 400],
-    [{ body: { task: 'toString', context: 'x' } }, 400],
-    [{ body: { task: 'critique', context: '  \u0000  ' } }, 400],
-    [{ body: { task: 'cell_ideas', context: 'x'.repeat(TASKS.cell_ideas.maxContext + 1) } }, 413],
+    [{ body: { task: 'critique', context: 'x', project: PROJECT, extra: true } }, 400],
+    [{ body: { task: 'critique', context: 42, project: PROJECT } }, 400],
+    [{ body: { task: 'inventato', context: 'x', project: PROJECT } }, 400],
+    [{ body: { task: '__proto__', context: 'x', project: PROJECT } }, 400],
+    [{ body: { task: 'toString', context: 'x', project: PROJECT } }, 400],
+    [{ body: { task: 'critique', context: '  \u0000  ', project: PROJECT } }, 400],
+    [{ body: { task: 'cell_ideas', context: 'x'.repeat(TASKS.cell_ideas.maxContext + 1), project: PROJECT } }, 413],
   ];
   for (const [opts, status] of cases) {
     const res = await handle(request(opts));
@@ -99,7 +102,7 @@ test('the body is validated by size, then format, then task and content', async 
 
 test('a valid request calls Claude with the task prompt and records usage', async () => {
   const { handle, usage, claudeCalls, logs } = setup();
-  const res = await handle(request({ body: { task: 'interview_questions', context: 'Idea: alfa per un cliente' } }));
+  const res = await handle(request({ body: { task: 'interview_questions', context: 'Idea: alfa per un cliente', project: PROJECT } }));
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await res.json(), { text: 'Critica: manca il cliente.', truncated: false, remaining: 2 });
@@ -116,7 +119,8 @@ test('the daily limit is enforced before calling Claude', async () => {
   usage.count = 3;
   const res = await handle(request());
   assert.equal(res.status, 429);
-  assert.match((await res.json()).error, /limite di 3 richieste/);
+  assert.deepEqual(await res.json(), { error: ERRORS.en.daily_limit(3), code: 'daily_limit' });
+  assert.match(ERRORS.en.daily_limit(3), /limit of 3 requests/);
   assert.equal(claudeCalls.length, 0);
   assert.equal(usage.recorded.length, 0);
 });
@@ -155,12 +159,12 @@ test('unexpected errors become a generic message and the log carries no details'
 test('known upstream conditions keep their specific message', async () => {
   const { handle } = setup({
     callClaude: async () => {
-      throw new HttpError(503, 'Claude è molto richiesto in questo momento. Riprova tra un minuto.');
+      throw new HttpError(503, 'busy');
     },
   });
   const res = await handle(request());
   assert.equal(res.status, 503);
-  assert.match((await res.json()).error, /molto richiesto/);
+  assert.deepEqual(await res.json(), { error: ERRORS.en.busy, code: 'busy' });
 });
 
 test('a failure while saving usage does not lose the answer', async () => {
@@ -172,15 +176,15 @@ test('a failure while saving usage does not lose the answer', async () => {
 });
 
 test('readRequest and extractText work on their own', async () => {
-  const parsed = await readRequest(new Request('https://x', { method: 'POST', body: JSON.stringify({ task: 'critique', context: ' ciao\u0007 ' }) }));
-  assert.deepEqual(parsed, { task: 'critique', context: 'ciao' });
-  assert.throws(() => extractText(null), /non valida/);
+  const parsed = await readRequest(new Request('https://x', { method: 'POST', body: JSON.stringify({ task: 'critique', context: ' ciao\u0007 ', project: PROJECT, language: 'it' }) }));
+  assert.deepEqual(parsed, { task: 'critique', context: 'ciao', project: PROJECT, language: 'it' });
+  assert.throws(() => extractText(null), (error) => error instanceof HttpError && error.status === 502 && error.code === 'invalid_response');
   assert.deepEqual(extractText({ stop_reason: 'end_turn', content: [{ type: 'text', text: ' a ' }, { type: 'text', text: 'b' }] }), { text: 'a \nb', truncated: false });
 });
 
 test('every task has instructions and tells the model to treat the board as data', () => {
   for (const task of Object.keys(TASKS)) {
-    const prompt = systemPrompt(task);
+    const prompt = systemPrompt(task, 'it');
     assert.match(prompt, /materiale da analizzare/);
     assert.match(prompt, /Non inventare dati/);
     assert.ok(TASKS[task].maxContext > 0);

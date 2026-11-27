@@ -1,12 +1,13 @@
 // Anteprima locale senza login, con dati finti: serve solo a controllare il layout.
 import { api } from '../../assets/js/lib/api.js';
+import { applyDocumentLanguage } from '../../assets/js/i18n/index.js';
 import * as store from '../../assets/js/store.js';
 import { buildShell } from '../../assets/js/views/shell.js';
 import { notFoundView, registerRoutes } from '../../assets/js/app.js';
 import { startRouter } from '../../assets/js/router.js';
 import { surveyTemplate } from '../../assets/js/survey-template.js';
 import { addDays, thisMonday } from '../../assets/js/availability.js';
-import { ADVISOR, IDS, ME, OTHER, boardItems, item, members, revision } from '../setup/fixtures.mjs';
+import { ADVISOR, IDS, ME, OTHER, PROJECT, boardItems, item, members, revision } from '../setup/fixtures.mjs';
 
 const extraIdeas = [
   ['Idea gamma con un titolo piuttosto lungo per vedere come va a capo', 'esplorazione'],
@@ -51,6 +52,7 @@ const surveyResponses = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 store.state.user = { id: ME };
+store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
 store.setMembers(members());
 // Spese di fantasia: un gruppo con una persona senza account e movimenti in due valute.
 const EXPENSES = 'ffffffff-0000-4000-8000-000000000001';
@@ -151,6 +153,8 @@ api.surveyFunnel = async () => ({ views: 48, starts: 14, partial: 2, completed: 
 api.listSurveyResponses = async () => surveyResponses;
 api.deleteSurveyResponses = async () => 0;
 
+// Come il sito vero (main.js): la pagina dice la lingua del dispositivo, che sceglie anche i testi.
+applyDocumentLanguage();
 const { outlet } = buildShell(document.getElementById('app'), { onSignOut() {} });
 registerRoutes();
 startRouter(outlet, { fallback: notFoundView });

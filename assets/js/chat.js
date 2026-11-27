@@ -1,21 +1,38 @@
 import { api } from './lib/api.js';
-import { browserAlert } from './notifications.js';
-import { emit, memberName, on, state } from './store.js';
+import { tx } from './i18n/index.js';
+import { browserAlert, ofOpenProject } from './notifications.js';
+import { currentProjectId, emit, memberName, on, state } from './store.js';
 import { noteExcerpt } from './notes.js';
 
-// Stato delle chat: elenco, ultimo messaggio e non letti per chat. I messaggi si caricano solo aprendo una chat.
+const t = tx.chat;
+
+// Stato delle chat del progetto aperto: elenco, ultimo messaggio e non letti per chat. I messaggi si caricano solo
+// aprendo una chat.
 export const chatState = { chats: new Map(), info: new Map(), active: null, loaded: false };
+
+/** The name to show. The general chat is stored as 'Generale' in every project and is shown in the reader's language. */
+export const chatTitle = (chat) => (chat?.is_general ? t.general : chat?.title || t.fallbackTitle);
 
 const infoOf = (id) => chatState.info.get(id) || { last_message_at: null, unread: 0 };
 
 function applyChat(row) {
+  if (!ofOpenProject(row)) return;
   chatState.chats.set(row.id, row);
   emit('chats');
 }
 
+// Without a project nothing is asked: the database would answer with the chats of every project of the person.
 export async function loadChats() {
-  const [rows, overview] = await Promise.all([api.listChats(), api.chatOverview()]);
-  chatState.chats = new Map((rows || []).map((c) => [c.id, c]));
+  const project = currentProjectId();
+  if (!project) {
+    chatState.chats = new Map();
+    chatState.info = new Map();
+    chatState.loaded = false;
+    emit('chats');
+    return;
+  }
+  const [rows, overview] = await Promise.all([api.listChats(project), api.chatOverview(project)]);
+  chatState.chats = new Map((rows || []).filter(ofOpenProject).map((c) => [c.id, c]));
   chatState.info = new Map((overview || []).map((o) => [o.chat_id, { last_message_at: o.last_message_at, unread: o.unread || 0 }]));
   chatState.loaded = true;
   emit('chats');
@@ -24,15 +41,14 @@ export async function loadChats() {
 const isWatching = (chatId) => chatState.active === chatId && document.visibilityState === 'visible';
 
 function onMessage({ row, inserted }) {
-  if (!inserted) return;
+  if (!inserted || !ofOpenProject(row)) return;
   const info = { ...infoOf(row.chat_id) };
   info.last_message_at = row.created_at;
   if (row.author_id !== state.user?.id && !row.deleted_at) {
     if (!isWatching(row.chat_id)) info.unread += 1;
-    const chat = chatState.chats.get(row.chat_id);
     browserAlert({
       id: `m-${row.id}`,
-      text: `${memberName(row.author_id)} in «${chat?.title || 'chat'}»: ${noteExcerpt(row.body, 120)}`,
+      text: t.alert(memberName(row.author_id), chatTitle(chatState.chats.get(row.chat_id)), noteExcerpt(row.body, 120)),
       href: `#/chat/${row.chat_id}`,
     });
   }
@@ -108,8 +124,9 @@ export function markChatRead(chatId) {
   else markTimers.set(chatId, setTimeout(run, wait));
 }
 
+// A chat is born in the open project and stays there.
 export async function createChat({ title, ideaId = null }) {
-  const row = await api.createChat({ title, ideaId });
+  const row = await api.createChat({ title, ideaId, projectId: currentProjectId() });
   applyChat(row);
   return row;
 }

@@ -4,8 +4,10 @@ import { downloadFile, fmtDate, slugFile } from '../lib/format.js';
 import { imagePaths, noteBody, noteExcerpt, noteToMarkdown, printNote, renderNote } from '../notes.js';
 import { itemsOf } from '../store.js';
 import { markReadWhere } from '../mentions.js';
+import { tx } from '../i18n/index.js';
 import { button, emptyState, itemLink, memberChip } from './components.js';
 
+const t = tx.notes;
 const byDate = (a, b) => (b.data.date || b.created_at || '').localeCompare(a.data.date || a.created_at || '');
 
 export function notesTab(idea, writable) {
@@ -16,8 +18,8 @@ export function notesTab(idea, writable) {
     h(
       'div',
       { class: 'section-head' },
-      h('p', { class: 'muted' }, 'Riunioni, link, domande aperte e idee sparse su questa idea. Ogni nota è un testo Markdown, con immagini.'),
-      writable ? button('Nuova nota', { kind: 'primary', iconName: 'plus', href: `#/nuovo/note?idea=${idea.id}` }) : null,
+      h('p', { class: 'muted' }, t.tab.intro),
+      writable ? button(t.tab.newNote, { kind: 'primary', iconName: 'plus', href: `#/nuovo/note?idea=${idea.id}` }) : null, // i18n-ignore: the address of the page
     ),
     notes.length
       ? h(
@@ -40,24 +42,24 @@ export function notesTab(idea, writable) {
             );
           }),
         )
-      : emptyState('Nessuna nota. Scrivete qui gli appunti delle riunioni e tutto ciò che non sta in una scheda.'),
+      : emptyState(t.tab.empty),
   );
 }
 
 export function noteView(note) {
   markReadWhere((m) => m.source === 'note' && m.item_id === note.id);
-  const download = button('Scarica .md', { iconName: 'download' });
+  const download = button(t.page.downloadMarkdown, { iconName: 'download' });
   download.addEventListener(
     'click',
     busy(download, async () => {
       try {
-        downloadFile(`${slugFile(note.title) || 'nota'}.md`, await noteToMarkdown(note), 'text/markdown');
+        downloadFile(`${slugFile(note.title) || t.page.fileName}.md`, await noteToMarkdown(note), 'text/markdown');
       } catch (error) {
         toast(error.message, { type: 'error' });
       }
     }),
   );
-  const pdf = button('Scarica PDF', { iconName: 'file' });
+  const pdf = button(t.page.downloadPdf, { iconName: 'file' });
   pdf.addEventListener(
     'click',
     busy(pdf, async () => {
@@ -72,6 +74,6 @@ export function noteView(note) {
     'div',
     { class: 'stack' },
     h('div', { class: 'row note-meta' }, note.data.date ? h('span', { class: 'muted' }, fmtDate(note.data.date)) : null, h('div', { class: 'row' }, download, pdf)),
-    noteBody(note.data.body, note.title).trim() ? renderNote(noteBody(note.data.body, note.title)) : emptyState('La nota è vuota.'),
+    noteBody(note.data.body, note.title).trim() ? renderNote(noteBody(note.data.body, note.title)) : emptyState(t.page.empty),
   );
 }

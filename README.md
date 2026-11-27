@@ -2,6 +2,10 @@
 
 Board condivise per generare, validare e confrontare idee di startup. È un sito statico pubblicato su GitHub Pages; i dati stanno su Supabase e gli aiuti di Claude passano da una Edge Function.
 
+Il sito ospita più **progetti**, ognuno con le sue board, la sua chat, le sue spese e il suo team, isolati tra loro dal database: chi entra vede solo i progetti a cui l'amministratore gli ha dato accesso e passa dall'uno all'altro dal menu. Le regole sono in [docs/PROGETTI.md](docs/PROGETTI.md).
+
+È in **inglese**, e in **italiano** sui dispositivi impostati in italiano; dal Profilo si può scegliere l'una o l'altra lingua per il dispositivo. Email e risposte di Claude seguono la lingua della persona.
+
 ## Cosa c'è
 
 | Sezione | A cosa serve |
@@ -37,7 +41,7 @@ Il menu laterale raggruppa le pagine in **Lavoro** (Dashboard, Idee, Valutazione
 
 Claude può criticare una board, proporre il prossimo esperimento, preparare domande per le interviste, sintetizzarle e suggerire idee per una cella del generatore. Le risposte sono formattate (titoli, elenchi, tabelle) senza mai interpretare HTML.
 
-Ruoli: **admin** gestisce il team, **membro** crea e modifica, **advisor** legge, commenta e vota.
+Ruoli: l'**amministratore della piattaforma** crea e archivia i progetti e decide chi entra in ognuno (pagina Progetti, `#/progetti`), ma non ne legge i contenuti se non si aggiunge come membro; in ogni progetto l'**admin** gestisce il team, il **membro** crea e modifica, l'**advisor** legge, commenta e vota. La stessa persona può avere ruoli diversi in progetti diversi.
 
 ## Struttura
 
@@ -60,15 +64,21 @@ assets/js/
   availability.js           impegni di ognuno e orari liberi in comune
   timesheet.js              ore lavorate: righe per giorno, totali, aree, unione tra dispositivi
   lib/                      accesso ai dati, DOM sicuro, differenze tra versioni, validazione
+  i18n/                     lingue (languages.js, index.js) e testi per area: it/ è il riferimento, en/ ha le stesse voci
+  public/texts.js           testi della pagina pubblica dei questionari, nelle due lingue
   views/                    una pagina per file
 supabase/
-  schema.sql                tabelle, regole di accesso, storico, registro di sicurezza
+  schema.sql                progetti, tabelle, regole di accesso, storico, registro di sicurezza
   functions/claude/         Edge Function che chiama Claude
   functions/notify/         Edge Function delle email (menzioni e riepilogo del lunedì, inviate con Brevo)
-tests/                      test del database, delle librerie, dell'interfaccia e della funzione
+  tests/database/           test del database in pgTAP, un file per argomento
+tests/                      test del sito, delle librerie, dell'interfaccia e delle funzioni; tests/db/run.mjs esegue quelli del database
+docs/PROGETTI.md            progetti e ruoli: il contratto del multi-tenant
 docs/SICUREZZA.md           principi e misure di sicurezza
 docs/TEST.md                come sono scritti i test e cosa coprono
 ```
+
+Nessun testo per chi usa il sito si scrive dentro le pagine: va nei moduli di `assets/js/i18n/`, prima in italiano e poi in inglese con le stesse voci. Un test lo controlla, e un altro cerca l'italiano rimasto nel codice.
 
 Per aggiungere una board basta una nuova definizione in `schema.js`, il tipo nel vincolo `kind` di `schema.sql` e una voce nel menu (`NAV_GROUPS` in `views/shell.js`).
 
@@ -94,7 +104,7 @@ Lo schema si può rieseguire senza perdere dati. Se una tabella pubblica non ha 
 supabase db advisors --linked
 ```
 
-Restano tre avvisi voluti: `add_member`, `members_overview` e `my_role` sono chiamabili da chi ha fatto login, e ognuna controlla i permessi al suo interno.
+Gli avvisi che restano sono voluti: le funzioni per chi ha fatto login (`add_member`, `members_overview`, `my_projects`, `create_project` e le altre dei progetti) controllano i permessi al loro interno.
 
 ### 2. Autenticazione
 
@@ -111,14 +121,21 @@ Il servizio email predefinito di Supabase ha limiti molto bassi: per il recupero
 ### 3. Account
 
 1. **Authentication › Users › Add user › Create new user**: email, password temporanea, "Auto Confirm User".
-2. Il primo admin si aggiunge dal SQL Editor:
+2. Il primo amministratore della piattaforma si aggiunge dal SQL Editor. Sul database di prima dei progetti non serve: applicando lo schema gli admin di allora lo diventano da soli.
 
    ```sql
-   select public.add_member('email-dell-admin', 'Nome Cognome', 'admin');
+   select public.add_platform_admin('email-dell-amministratore');
    ```
 
-3. Gli altri li aggiunge l'admin dal sito (Membri), dopo averli creati come al punto 1.
-4. Al primo accesso ognuno attiva la verifica in due passaggi: senza, il database non restituisce nulla, e cambia la password temporanea dal Profilo.
+3. Dal sito (Progetti) l'amministratore crea i progetti e ci aggiunge le persone, già create come al punto 1, con il loro ruolo. Lo stesso si può fare dal SQL Editor:
+
+   ```sql
+   select public.create_project('Nome del progetto');
+   select public.add_member('id-del-progetto', 'email-della-persona', 'Nome Cognome', 'admin');
+   ```
+
+4. Dentro un progetto anche il suo admin aggiunge persone dal sito (Membri).
+5. Al primo accesso ognuno attiva la verifica in due passaggi: senza, il database non restituisce nulla, e cambia la password temporanea dal Profilo.
 
 ### 4. Claude
 
@@ -153,9 +170,20 @@ Lo schema del database non si applica mai da solo. Per applicarlo da GitHub: **A
 
 Le idee discusse finora (con criteri, generatore, Lean Canvas, esperimenti e la prima decisione) sono già state importate direttamente nel database. Non stanno nel codice, perché la repo è pubblica: in generale, nessun contenuto delle board va scritto nei file della repo.
 
+### 7. Passaggio ai progetti (una volta sola)
+
+Lo schema con i progetti cambia le funzioni che il sito e le due Edge Functions chiamano: sito, funzioni e database vanno aggiornati insieme, in quest'ordine, nel giro di pochi minuti.
+
+1. **Backup**: Membri › Esporta un backup completo, e in Supabase un backup del database (Database › Backups).
+2. **Schema**: `supabase db query --linked -f supabase/schema.sql`. Crea il progetto `ai-deep-endenti` con tutti i dati di prima, i profili con nome, colore e italiano come lingua, e rende amministratori della piattaforma gli admin di allora. Rieseguirlo non cambia nulla.
+3. **Funzioni**: `supabase functions deploy claude --project-ref ixhnqeabctkpflwkdarj --use-api` e `supabase functions deploy notify --project-ref ixhnqeabctkpflwkdarj --use-api --no-verify-jwt`.
+4. **Sito**: il push su `main` pubblica il sito nuovo dopo i test.
+
+Tra il punto 2 e il punto 4 il sito vecchio non riesce a leggere i dati: conviene farlo quando nessuno lo sta usando.
+
 ## Notifiche via email
 
-La funzione `notify` manda due tipi di email con [Brevo](https://www.brevo.com), solo ai membri del team con la verifica in due passaggi attiva:
+La funzione `notify` manda due tipi di email con [Brevo](https://www.brevo.com), solo ai membri dei progetti non archiviati con la verifica in due passaggi attiva, una per persona e per progetto, nella lingua del suo profilo, con link che aprono quel progetto:
 
 - **Menzioni.** Se qualcuno ti tagga e non apri la menzione entro una decina di minuti, arriva un'email con tutte le menzioni nuove non lette: chi ti ha taggato, dove, un estratto e il link al punto esatto. Una menzione non parte mai due volte e non parte se l'hai già letta. Quelle che esistevano quando è stato installato lo schema non partono mai, e nemmeno quelle più vecchie di un giorno (le ricorda il riepilogo).
 - **Riepilogo del lunedì.** Un'email a testa con tre parti, ognuna solo se c'è qualcosa da dire: «Da fare questa settimana» (contatti da sentire in ritardo o entro domenica, esperimenti ancora da avviare o scaduti, idee senza prossimo passo, sempre quelli di cui sei responsabile), «Nel team negli ultimi 7 giorni» (nuove idee, idee con più modifiche, interviste fatte senza contare la ricerca a tavolino e quante con un impegno concreto, esperimenti conclusi, decisioni prese) e «Da leggere» (menzioni e messaggi in chat non letti). Se non c'è niente, l'email non parte. Dei contatti esterni compare solo il ruolo, mai il nome. L'admin, nella pagina Membri, vede l'anteprima della sua versione con quante persone la riceverebbero e può mandarla subito a tutti: l'invio a mano si segna con il giorno, quindi un secondo clic nello stesso giorno non manda nulla e il lunedì dopo parte comunque quello automatico.
@@ -265,7 +293,24 @@ npm run test:db
 npm run serve
 ```
 
-Il sito locale è su `http://localhost:8080`. `npm run test:db` richiede PostgreSQL 15 o successivo installato (per esempio `brew install postgresql@16`).
+Il sito locale è su `http://localhost:8080`. `npm run test:db` non richiede nulla da installare: usa PGlite, il vero PostgreSQL compilato in WebAssembly, con pgTAP, ed è uguale su Windows, macOS e Linux (`node tests/db/run.mjs 03_` esegue solo i file che iniziano così). Le prove con due connessioni vere al database (`npm run test:db:pg`) richiedono invece PostgreSQL 15 o successivo installato e girano su GitHub Actions.
+
+### Messaggi di commit
+
+I commit seguono [Conventional Commits](https://www.conventionalcommits.org/it/v1.0.0/): in inglese, su una riga, nella forma `tipo(area): cosa`, con l'area facoltativa.
+
+| Tipo | Quando |
+|---|---|
+| `feat` | una funzione nuova per chi usa il sito |
+| `fix` | un errore corretto |
+| `test` | solo test, senza cambiare il comportamento |
+| `docs` | solo documenti |
+| `refactor` | codice riscritto senza cambiare il comportamento |
+| `perf` | più veloce, con lo stesso risultato |
+| `chore` | dipendenze, configurazione, strumenti |
+| `ci` | il workflow di GitHub Actions |
+
+Per esempio `feat(projects): let platform admins create projects` o `fix(preload): write forward slashes in index.html on Windows`. Un cambiamento che rompe qualcosa per chi usa o installa il sito (per esempio uno schema da applicare prima di pubblicare) ha `!` dopo il tipo e una riga `BREAKING CHANGE:` nel corpo.
 
 ## Operazioni frequenti
 
@@ -277,9 +322,11 @@ delete from auth.mfa_factors where user_id = (select id from auth.users where em
 
 Al login successivo gli verrà chiesto di attivare un nuovo dispositivo. Conviene anche chiudere le sue sessioni da Authentication › Users.
 
-**Rimuovere qualcuno.** Dal sito (Membri) perde subito l'accesso ai dati. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
+**Rimuovere qualcuno.** Dal sito (Membri per l'admin del progetto, Progetti per l'amministratore della piattaforma) perde subito l'accesso ai dati di quel progetto; gli altri progetti in cui è restano com'erano. Per bloccare anche l'account, disattivalo o eliminalo in Authentication › Users.
 
-**Backup.** Membri › Esporta un backup completo scarica idee, storico e commenti in JSON. I file di backup sono esclusi da git.
+**Archiviare un progetto.** Dalla pagina Progetti: nessun membro lo legge né lo scrive più, il link pubblico dei suoi questionari si chiude e le sue email si fermano, ma i dati restano. Riattivandolo torna tutto com'era.
+
+**Backup.** Membri › Esporta un backup completo scarica idee, storico e commenti del progetto aperto in JSON. I file di backup sono esclusi da git.
 
 **Svuotare il cestino per sempre.** Il sito non cancella mai davvero. Se serve, l'admin fa prima un backup e poi, dal SQL Editor, elimina gli elementi nel cestino insieme a quelli delle idee archiviate; storico e commenti collegati spariscono con loro:
 
@@ -290,7 +337,7 @@ delete from public.items where deleted_at is not null;
 commit;
 ```
 
-**Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza, visibile agli admin nella pagina Membri.
+**Ruoli e accessi.** Ogni ingresso, uscita e cambio di ruolo finisce nel registro di sicurezza: l'admin di un progetto vede quello del suo progetto nella pagina Membri, l'amministratore della piattaforma vede tutto, compresi i progetti creati, archiviati e gli amministratori aggiunti o tolti.
 
 ## Documenti
 

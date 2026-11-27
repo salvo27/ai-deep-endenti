@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText, typeInto } from '../setup/dom.mjs';
-import { ADVISOR, ME, OTHER, XSS, item, members } from '../setup/fixtures.mjs';
+import { ADVISOR, ME, OTHER, XSS, item, members, PROJECT, PROJECT2 } from '../setup/fixtures.mjs';
 
 let api;
 let store;
@@ -22,7 +22,9 @@ const ADVISOR_ITEM = 'aaaaaaaa-0000-4000-8000-000000000004';
 const GONE_ITEM = 'aaaaaaaa-0000-4000-8000-000000000005';
 const IDEA = 'aaaaaaaa-0000-4000-8000-000000000006';
 const GONE = '00000000-0000-4000-8000-0000000000ff';
-const CHOICE_KEY = `bdp:disponibilita-chi:${ME}`;
+// Who counts is remembered on this device for each project.
+const CHOICE_KEY = `bdp:disponibilita-chi:${PROJECT}:${ME}`;
+const LEGACY_CHOICE_KEY = `bdp:disponibilita-chi:${ME}`;
 const TEAM = '#/squadra/disponibilita';
 const MINE_VIEW = '#/squadra/disponibilita?vista=miei';
 
@@ -44,6 +46,7 @@ beforeEach(async () => {
   fake.reset();
   store.resetStore();
   store.state.user = { id: ME };
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   localStorage.clear();
   api.listRevisions = async () => [];
@@ -192,7 +195,7 @@ test('the team grid of next week counts who is free and lists the best hours', a
   await visit(TEAM);
   await nextWeek();
   assert.equal(text(cell(0, 8)), '1/2');
-  assert.equal(cell(0, 8).getAttribute('aria-label'), `lunedì ${av.shortDate(next)} dalle 8 alle 9: 1 liberi su 2`);
+  assert.equal(cell(0, 8).getAttribute('aria-label'), `lunedì ${av.shortDate(next)} dalle 8 alle 9: 1 libero su 2`);
   assert.equal(text(cell(1, 8)), '2/2');
   assert.ok(cell(1, 8).classList.contains('av-l4'));
   assert.equal(cell(1, 8).getAttribute('aria-pressed'), null);
@@ -421,6 +424,39 @@ test('advisors are left out by default and count after tapping them, the choice 
   person('Anna').click();
   assert.deepEqual(JSON.parse(localStorage.getItem(CHOICE_KEY)), { on: [ME], off: [OTHER, ADVISOR] });
   assert.equal(text(cell(0, 8)), '1/1');
+});
+
+test('who counts is chosen per project: a choice made in one project does not apply in another', async () => {
+  mine({ busy: {} });
+  bruno({ busy: {} });
+  chiara({ busy: {} });
+  await visit(TEAM);
+  person('Chiara').click();
+  person('Bruno').click();
+  assert.equal(person('Chiara').getAttribute('aria-pressed'), 'true');
+
+  store.setProject({ id: PROJECT2, name: 'Beta', role: 'member' });
+  await visit(TEAM);
+  assert.equal(person('Chiara').getAttribute('aria-pressed'), 'false', 'the advisor chosen in Alfa does not count in Beta');
+  assert.equal(person('Bruno').getAttribute('aria-pressed'), 'true', 'the member left out in Alfa counts in Beta');
+
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
+  await visit(TEAM);
+  assert.equal(person('Chiara').getAttribute('aria-pressed'), 'true');
+  assert.equal(person('Bruno').getAttribute('aria-pressed'), 'false');
+});
+
+test('the choice saved before the projects is taken over by the first project opened, and only by it', async () => {
+  mine({ busy: {} });
+  bruno({ busy: {} });
+  chiara({ busy: {} });
+  localStorage.setItem(LEGACY_CHOICE_KEY, JSON.stringify({ on: [ADVISOR], off: [] }));
+  await visit(TEAM);
+  assert.equal(person('Chiara').getAttribute('aria-pressed'), 'true');
+  assert.equal(localStorage.getItem(LEGACY_CHOICE_KEY), null);
+  store.setProject({ id: PROJECT2, name: 'Beta', role: 'member' });
+  await visit(TEAM);
+  assert.equal(person('Chiara').getAttribute('aria-pressed'), 'false');
 });
 
 test('invalid stored choices are ignored and valid ones next to them still apply', async () => {

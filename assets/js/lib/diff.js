@@ -1,4 +1,6 @@
 const MAX_LCS_CELLS = 2_000_000;
+// Le operazioni di un confronto sono 'eq' (uguale), 'add' (aggiunta) e questa (tolta): nomi, non testi.
+const DEL = 'del'; // i18n-ignore: the name of an operation
 
 export function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -81,7 +83,7 @@ function lcsOps(a, b) {
   const ops = a.slice(0, start).map((v) => ({ t: 'eq', v }));
 
   if (n * m > MAX_LCS_CELLS) {
-    ops.push(...midA.map((v) => ({ t: 'del', v })), ...midB.map((v) => ({ t: 'add', v })));
+    ops.push(...midA.map((v) => ({ t: DEL, v })), ...midB.map((v) => ({ t: 'add', v })));
   } else {
     const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
     for (let i = n - 1; i >= 0; i -= 1) {
@@ -97,14 +99,14 @@ function lcsOps(a, b) {
         i += 1;
         j += 1;
       } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-        ops.push({ t: 'del', v: midA[i] });
+        ops.push({ t: DEL, v: midA[i] });
         i += 1;
       } else {
         ops.push({ t: 'add', v: midB[j] });
         j += 1;
       }
     }
-    while (i < n) ops.push({ t: 'del', v: midA[i++] });
+    while (i < n) ops.push({ t: DEL, v: midA[i++] });
     while (j < m) ops.push({ t: 'add', v: midB[j++] });
   }
 
@@ -135,7 +137,7 @@ export function lineStats(before, after) {
   let del = 0;
   for (const op of diffLines(before, after)) {
     if (op.t === 'add') add += 1;
-    if (op.t === 'del') del += 1;
+    if (op.t === DEL) del += 1;
   }
   return { add, del };
 }

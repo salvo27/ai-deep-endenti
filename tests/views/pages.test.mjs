@@ -250,7 +250,7 @@ test('the criteria editor saves reordered and new criteria', async () => {
 test('generator shows the grid and saves a cell', async () => {
   const body = await visit('#/generatore');
   assert.match(body, /XAI/);
-  assert.match(body, /1 idee/);
+  assert.match(body, /1 idea\b/, 'una sola idea nata dalla cella, al singolare');
   outlet.querySelector('.gen-cell-btn').click();
   const dialog = document.querySelector('dialog');
   assert.match(text(dialog), /Idee nate da questa cella/);

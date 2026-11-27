@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, byText, text, typeInto } from '../setup/dom.mjs';
-import { ME, members } from '../setup/fixtures.mjs';
+import { ME, members, projects } from '../setup/fixtures.mjs';
 
 let api;
 let auth;
@@ -197,17 +197,21 @@ test('runAuthGate shows an error screen when Supabase is unreachable and retries
   await gate;
 });
 
-test('startApp refuses accounts that are not in the team', async () => {
+test('startApp refuses accounts that are in no project', async () => {
   api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
-  api.myRole = async () => null;
+  api.myProjects = async () => [];
+  api.isPlatformAdmin = async () => false;
+  api.myProfile = async () => null;
   assert.equal(await app.startApp(root), false);
-  assert.match(text(root), /Account non abilitato/);
+  assert.match(text(root), /Non fai parte di nessun progetto/);
 });
 
 test('startApp builds the shell, starts realtime and the router for a member', async () => {
   store.resetStore();
   api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
-  api.myRole = async () => 'admin';
+  api.myProjects = async () => projects();
+  api.isPlatformAdmin = async () => false;
+  api.myProfile = async () => null;
   api.membersOverview = async () => members();
   api.listItems = async () => [];
   api.commentCounts = async () => new Map();
@@ -232,29 +236,50 @@ test('idle logout signs out after inactivity and resets on activity', async () =
   stop();
 });
 
+// The clock is passed in: with real milliseconds a slow computer let the interval run out between two steps.
 test('activity is saved on opening and on use, at most once per interval, and never from a hidden tab', async () => {
   let touches = 0;
-  const stop = app.startActivityPing(0.0005, async () => touches++);
+  let clock = 1_000_000;
+  const stop = app.startActivityPing(5, async () => touches++, () => clock);
   await flush();
   assert.equal(touches, 1, 'all\'apertura');
+  clock += 4 * 60_000;
   window.dispatchEvent(new window.Event('keydown'));
   await flush();
   assert.equal(touches, 1, 'non più di una volta per intervallo');
-  await new Promise((r) => setTimeout(r, 40));
+  clock += 60_000;
   document.body.dispatchEvent(new window.Event('scroll'));
   await flush();
   assert.equal(touches, 2, 'anche scorrendo dentro un riquadro');
-  await new Promise((r) => setTimeout(r, 40));
+  clock += 5 * 60_000;
   Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
   window.dispatchEvent(new window.Event('visibilitychange'));
   await flush();
   assert.equal(touches, 2, 'una scheda nascosta non conta');
   delete document.visibilityState;
   stop();
-  await new Promise((r) => setTimeout(r, 40));
+  clock += 5 * 60_000;
   window.dispatchEvent(new window.Event('keydown'));
   await flush();
   assert.equal(touches, 2, 'fermato con l\'uscita dal sito');
+});
+
+test('a failed activity save is tried again at the next gesture, without waiting for the interval', async () => {
+  let calls = 0;
+  const clock = 1_000_000;
+  const stop = app.startActivityPing(5, async () => {
+    calls++;
+    if (calls === 1) throw new Error('rete assente');
+  }, () => clock);
+  await flush();
+  assert.equal(calls, 1);
+  window.dispatchEvent(new window.Event('pointerdown'));
+  await flush();
+  assert.equal(calls, 2, 'dopo un errore si riprova subito');
+  window.dispatchEvent(new window.Event('pointerdown'));
+  await flush();
+  assert.equal(calls, 2, 'dopo un salvataggio riuscito si aspetta di nuovo l\'intervallo');
+  stop();
 });
 
 test('the eye button shows and hides the password without losing it', () => {

@@ -1,4 +1,4 @@
-import { test, before, beforeEach, afterEach } from 'node:test';
+import { test, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText, typeInto } from '../setup/dom.mjs';
 import { ADVISOR, IDS, ME, OTHER, XSS, boardItems, item, members } from '../setup/fixtures.mjs';
@@ -213,6 +213,31 @@ test('the Questionari page lists every questionnaire with status, idea, complete
   await visit(`#/questionari?idea=${IDS.idea2}`);
   assert.deepEqual([...outlet.querySelectorAll('.sv-card')].map((c) => c.dataset.id), [S.other]);
   assert.ok(router.match('/questionario/x/risposte'));
+});
+
+test('a questionnaire opened while the list is on screen gets its completed responses too', async () => {
+  await visit('#/questionari');
+  const draft = () => text(outlet.querySelector(`.sv-card[data-id="${S.draft}"]`));
+  assert.match(draft(), /Mai aperto/);
+  const current = store.getItem(S.draft);
+  store.applyItem(item({ ...current, version: 2, status: 'aperto', data: { ...current.data, token: 'TokenDiProvaBozza00001' } }));
+  await flush(5);
+  assert.match(draft(), /Risposte complete: 1/);
+});
+
+test('when copying fails on a card the link appears selected, ready to copy by hand', async () => {
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new Error('negato'); } }, configurable: true });
+  await visit('#/questionari');
+  const open = outlet.querySelector(`.sv-card[data-id="${S.open}"]`);
+  assert.equal(open.querySelector('.sv-link-input'), null, 'nella scheda c è solo il pulsante');
+  byText(open, 'button', 'Copia il link').click();
+  await flush(2);
+  const input = open.querySelector('.sv-link-input');
+  assert.ok(input, 'il link compare nella scheda');
+  assert.equal(input.value, `https://board.example/q-indaco.html#${TOKEN}`);
+  assert.equal(document.activeElement, input);
+  assert.deepEqual([input.selectionStart, input.selectionEnd], [0, input.value.length]);
+  assert.match(text(document.body), /Copia non riuscita: il link è selezionato, copialo a mano/);
 });
 
 test('questions are edited, reordered, duplicated, deleted and added, then saved with a merge', async () => {
@@ -642,6 +667,30 @@ test('the CSV export has one row per response, readable columns and emails only 
     assert.match(withEmail.split('\r\n')[0], /;Email;Da ricontattare;Segnalazioni$/);
     assert.match(withEmail, /;persona1@esempio\.it;sì;/);
   } finally {
+    window.HTMLAnchorElement.prototype.click = click;
+  }
+});
+
+test('the CSV file is named with the local date, not the UTC one, just after midnight', async () => {
+  const names = [];
+  URL.createObjectURL = () => 'blob:test';
+  URL.revokeObjectURL = () => {};
+  const click = window.HTMLAnchorElement.prototype.click;
+  window.HTMLAnchorElement.prototype.click = function save() {
+    names.push(this.download);
+  };
+  const tz = process.env.TZ;
+  try {
+    await visit(`#/questionario/${S.open}/risposte`);
+    process.env.TZ = 'Europe/Rome';
+    mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-27T23:30:00Z') });
+    byText(outlet, 'button', 'Scarica CSV').click();
+    await answerDialog('Scarica');
+    assert.deepEqual(names, ['questionario-turni-in-corsia-2026-11-28.csv'], 'a Roma sono le 0:30 del 28');
+  } finally {
+    mock.timers.reset();
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
     window.HTMLAnchorElement.prototype.click = click;
   }
 });

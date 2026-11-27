@@ -319,6 +319,41 @@ del {
   font-weight: 600;
 }
 
+/* Progetto aperto con il selettore degli altri, e il link Progetti per l'amministratore della piattaforma */
+.project-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-box:empty,
+.project-switch[hidden] {
+  display: none;
+}
+
+.project-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 0.6rem 0.4rem;
+}
+
+.project-switch-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.project-switch select {
+  width: 100%;
+}
+
+.project-name {
+  overflow-wrap: anywhere;
+}
+
 /* Profilo ed Esci restano sempre visibili in fondo al menu, anche quando l'elenco è lungo e scorre */
 .sidebar-foot {
   position: sticky;
@@ -574,6 +609,14 @@ del {
   background: var(--example-soft);
   border-color: var(--example);
   color: var(--example);
+}
+
+/* The links to the examples carry a sentence ("Example of an advanced roadmap: …"): on a phone it wraps inside the
+   button instead of pushing it past the card. */
+a.btn-example {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
 }
 
 .btn-small {
@@ -2772,8 +2815,11 @@ dialog::backdrop {
   color: var(--primary);
 }
 
+/* Kept in one piece, and on one line when it fits: a label longer than the line wraps inside its box instead of
+   widening the page (some book titles in English are longer than a phone screen). */
 .concept-link {
-  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .chips .concept-link {

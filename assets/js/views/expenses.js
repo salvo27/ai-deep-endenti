@@ -1,12 +1,14 @@
+import { tx } from '../i18n/index.js';
 import { api } from '../lib/api.js';
 import { busy, confirmDialog, h, mount, openModal, svg, toast } from '../lib/dom.js';
-import { dayKey, downloadFile, fmtDate, plural, shortId, slugFile } from '../lib/format.js';
+import { dayKey, downloadFile, fmtDate, shortId, slugFile } from '../lib/format.js';
 import { icon } from '../lib/icons.js';
 import {
   CURRENCIES,
   EXPENSE_CATEGORIES,
   EXPENSE_LIMITS,
   MOVEMENT_TYPES,
+  SPESA,
   SPLIT_MODES,
   amountText,
   categoryLabel,
@@ -29,10 +31,12 @@ import {
   payInfo,
   personName,
   personOfMember,
+  rateText,
   sanitizeExpense,
   sanitizeExpenseGroup,
   settleUp,
   sortMovements,
+  typeLabel,
 } from '../expenses.js';
 import { imageUrl, uploadNoteImage } from '../notes.js';
 import { navigate } from '../router.js';
@@ -40,31 +44,48 @@ import { EXPENSE_KINDS } from '../schema.js';
 import { archiveItem, canWrite, createItem, getItem, itemsOf, on, saveSnapshot, state, statusError } from '../store.js';
 import { button, emptyState, pageHeader, tabs } from './components.js';
 
-const TABS = [
-  ['movimenti', 'Movimenti'],
-  ['saldi', 'Saldi'],
-  ['statistiche', 'Statistiche'],
-  ['gruppo', 'Gruppo'],
-];
+const t = tx.expenses;
+const { actions: commonActions, states: commonStates } = tx.common;
+
+// Rotte e schede finiscono nei link e nei segnalibri: restano uguali in ogni lingua, si traducono solo i nomi mostrati.
+const HOME = '/spese'; // i18n-ignore: rotta della pagina
+const TAB_KEYS = ['movimenti', 'saldi', 'statistiche', 'gruppo']; // i18n-ignore: schede nella rotta
+const [MOVEMENTS_TAB, BALANCES_TAB, STATS_TAB, GROUP_TAB] = TAB_KEYS;
+const TABS = TAB_KEYS.map((key) => [key, t.tabs[key]]);
+const groupHref = (id, tab = MOVEMENTS_TAB) => `#${HOME}/${id}${tab === MOVEMENTS_TAB ? '' : `/${tab}`}`;
+const historyHref = (id) => `#/storico/${id}`; // i18n-ignore: rotta dello storico
 
 const today = () => dayKey(new Date());
 const movementsOf = (groupId) => itemsOf('expense').filter((m) => m.data.group === groupId);
 const isGroup = (item) => item?.kind === 'expensegroup' && !item.deleted_at;
 const teamPeople = () => state.members.filter((m) => m.role !== 'advisor').map((m) => ({ id: shortId(), name: m.display_name, member: m.user_id }));
 
-function balanceText(balance, currency, { you = false } = {}) {
-  if (balance > 0) return `${you ? 'ricevi' : 'riceve'} ${fmtAmount(balance, currency)}`;
-  if (balance < 0) return `${you ? 'devi' : 'deve'} ${fmtAmount(-balance, currency)}`;
-  return you ? 'sei in pari' : 'in pari';
+// Una frase dei testi con dentro dei nodi (grassetti, link), nel punto in cui ogni lingua li mette.
+function rich(build, ...values) {
+  const nodes = [];
+  const args = values.map((value) => (value instanceof Node ? `\u0000${nodes.push(value) - 1}\u0000` : value));
+  return build(...args)
+    .split(/\u0000(\d+)\u0000/)
+    .map((part, i) => (i % 2 ? nodes[Number(part)] : part))
+    .filter((part) => part !== '');
+}
+
+// Il saldo in parole: chi riceve, chi deve, chi è in pari. Le forme cambiano con chi parla (tu, lui o lei).
+function balanceText(balance, currency, forms = t.balance) {
+  if (balance > 0) return forms.receive(fmtAmount(balance, currency));
+  if (balance < 0) return forms.owe(fmtAmount(-balance, currency));
+  return forms.even;
 }
 
 const balanceClass = (balance) => (balance > 0 ? 'is-credit' : balance < 0 ? 'is-debit' : 'is-even');
 
+const payerLabel = (type) => (type === 'entrata' ? t.movement.receivedBy : type === 'rimborso' ? t.movement.from : t.movement.paidBy);
+
 function whoLine(group, m) {
   const d = m.data;
-  if (d.type === 'rimborso') return `${personName(group, d.paid_by)} ha dato a ${personName(group, Object.keys(d.split.shares)[0])}`;
-  if (d.type === 'entrata') return `Ricevuto da ${personName(group, d.paid_by)}`;
-  return `Pagato da ${personName(group, d.paid_by)}`;
+  if (d.type === 'rimborso') return t.who.refund(personName(group, d.paid_by), personName(group, Object.keys(d.split.shares)[0]));
+  if (d.type === 'entrata') return t.who.income(personName(group, d.paid_by));
+  return t.who.expense(personName(group, d.paid_by));
 }
 
 // Cosa cambia per chi guarda: quanto anticipa, quanto gli tocca, quanto riceve.
@@ -73,15 +94,15 @@ function myPart(group, m, me) {
   const effect = movementEffects(m.data, group.data.currency).get(me.id) || 0;
   const cur = group.data.currency;
   const d = m.data;
-  if (d.type === 'rimborso') return d.paid_by === me.id ? `Hai dato ${fmtAmount(effect, cur)}` : `Hai ricevuto ${fmtAmount(-effect, cur)}`;
-  if (d.type === 'entrata') return effect >= 0 ? `Ti spettano ${fmtAmount(effect, cur)}` : `Da dividere con gli altri: ${fmtAmount(-effect, cur)}`;
-  if (effect > 0) return `Hai anticipato ${fmtAmount(effect, cur)}`;
-  return effect < 0 ? `La tua parte: ${fmtAmount(-effect, cur)}` : 'Sei in pari';
+  if (d.type === 'rimborso') return d.paid_by === me.id ? t.mine.gave(fmtAmount(effect, cur)) : t.mine.received(fmtAmount(-effect, cur));
+  if (d.type === 'entrata') return effect >= 0 ? t.mine.due(fmtAmount(effect, cur)) : t.mine.toShare(fmtAmount(-effect, cur));
+  if (effect > 0) return t.mine.lent(fmtAmount(effect, cur));
+  return effect < 0 ? t.mine.share(fmtAmount(-effect, cur)) : t.mine.even;
 }
 
 function exportCsv(group, movements) {
   const csv = movementsCsv(group, movements);
-  downloadFile(`spese-${slugFile(group.title)}-${today()}.csv`, `﻿${csv}`, 'text/csv;charset=utf-8');
+  downloadFile(t.csv.fileName(slugFile(group.title), today()), `﻿${csv}`, 'text/csv;charset=utf-8');
 }
 
 function receiptImage(path, alt) {
@@ -91,7 +112,7 @@ function receiptImage(path, alt) {
       img.src = url;
       img.classList.remove('is-loading');
     } else {
-      img.replaceWith(h('span', { class: 'muted small' }, 'Scontrino non più disponibile'));
+      img.replaceWith(h('span', { class: 'muted small' }, t.receipt.gone));
     }
   });
   return img;
@@ -120,6 +141,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
   const render = () => {
     const rows = people.map((p, index) => {
       const used = usedCount(p.id);
+      const who = p.name || t.people.nth(index + 1);
       return h(
         'div',
         { class: 'exp-person-row' },
@@ -128,7 +150,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
           type: 'text',
           value: p.name,
           maxlength: EXPENSE_LIMITS.name,
-          'aria-label': `Nome della persona ${index + 1}`,
+          'aria-label': t.people.nameLabel(index + 1),
           onInput: (e) => {
             p.name = e.target.value;
           },
@@ -137,7 +159,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
           'select',
           {
             class: 'input',
-            'aria-label': `Account di ${p.name || `persona ${index + 1}`}`,
+            'aria-label': t.people.accountLabel(who),
             onChange: (e) => {
               p.member = e.target.value || undefined;
               const member = state.members.find((m) => m.user_id === p.member);
@@ -145,7 +167,7 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
               render();
             },
           },
-          h('option', { value: '' }, 'Senza account'),
+          h('option', { value: '' }, t.people.noAccount),
           memberOptions(p).map((m) => h('option', { value: m.user_id, selected: m.user_id === p.member }, m.display_name)),
         ),
         h('input', {
@@ -153,8 +175,8 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
           type: 'text',
           value: p.pay || '',
           maxlength: EXPENSE_LIMITS.pay,
-          placeholder: 'Come pagarmi: IBAN o link PayPal',
-          'aria-label': `Come pagare ${p.name || `persona ${index + 1}`}`,
+          placeholder: t.people.payPlaceholder,
+          'aria-label': t.people.payLabel(who),
           onInput: (e) => {
             p.pay = e.target.value;
           },
@@ -164,8 +186,8 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
           {
             type: 'button',
             class: 'icon-btn',
-            'aria-label': `Togli ${p.name || 'questa persona'}`,
-            title: used ? `Non si può togliere: è in ${plural(used, 'movimento', 'movimenti')}` : 'Togli dal gruppo',
+            'aria-label': t.people.removeLabel(p.name || t.people.thisPerson),
+            title: used ? t.people.cannotRemove(used) : t.people.remove,
             disabled: used > 0,
             onClick: () => {
               people = people.filter((x) => x !== p);
@@ -179,15 +201,15 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
     const missing = state.members.filter((m) => m.role !== 'advisor' && !people.some((p) => p.member === m.user_id));
     mount(
       host,
-      rows.length ? rows : h('p', { class: 'muted small' }, 'Nessuna persona: aggiungi chi partecipa alle spese.'),
+      rows.length ? rows : h('p', { class: 'muted small' }, t.people.none),
       h(
         'div',
         { class: 'toolbar toolbar-wrap' },
         people.length < EXPENSE_LIMITS.people
-          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push({ id: shortId(), name: '' }); render(); [...host.querySelectorAll('.exp-person-name-input')].at(-1)?.focus(); } }, icon('plus', 14), h('span', null, 'Aggiungi una persona'))
+          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push({ id: shortId(), name: '' }); render(); [...host.querySelectorAll('.exp-person-name-input')].at(-1)?.focus(); } }, icon('plus', 14), h('span', null, t.people.add))
           : null,
         missing.length
-          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push(...missing.map((m) => ({ id: shortId(), name: m.display_name, member: m.user_id }))); render(); } }, icon('users', 14), h('span', null, `Aggiungi i membri del team (${missing.length})`))
+          ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { people.push(...missing.map((m) => ({ id: shortId(), name: m.display_name, member: m.user_id }))); render(); } }, icon('users', 14), h('span', null, t.people.addTeam(missing.length)))
           : null,
       ),
     );
@@ -198,48 +220,48 @@ function peopleEditor(initial, { usedCount = () => 0 } = {}) {
 
 function groupFields(group, { movements = [] } = {}) {
   const used = (id) => movements.filter((m) => involves(m, id)).length;
-  const name = h('input', { class: 'input', type: 'text', value: group?.title || '', maxlength: 200, placeholder: 'Per esempio: Costi della startup' });
+  const name = h('input', { class: 'input', type: 'text', value: group?.title || '', maxlength: 200, placeholder: t.group.namePlaceholder });
   const currency = h(
     'select',
     { class: 'input', disabled: movements.length > 0 },
-    CURRENCIES.map(([code, label]) => h('option', { value: code, selected: code === (group?.data.currency || 'EUR') }, `${code}, ${label}`)),
+    CURRENCIES.map(([code, label]) => h('option', { value: code, selected: code === (group?.data.currency || 'EUR') }, t.currencyOption(code, label))),
   );
-  const notes = h('textarea', { class: 'input', rows: 2, maxlength: EXPENSE_LIMITS.groupNotes, value: group?.data.notes || '', placeholder: 'Facoltative: a cosa serve il gruppo, come vi rimborsate' });
+  const notes = h('textarea', { class: 'input', rows: 2, maxlength: EXPENSE_LIMITS.groupNotes, value: group?.data.notes || '', placeholder: t.group.notesPlaceholder });
   const people = peopleEditor(group ? groupPeople(group) : teamPeople(), { usedCount: used });
   const node = h(
     'div',
     { class: 'form-grid' },
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome del gruppo'), name),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.group.name), name),
     h(
       'label',
       { class: 'field' },
-      h('span', { class: 'field-label' }, 'Valuta del gruppo'),
+      h('span', { class: 'field-label' }, t.group.currency),
       currency,
-      movements.length ? h('span', { class: 'field-help' }, 'Non si cambia dopo il primo movimento: i cambi salvati sono verso questa valuta.') : h('span', { class: 'field-help' }, 'Saldi e statistiche sono in questa valuta. Le spese possono essere anche in altre.'),
+      h('span', { class: 'field-help' }, movements.length ? t.group.currencyFixed : t.group.currencyHelp),
     ),
     h(
       'div',
       { class: 'field is-wide' },
-      h('span', { class: 'field-label' }, 'Persone'),
-      h('span', { class: 'field-help' }, 'Chi paga e chi divide le spese. Chi non ha un account si aggiunge solo con il nome. «Come pagarmi» compare nei Saldi a chi deve dare dei soldi.'),
+      h('span', { class: 'field-label' }, t.people.label),
+      h('span', { class: 'field-help' }, t.people.help),
       people.node,
     ),
-    h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, 'Note'), notes),
+    h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, t.group.notes), notes),
   );
   const read = () => ({
     title: name.value.trim(),
     data: sanitizeExpenseGroup({ currency: currency.value, people: people.read(), notes: notes.value }),
   });
   const problem = () => {
-    if (!name.value.trim()) return 'Dai un nome al gruppo.';
+    if (!name.value.trim()) return t.group.noName;
     const raw = people.read();
-    if (raw.some((p) => !p.name.trim())) return 'Ogni persona ha bisogno di un nome.';
-    if (!raw.length) return 'Aggiungi almeno una persona.';
+    if (raw.some((p) => !p.name.trim())) return t.group.personWithoutName;
+    if (!raw.length) return t.group.noPeople;
     const badIban = raw.find((p) => looksLikeIban(p.pay) && !ibanValid(p.pay));
-    if (badIban) return `L'IBAN di ${badIban.name.trim()} non torna: controlla le cifre.`;
+    if (badIban) return t.group.badIban(badIban.name.trim());
     const kept = new Set(raw.map((p) => p.id));
     const lost = group ? groupPeople(group).filter((p) => !kept.has(p.id) && used(p.id)) : [];
-    return lost.length ? `${lost.map((p) => p.name).join(', ')} è nei movimenti: non si può togliere.` : null;
+    return lost.length ? t.group.stillUsed(lost.map((p) => p.name)) : null;
   };
   return { node, read, problem, focus: () => name.focus() };
 }
@@ -253,23 +275,23 @@ function openGroupDialog() {
     return true;
   };
   openModal({
-    title: 'Nuovo gruppo di spese',
+    title: t.group.newTitle,
     wide: true,
     body: [fields.node, error],
     actions: [
-      { label: 'Annulla', value: false },
+      { label: commonActions.cancel, value: false },
       {
-        label: 'Crea il gruppo',
+        label: t.group.create,
         kind: 'primary',
         onClick: async () => {
           const problem = fields.problem();
           if (problem) return fail(problem);
           try {
-            const row = await createItem('expensegroup', fields.read(), 'Nuovo gruppo di spese');
-            navigate(`/spese/${row.id}`);
+            const row = await createItem('expensegroup', fields.read(), t.group.created);
+            navigate(`${HOME}/${row.id}`);
             return false;
           } catch (err) {
-            return fail(err?.message || 'Non sono riuscito a creare il gruppo.');
+            return fail(err?.message || t.group.createFailed);
           }
         },
       },
@@ -289,12 +311,12 @@ function groupCard(group) {
   const last = movements.reduce((max, m) => (m.data.date > max ? m.data.date : max), '');
   return h(
     'a',
-    { class: 'card exp-group-card', href: `#/spese/${group.id}`, dataset: { id: group.id } },
+    { class: 'card exp-group-card', href: groupHref(group.id), dataset: { id: group.id } },
     h('div', { class: 'card-head' }, h('h2', null, group.title), h('span', { class: 'muted small' }, currency)),
-    h('p', { class: 'muted small' }, groupPeople(group).map((p) => p.name).join(', ') || 'Nessuna persona'),
-    h('p', null, h('strong', null, fmtAmount(stats.total, currency)), ` di spese · ${plural(movements.length, 'movimento', 'movimenti')}`),
-    me ? h('p', { class: ['exp-balance', balanceClass(balance)] }, `Tu: ${balanceText(balance, currency, { you: true })}`) : null,
-    last ? h('p', { class: 'muted small' }, `Ultimo movimento: ${fmtDate(last)}`) : null,
+    h('p', { class: 'muted small' }, groupPeople(group).map((p) => p.name).join(', ') || t.list.noPeople),
+    h('p', null, rich(t.list.total, h('strong', null, fmtAmount(stats.total, currency)), movements.length)),
+    me ? h('p', { class: ['exp-balance', balanceClass(balance)] }, balanceText(balance, currency, t.cardBalance)) : null,
+    last ? h('p', { class: 'muted small' }, t.list.last(fmtDate(last))) : null,
   );
 }
 
@@ -303,16 +325,13 @@ export function expensesView(outlet) {
   const lastActivity = (g) => movementsOf(g.id).reduce((max, m) => (m.updated_at > max ? m.updated_at : max), g.updated_at);
   const render = () => {
     const list = itemsOf('expensegroup').sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)));
-    const create = writable ? button('Nuovo gruppo', { kind: 'primary', iconName: 'plus', onClick: openGroupDialog }) : null;
+    const create = writable ? button(t.list.newGroup, { kind: 'primary', iconName: 'plus', onClick: openGroupDialog }) : null;
     mount(
       outlet,
-      pageHeader({ title: 'Spese', subtitle: 'Chi ha pagato cosa e chi deve a chi.', actions: [create] }),
+      pageHeader({ title: t.title, subtitle: t.subtitle, actions: [create] }),
       list.length
         ? h('div', { class: 'cards exp-groups' }, list.map(groupCard))
-        : emptyState(
-            'Nessun gruppo di spese. Creane uno per ogni occasione: i costi della startup, una trasferta, un evento.',
-            writable ? button('Crea il primo gruppo', { kind: 'primary', iconName: 'plus', onClick: openGroupDialog }) : null,
-          ),
+        : emptyState(t.list.empty, writable ? button(t.list.createFirst, { kind: 'primary', iconName: 'plus', onClick: openGroupDialog }) : null),
     );
   };
   render();
@@ -332,28 +351,28 @@ function movementDetails(group, m) {
   const cur = group.data.currency;
   const { total, shares } = inGroupCurrency(d, cur);
   const rows = [
-    ['Tipo', MOVEMENT_TYPES.find(([t]) => t === d.type)?.[1]],
-    ['Importo', d.currency === cur ? fmtAmount(d.amount, cur) : `${fmtAmount(d.amount, d.currency)} (${fmtAmount(total, cur)} al cambio ${String(d.rate).replace('.', ',')})`],
-    ['Data', fmtDate(d.date)],
-    [d.type === 'entrata' ? 'Ricevuto da' : d.type === 'rimborso' ? 'Da' : 'Pagato da', personName(group, d.paid_by)],
+    [t.movement.type, typeLabel(d.type)],
+    [t.movement.amount, d.currency === cur ? fmtAmount(d.amount, cur) : t.movement.converted(fmtAmount(d.amount, d.currency), fmtAmount(total, cur), rateText(d.rate))],
+    [t.movement.date, fmtDate(d.date)],
+    [payerLabel(d.type), personName(group, d.paid_by)],
     d.type === 'rimborso'
-      ? ['A', personName(group, Object.keys(d.split.shares)[0])]
-      : ['Diviso tra', [...shares].map(([id, value]) => `${personName(group, id)} ${fmtAmount(value, cur)}`).join(', ')],
-    d.type === 'spesa' ? ['Categoria', categoryLabel(d.category)] : null,
-    d.note ? ['Nota', d.note] : null,
+      ? [t.movement.to, personName(group, Object.keys(d.split.shares)[0])]
+      : [t.movement.splitBetween, [...shares].map(([id, value]) => `${personName(group, id)} ${fmtAmount(value, cur)}`).join(', ')],
+    d.type === SPESA ? [t.movement.category, categoryLabel(d.category)] : null,
+    d.note ? [t.movement.note, d.note] : null,
   ].filter(Boolean);
   return h(
     'div',
     { class: 'exp-details' },
     h('dl', { class: 'field-view' }, rows.map(([label, value]) => [h('dt', null, label), h('dd', null, value)])),
-    d.receipt ? receiptImage(d.receipt, `Scontrino: ${m.title}`) : null,
-    h('p', null, h('a', { href: `#/storico/${m.id}` }, 'Storico delle modifiche')),
+    d.receipt ? receiptImage(d.receipt, t.receipt.alt(m.title)) : null,
+    h('p', null, h('a', { href: historyHref(m.id) }, t.movement.history)),
   );
 }
 
 function openMovementDialog(group, movement, { onSaved } = {}) {
   if (!canWrite()) {
-    openModal({ title: movement.title, body: movementDetails(group, movement), actions: [{ label: 'Chiudi', value: false }] });
+    openModal({ title: movement.title, body: movementDetails(group, movement), actions: [{ label: commonActions.close, value: false }] });
     return;
   }
   const people = groupPeople(group);
@@ -362,7 +381,7 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
   const draft = movement
     ? structuredClone(movement.data)
     : {
-        type: 'spesa',
+        type: SPESA,
         currency: cur,
         rate: 1,
         date: today(),
@@ -384,24 +403,24 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
     return true;
   };
 
-  const title = h('input', { class: 'input', type: 'text', maxlength: 200, value: movement?.title || '', placeholder: 'Per esempio: Dominio del sito' });
-  const amount = h('input', { class: 'input exp-amount-input', type: 'text', inputmode: 'decimal', value: movement ? amountText(draft.amount, draft.currency) : '', placeholder: '0,00', autocomplete: 'off' });
+  const title = h('input', { class: 'input', type: 'text', maxlength: 200, value: movement?.title || '', placeholder: t.movement.descriptionPlaceholder });
+  const amount = h('input', { class: 'input exp-amount-input', type: 'text', inputmode: 'decimal', value: movement ? amountText(draft.amount, draft.currency) : '', placeholder: amountText(0, draft.currency), autocomplete: 'off' });
   const currency = h(
     'select',
-    { class: 'input', 'aria-label': 'Valuta' },
+    { class: 'input', 'aria-label': t.movement.currency },
     CURRENCIES.map(([code, label]) => h('option', { value: code, selected: code === draft.currency, title: label }, code)),
   );
   const date = h('input', { class: 'input', type: 'date', value: draft.date || today(), max: '2100-12-31' });
-  const payerLabel = h('span', { class: 'field-label' });
+  const payerTitle = h('span', { class: 'field-label' });
   const personSelect = (value, onChange, label) =>
     h('select', { class: 'input', 'aria-label': label, onChange: (e) => onChange(e.target.value) }, people.map((p) => h('option', { value: p.id, selected: p.id === value }, p.name)));
   const payer = personSelect(draft.paid_by, (value) => {
     draft.paid_by = value;
     renderDynamic();
   });
-  const note = h('textarea', { class: 'input', rows: 2, maxlength: EXPENSE_LIMITS.note, value: draft.note || '', placeholder: 'Facoltativa' });
+  const note = h('textarea', { class: 'input', rows: 2, maxlength: EXPENSE_LIMITS.note, value: draft.note || '', placeholder: t.movement.notePlaceholder });
 
-  const typeHost = h('div', { class: 'exp-types', role: 'radiogroup', 'aria-label': 'Tipo di movimento' });
+  const typeHost = h('div', { class: 'exp-types', role: 'radiogroup', 'aria-label': t.movement.typeLabel });
   const rateHost = h('div', { class: 'exp-rate' });
   const receiverHost = h('div');
   const splitHost = h('div', { class: 'exp-split' });
@@ -426,7 +445,7 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
               if (draft.type === 'rimborso') draft.split = everyone;
               else everyone = draft.split;
               draft.type = value;
-              if (value === 'rimborso' && !title.value.trim()) title.placeholder = 'Rimborso';
+              if (value === 'rimborso' && !title.value.trim()) title.placeholder = t.types.rimborso;
               renderTypes();
               renderDynamic();
             },
@@ -444,13 +463,13 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
     }
     const minor = amountMinor();
     const converted = minor ? fmtAmount(Math.round(minor * draft.rate * 10 ** (currencyDigits(cur) - currencyDigits(draft.currency))), cur) : null;
-    const status = h('span', { class: 'muted small', 'aria-live': 'polite' }, rateSet ? (converted ? `= ${converted}` : '') : 'Chiedo il cambio alla BCE…');
+    const status = h('span', { class: 'muted small', 'aria-live': 'polite' }, rateSet ? (converted ? `= ${converted}` : '') : t.rates.asking);
     const input = h('input', {
       class: 'input input-small',
       type: 'text',
       inputmode: 'decimal',
-      value: rateSet ? String(draft.rate).replace('.', ',') : '',
-      'aria-label': `Cambio: quanti ${cur} vale 1 ${draft.currency}`,
+      value: rateSet ? rateText(draft.rate) : '',
+      'aria-label': t.rates.inputLabel(cur, draft.currency),
       onChange: (e) => {
         const value = Number(String(e.target.value).replace(',', '.'));
         if (value > 0 && value < 1e6) {
@@ -462,10 +481,10 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
     });
     mount(
       rateHost,
-      h('span', { class: 'field-label' }, `Cambio: 1 ${draft.currency} =`),
+      h('span', { class: 'field-label' }, t.rates.label(draft.currency)),
       input,
       h('span', null, cur),
-      h('button', { type: 'button', class: 'btn btn-small', onClick: () => loadRate(true) }, 'Cambio BCE del giorno'),
+      h('button', { type: 'button', class: 'btn btn-small', onClick: () => loadRate(true) }, t.rates.ecb),
       status,
     );
   }
@@ -484,7 +503,7 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
       .catch(() => {
         if (id !== rateRequest) return;
         renderRate();
-        rateHost.querySelector('[aria-live]').textContent = 'Cambio non disponibile: scrivilo a mano.';
+        rateHost.querySelector('[aria-live]').textContent = t.rates.failed;
       });
   }
 
@@ -500,7 +519,7 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
     if (left) {
       const minor = amountMinor() || 0;
       const diff = minor - Object.values(draft.split.shares).reduce((s, v) => s + v, 0);
-      left.textContent = diff === 0 ? 'Le parti tornano con il totale.' : diff > 0 ? `Restano ${fmtAmount(diff, draft.currency)} da dividere.` : `Le parti superano il totale di ${fmtAmount(-diff, draft.currency)}.`;
+      left.textContent = diff === 0 ? t.split.matches : diff > 0 ? t.split.left(fmtAmount(diff, draft.currency)) : t.problems.over(fmtAmount(-diff, draft.currency));
       left.classList.toggle('is-off', diff !== 0);
     }
     renderRate();
@@ -546,8 +565,8 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
             type: 'text',
             inputmode: mode === 'quote' ? 'numeric' : 'decimal',
             value,
-            placeholder: mode === 'quote' ? '0' : '0,00',
-            'aria-label': mode === 'quote' ? `Quote di ${p.name}` : `Importo di ${p.name}`,
+            placeholder: mode === 'quote' ? '0' : amountText(0, draft.currency),
+            'aria-label': mode === 'quote' ? t.split.sharesLabel(p.name) : t.split.amountLabel(p.name),
             onInput: (e) => {
               const raw = e.target.value.trim();
               const n = mode === 'quote' ? (/^\d{1,3}$/.test(raw) ? Number(raw) : 0) : parseAmount(raw, draft.currency) || 0;
@@ -574,16 +593,16 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
       h(
         'div',
         { class: 'exp-split-head' },
-        h('span', { class: 'field-label' }, 'Diviso tra'),
+        h('span', { class: 'field-label' }, t.movement.splitBetween),
         h(
           'select',
-          { class: 'input input-small', 'aria-label': 'Come dividere', onChange: (e) => setMode(e.target.value) },
+          { class: 'input input-small', 'aria-label': t.split.how, onChange: (e) => setMode(e.target.value) },
           SPLIT_MODES.map(([value, label]) => h('option', { value, selected: value === mode }, label)),
         ),
-        h('button', { type: 'button', class: 'link-btn', onClick: all }, 'Tutti'),
-        h('button', { type: 'button', class: 'link-btn', onClick: none }, 'Nessuno'),
+        h('button', { type: 'button', class: 'link-btn', onClick: all }, t.split.everyone),
+        h('button', { type: 'button', class: 'link-btn', onClick: none }, t.split.nobody),
       ),
-      mode === 'quote' ? h('p', { class: 'field-help' }, 'Per esempio 2 a chi conta doppio, 1 agli altri.') : null,
+      mode === 'quote' ? h('p', { class: 'field-help' }, t.split.sharesHelp) : null,
       rows,
       mode === 'importi' ? h('p', { class: 'exp-left small', 'aria-live': 'polite' }) : null,
     );
@@ -591,7 +610,7 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
   }
 
   function renderDynamic() {
-    payerLabel.textContent = draft.type === 'entrata' ? 'Ricevuto da' : draft.type === 'rimborso' ? 'Da' : 'Pagato da';
+    payerTitle.textContent = payerLabel(draft.type);
     if (draft.type === 'rimborso') {
       if (!receiver || receiver === draft.paid_by) receiver = people.find((p) => p.id !== draft.paid_by)?.id;
       draft.split = { mode: 'parti', shares: receiver ? { [receiver]: 1 } : {} };
@@ -600,11 +619,11 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
         h(
           'label',
           { class: 'field' },
-          h('span', { class: 'field-label' }, 'A'),
+          h('span', { class: 'field-label' }, t.movement.to),
           personSelect(receiver, (value) => {
             receiver = value;
             draft.split = { mode: 'parti', shares: { [value]: 1 } };
-          }, 'Chi riceve'),
+          }, t.movement.receiver),
         ),
       );
       mount(splitHost);
@@ -612,13 +631,13 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
       mount(receiverHost);
       renderSplit();
     }
-    if (draft.type === 'spesa') {
+    if (draft.type === SPESA) {
       mount(
         categoryHost,
         h(
           'label',
           { class: 'field' },
-          h('span', { class: 'field-label' }, 'Categoria'),
+          h('span', { class: 'field-label' }, t.movement.category),
           h(
             'select',
             { class: 'input', onChange: (e) => { draft.category = e.target.value; } },
@@ -639,25 +658,25 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
       onChange: async (e) => {
         const source = e.target.files?.[0];
         if (!source) return;
-        mount(receiptHost, h('span', { class: 'muted small' }, 'Carico la foto…'));
+        mount(receiptHost, h('span', { class: 'muted small' }, t.receipt.uploading));
         try {
           draft.receipt = await uploadNoteImage(group.id, source);
         } catch (err) {
-          toast(err?.message || 'Non sono riuscito a caricare la foto.', { type: 'error' });
+          toast(err?.message || t.receipt.uploadFailed, { type: 'error' });
         }
         renderReceipt();
       },
     });
-    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => file.click() }, icon('image', 14), h('span', null, draft.receipt ? 'Cambia foto' : 'Aggiungi la foto dello scontrino'));
+    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => file.click() }, icon('image', 14), h('span', null, draft.receipt ? t.receipt.change : t.receipt.add));
     mount(
       receiptHost,
-      h('span', { class: 'field-label' }, 'Scontrino'),
-      draft.receipt ? receiptImage(draft.receipt, 'Scontrino') : null,
+      h('span', { class: 'field-label' }, t.receipt.label),
+      draft.receipt ? receiptImage(draft.receipt, t.receipt.label) : null,
       h(
         'div',
         { class: 'toolbar' },
         pick,
-        draft.receipt ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { delete draft.receipt; renderReceipt(); } }, 'Togli') : null,
+        draft.receipt ? h('button', { type: 'button', class: 'btn btn-small', onClick: () => { delete draft.receipt; renderReceipt(); } }, t.receipt.remove) : null,
         file,
       ),
     );
@@ -703,31 +722,31 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
     h(
       'div',
       { class: 'form-grid' },
-      h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, 'Descrizione'), title),
-      h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Importo'), h('div', { class: 'exp-amount' }, amount, currency)),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Data'), date),
+      h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, t.movement.description), title),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, t.movement.amount), h('div', { class: 'exp-amount' }, amount, currency)),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.movement.date), date),
       h('div', { class: 'is-wide' }, rateHost),
-      h('label', { class: 'field' }, payerLabel, payer),
+      h('label', { class: 'field' }, payerTitle, payer),
       receiverHost,
       h('div', { class: 'is-wide' }, splitHost),
       categoryHost,
-      h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, 'Nota'), note),
+      h('label', { class: 'field is-wide' }, h('span', { class: 'field-label' }, t.movement.note), note),
       h('div', { class: 'is-wide' }, receiptHost),
     ),
-    movement ? h('p', { class: 'small' }, h('a', { href: `#/storico/${movement.id}` }, 'Storico delle modifiche')) : null,
+    movement ? h('p', { class: 'small' }, h('a', { href: historyHref(movement.id) }, t.movement.history)) : null,
     error,
   );
 
   async function save() {
     error.hidden = true;
     const minor = amountMinor();
-    if (!minor) return fail('Scrivi un importo valido, per esempio 12,50.');
-    if (draft.currency !== cur && !rateSet) return fail('Manca il cambio: aspetta quello della BCE o scrivilo a mano.');
+    if (!minor) return fail(t.movement.badAmount(amountText(1250, draft.currency)));
+    if (draft.currency !== cur && !rateSet) return fail(t.rates.missing);
     const data = sanitizeExpense({ ...draft, group: group.id, amount: minor, date: date.value, note: note.value, rate: draft.currency === cur ? 1 : draft.rate });
     const problem = expenseProblem(data, group);
     if (problem) return fail(problem);
-    const text = title.value.trim() || (draft.type === 'rimborso' ? 'Rimborso' : '');
-    if (!text) return fail('Scrivi una descrizione.');
+    const text = title.value.trim() || (draft.type === 'rimborso' ? t.types.rimborso : '');
+    if (!text) return fail(t.movement.noDescription);
     const snapshot = { title: text, data };
     try {
       if (movement) {
@@ -738,31 +757,31 @@ function openMovementDialog(group, movement, { onSaved } = {}) {
         await createItem('expense', snapshot, null);
       }
     } catch (err) {
-      return fail(err?.message || 'Non sono riuscito a salvare.');
+      return fail(err?.message || t.movement.saveFailed);
     }
     if (originalReceipt && originalReceipt !== data.receipt) dropReceipt(originalReceipt);
     onSaved?.();
     return false;
   }
 
-  const actions = [{ label: 'Annulla', value: false }];
+  const actions = [{ label: commonActions.cancel, value: false }];
   if (movement) {
     actions.push({
-      label: 'Sposta nel cestino',
+      label: t.movement.trash,
       kind: 'danger',
       onClick: async () => {
-        if (!(await confirmDialog(`«${movement.title}» finisce nel cestino e non conta più nei saldi. Si può ripristinare dal cestino.`, { title: 'Spostare nel cestino?', okLabel: 'Sposta nel cestino', danger: true }))) return true;
+        if (!(await confirmDialog(t.movement.trashConfirm(movement.title), { title: t.movement.trashTitle, okLabel: t.movement.trash, danger: true }))) return true;
         try {
-          await archiveItem(getItem(movement.id) || movement, 'Movimento spostato nel cestino');
+          await archiveItem(getItem(movement.id) || movement, t.movement.trashed);
           return false;
         } catch (err) {
-          return fail(err?.message || 'Operazione non riuscita.');
+          return fail(err?.message || t.movement.failed);
         }
       },
     });
   }
-  actions.push({ label: movement ? 'Salva' : 'Aggiungi', kind: 'primary', onClick: save });
-  openModal({ title: movement ? 'Modifica movimento' : 'Nuovo movimento', wide: true, body, actions });
+  actions.push({ label: movement ? commonActions.save : commonActions.add, kind: 'primary', onClick: save });
+  openModal({ title: movement ? t.movement.editTitle : t.movement.newTitle, wide: true, body, actions });
   setTimeout(() => (movement ? title : amount).focus(), 0);
 }
 
@@ -774,7 +793,7 @@ function movementsTab(group, movements, me, filters, { writable }) {
   const matches = (m) => {
     const d = m.data;
     if (filters.type && d.type !== filters.type) return false;
-    if (filters.category && (d.type !== 'spesa' || d.category !== filters.category)) return false;
+    if (filters.category && (d.type !== SPESA || d.category !== filters.category)) return false;
     if (filters.person && !involves(m, filters.person)) return false;
     const q = filters.text.trim().toLowerCase();
     return !q || m.title.toLowerCase().includes(q) || String(d.note || '').toLowerCase().includes(q);
@@ -791,7 +810,7 @@ function movementsTab(group, movements, me, filters, { writable }) {
         'div',
         { class: 'exp-main' },
         h('button', { type: 'button', class: 'link-btn exp-title', onClick: () => openMovementDialog(group, m) }, m.title),
-        h('div', { class: 'muted small' }, [whoLine(group, m), d.type === 'spesa' ? categoryLabel(d.category) : null, d.receipt ? 'con scontrino' : null].filter(Boolean).join(' · ')),
+        h('div', { class: 'muted small' }, [whoLine(group, m), d.type === SPESA ? categoryLabel(d.category) : null, d.receipt ? t.movements.withReceipt : null].filter(Boolean).join(' · ')),
       ),
       h(
         'div',
@@ -805,11 +824,11 @@ function movementsTab(group, movements, me, filters, { writable }) {
   const renderList = () => {
     const list = movements.filter(matches);
     if (!movements.length) {
-      mount(listHost, emptyState('Nessun movimento. Aggiungi la prima spesa: chi ha pagato e tra chi dividerla.', writable ? button('Aggiungi una spesa', { kind: 'primary', iconName: 'plus', onClick: () => openMovementDialog(group, null) }) : null));
+      mount(listHost, emptyState(t.movements.empty, writable ? button(t.movements.addExpense, { kind: 'primary', iconName: 'plus', onClick: () => openMovementDialog(group, null) }) : null));
       return;
     }
     if (!list.length) {
-      mount(listHost, emptyState('Nessun movimento con questi filtri.'));
+      mount(listHost, emptyState(t.movements.noMatch));
       return;
     }
     const days = new Map();
@@ -817,10 +836,10 @@ function movementsTab(group, movements, me, filters, { writable }) {
       if (!days.has(m.data.date)) days.set(m.data.date, []);
       days.get(m.data.date).push(m);
     }
-    const spent = list.filter((m) => m.data.type === 'spesa').reduce((s, m) => s + inGroupCurrency(m.data, cur).total, 0);
+    const spent = list.filter((m) => m.data.type === SPESA).reduce((s, m) => s + inGroupCurrency(m.data, cur).total, 0);
     mount(
       listHost,
-      h('p', { class: 'muted small exp-count' }, `${plural(list.length, 'movimento', 'movimenti')} · spese ${fmtAmount(spent, cur)}`),
+      h('p', { class: 'muted small exp-count' }, t.movements.count(list.length, fmtAmount(spent, cur))),
       [...days].map(([day, items]) => h('section', { class: 'exp-day' }, h('h3', { class: 'exp-day-title' }, fmtDate(day)), h('ul', { class: 'exp-list' }, items.map(row)))),
     );
   };
@@ -850,17 +869,17 @@ function movementsTab(group, movements, me, filters, { writable }) {
             class: 'input',
             type: 'search',
             value: filters.text,
-            placeholder: 'Cerca nella descrizione o nella nota',
-            'aria-label': 'Cerca tra i movimenti',
+            placeholder: t.movements.searchPlaceholder,
+            'aria-label': t.movements.searchLabel,
             maxlength: 100,
             onInput: (e) => {
               filters.text = e.target.value;
               renderList();
             },
           }),
-          select('Tipo', 'type', [['spesa', 'Spese'], ['rimborso', 'Rimborsi'], ['entrata', 'Entrate']], 'Tutti i movimenti'),
-          select('Persona', 'person', groupPeople(group).map((p) => [p.id, `Riguarda ${p.name}`]), 'Chiunque'),
-          select('Categoria', 'category', EXPENSE_CATEGORIES, 'Tutte le categorie'),
+          select(t.movements.type, 'type', MOVEMENT_TYPES.map(([key]) => [key, t.typeFilters[key]]), t.movements.allTypes),
+          select(t.movements.person, 'person', groupPeople(group).map((p) => [p.id, t.movements.involves(p.name)]), t.movements.anyone),
+          select(t.movements.category, 'category', EXPENSE_CATEGORIES, t.movements.allCategories),
         )
       : null,
     listHost,
@@ -870,9 +889,9 @@ function movementsTab(group, movements, me, filters, { writable }) {
 async function copyPay(text) {
   try {
     await navigator.clipboard.writeText(text);
-    toast('Copiato.', { type: 'success' });
+    toast(commonStates.copied, { type: 'success' });
   } catch {
-    toast('Copia non riuscita: selezionalo e copialo a mano.', { type: 'error' });
+    toast(t.balances.copyFailed, { type: 'error' });
   }
 }
 
@@ -886,24 +905,24 @@ function payLine(group, personId) {
   return h(
     'div',
     { class: 'exp-pay' },
-    h('span', { class: 'muted small' }, `Come pagare ${personName(group, personId)}:`),
+    h('span', { class: 'muted small' }, t.balances.payLabel(personName(group, personId))),
     value,
     pay.bank ? h('span', { class: 'muted small exp-bank' }, pay.bank) : null,
-    h('button', { type: 'button', class: 'btn btn-small', onClick: () => copyPay(pay.copy) }, icon('copy', 14), h('span', null, 'Copia')),
+    h('button', { type: 'button', class: 'btn btn-small', onClick: () => copyPay(pay.copy) }, icon('copy', 14), h('span', null, commonActions.copy)),
   );
 }
 
 function balancesTab(group, movements, me, { writable }) {
   const cur = group.data.currency;
   const balances = groupBalances(group, movements);
-  if (!movements.length) return emptyState('I saldi compaiono con il primo movimento.');
+  if (!movements.length) return emptyState(t.balances.empty);
   const max = Math.max(1, ...[...balances.values()].map((r) => Math.abs(r.balance)));
   const rows = [...balances].map(([id, r]) => {
     const share = `${Math.round((Math.abs(r.balance) / max) * 100)}%`;
     return h(
       'li',
       { class: 'exp-balance-row', dataset: { id } },
-      h('span', { class: 'exp-person-name' }, personName(group, id), me?.id === id ? h('span', { class: 'muted' }, ' (tu)') : null),
+      h('span', { class: 'exp-person-name' }, personName(group, id), me?.id === id ? h('span', { class: 'muted' }, ` ${t.balances.you}`) : null),
       h(
         'span',
         { class: 'exp-diverging', 'aria-hidden': 'true' },
@@ -911,19 +930,19 @@ function balancesTab(group, movements, me, { writable }) {
         h('span', { class: 'exp-half exp-half-pos' }, r.balance > 0 ? h('span', { class: 'exp-bar exp-bar-pos', style: { width: share } }) : null),
       ),
       h('span', { class: ['exp-balance', balanceClass(r.balance)] }, balanceText(r.balance, cur)),
-      h('span', { class: 'muted small exp-balance-detail' }, `ha pagato ${fmtAmount(r.paid, cur)} · la sua parte ${fmtAmount(r.cost, cur)}`),
+      h('span', { class: 'muted small exp-balance-detail' }, t.balances.detail(fmtAmount(r.paid, cur), fmtAmount(r.cost, cur))),
     );
   });
   const transfers = settleUp(balances);
-  const settle = (t) => async (event) => {
-    const ok = await confirmDialog(`Registro un rimborso di ${fmtAmount(t.amount, cur)} da ${personName(group, t.from)} a ${personName(group, t.to)}, con la data di oggi.`, { title: 'Segnare come pagato?', okLabel: 'Segna come pagato' });
+  const settle = (transfer) => async (event) => {
+    const ok = await confirmDialog(t.balances.markPaidConfirm(fmtAmount(transfer.amount, cur), personName(group, transfer.from), personName(group, transfer.to)), { title: t.balances.markPaidTitle, okLabel: t.balances.markPaid });
     if (!ok) return;
     await busy(event.currentTarget || event.target, async () => {
       try {
-        await createItem('expense', { title: 'Rimborso', data: { group: group.id, type: 'rimborso', amount: t.amount, currency: cur, rate: 1, date: today(), paid_by: t.from, split: { mode: 'parti', shares: { [t.to]: 1 } } } }, 'Segnato come pagato');
-        toast('Rimborso registrato.', { type: 'success' });
+        await createItem('expense', { title: t.types.rimborso, data: { group: group.id, type: 'rimborso', amount: transfer.amount, currency: cur, rate: 1, date: today(), paid_by: transfer.from, split: { mode: 'parti', shares: { [transfer.to]: 1 } } } }, t.balances.markedPaid);
+        toast(t.balances.recorded, { type: 'success' });
       } catch (err) {
-        toast(err?.message || 'Non sono riuscito a registrarlo.', { type: 'error' });
+        toast(err?.message || t.balances.recordFailed, { type: 'error' });
       }
     })();
   };
@@ -933,35 +952,35 @@ function balancesTab(group, movements, me, { writable }) {
     h(
       'section',
       { class: 'card' },
-      h('h2', null, 'Saldi'),
-      h('p', { class: 'muted small' }, `Chi ha anticipato più della sua parte riceve, gli altri devono. In ${cur}: le spese in altre valute contano al cambio salvato in ognuna.`),
+      h('h2', null, t.tabs[BALANCES_TAB]),
+      h('p', { class: 'muted small' }, t.balances.help(cur)),
       h('ul', { class: 'exp-balance-list' }, rows),
     ),
     h(
       'section',
       { class: 'card exp-settle' },
-      h('h2', null, 'Chi deve a chi'),
+      h('h2', null, t.balances.settleTitle),
       transfers.length
         ? [
-            h('p', { class: 'muted small' }, 'Il modo più semplice per tornare in pari: ognuno paga direttamente chi deve ricevere.'),
+            h('p', { class: 'muted small' }, t.balances.settleHelp),
             h(
               'ul',
               { class: 'exp-transfer-list' },
-              transfers.map((t) =>
+              transfers.map((transfer) =>
                 h(
                   'li',
                   { class: 'exp-transfer' },
-                  h('span', null, h('strong', null, personName(group, t.from)), ' dà ', h('strong', null, fmtAmount(t.amount, cur)), ' a ', h('strong', null, personName(group, t.to))),
-                  writable ? h('button', { type: 'button', class: 'btn btn-small', onClick: settle(t) }, icon('check', 14), h('span', null, 'Segna come pagato')) : null,
-                  payLine(group, t.to),
+                  h('span', null, rich(t.balances.transfer, h('strong', null, personName(group, transfer.from)), h('strong', null, fmtAmount(transfer.amount, cur)), h('strong', null, personName(group, transfer.to)))),
+                  writable ? h('button', { type: 'button', class: 'btn btn-small', onClick: settle(transfer) }, icon('check', 14), h('span', null, t.balances.markPaid)) : null,
+                  payLine(group, transfer.to),
                 ),
               ),
             ),
-            writable && transfers.some((t) => !payInfo(groupPeople(group).find((p) => p.id === t.to)?.pay))
-              ? h('p', { class: 'muted small' }, 'Per chi non ha indicato come pagarlo, si aggiunge IBAN o link nella scheda ', h('a', { href: `#/spese/${group.id}/gruppo` }, 'Gruppo'), '.')
+            writable && transfers.some((transfer) => !payInfo(groupPeople(group).find((p) => p.id === transfer.to)?.pay))
+              ? h('p', { class: 'muted small' }, rich(t.balances.addPayInfo, h('a', { href: groupHref(group.id, GROUP_TAB) }, t.tabs[GROUP_TAB])))
               : null,
           ]
-        : h('p', { class: 'exp-even' }, 'Tutti in pari.'),
+        : h('p', { class: 'exp-even' }, t.balances.allEven),
     ),
   );
 }
@@ -970,7 +989,7 @@ function balancesTab(group, movements, me, { writable }) {
 function categoryDonut(stats, cur) {
   const top = stats.categories.slice(0, 3);
   const rest = stats.categories.slice(3).reduce((s, c) => s + c.total, 0);
-  const slices = [...top.map((c, i) => ({ label: c.label, total: c.total, cls: `exp-c${i + 1}` })), ...(rest ? [{ label: 'Altre categorie', total: rest, cls: 'exp-cother' }] : [])];
+  const slices = [...top.map((c, i) => ({ label: c.label, total: c.total, cls: `exp-c${i + 1}` })), ...(rest ? [{ label: t.stats.otherCategories, total: rest, cls: 'exp-cother' }] : [])];
   const r = 60;
   const length = 2 * Math.PI * r;
   let start = 0;
@@ -991,7 +1010,7 @@ function categoryDonut(stats, cur) {
     { class: 'exp-donut' },
     svg(
       'svg',
-      { viewBox: '0 0 160 160', role: 'img', 'aria-label': `Spese per categoria: ${slices.map((s) => `${s.label} ${percent(s.total)}`).join(', ')}`, class: 'exp-donut-svg' },
+      { viewBox: '0 0 160 160', role: 'img', 'aria-label': t.stats.byCategoryLabel(slices.map((s) => `${s.label} ${percent(s.total)}`).join(', ')), class: 'exp-donut-svg' },
       svg('circle', { cx: 80, cy: 80, r, class: 'exp-slice exp-track' }),
       ...circles,
     ),
@@ -1027,7 +1046,7 @@ function monthChart(stats, cur) {
   const label = now.total ? [svg('text', { x: last * slot + slot / 2, y: base - (now.total / max) * height - 6, class: 'exp-value', 'text-anchor': 'middle' }, fmtAmount(now.total, cur))] : [];
   return svg(
     'svg',
-    { viewBox: `0 0 ${width} 200`, role: 'img', class: 'exp-month-svg', 'aria-label': `Spese per mese: ${stats.months.filter((m) => m.total).map((m) => `${m.label} ${fmtAmount(m.total, cur)}`).join(', ') || 'nessuna'}` },
+    { viewBox: `0 0 ${width} 200`, role: 'img', class: 'exp-month-svg', 'aria-label': t.stats.byMonthLabel(stats.months.filter((m) => m.total).map((m) => `${m.label} ${fmtAmount(m.total, cur)}`).join(', ')) },
     svg('line', { x1: 0, y1: base, x2: width, y2: base, class: 'exp-baseline' }),
     ...bars,
     ...label,
@@ -1037,7 +1056,7 @@ function monthChart(stats, cur) {
 function statsTab(group, movements, me) {
   const cur = group.data.currency;
   const stats = groupStats(group, movements, { me: me?.id });
-  if (!stats.count) return emptyState('Le statistiche compaiono con la prima spesa.');
+  if (!stats.count) return emptyState(t.stats.empty);
   const balances = groupBalances(group, movements);
   const maxPaid = Math.max(1, ...[...balances.values()].map((r) => r.paid));
   const tile = (label, value, note) => h('div', { class: 'stat' }, h('span', null, label), h('strong', null, value), note ? h('span', { class: 'small' }, note) : null);
@@ -1047,19 +1066,19 @@ function statsTab(group, movements, me) {
     h(
       'div',
       { class: 'stats' },
-      tile('Totale spese', fmtAmount(stats.total, cur), plural(stats.count, 'spesa', 'spese')),
-      me ? tile('La tua parte', fmtAmount(stats.mine, cur), stats.total ? `${Math.round((stats.mine / stats.total) * 100)}% del totale` : null) : null,
-      tile('Media a persona', fmtAmount(stats.perPerson, cur), plural(groupPeople(group).length, 'persona', 'persone')),
-      tile('Entrate', fmtAmount(stats.income, cur), stats.income ? 'già tolte dalle parti' : 'nessuna'),
+      tile(t.stats.total, fmtAmount(stats.total, cur), t.stats.expenses(stats.count)),
+      me ? tile(t.stats.mine, fmtAmount(stats.mine, cur), stats.total ? t.stats.ofTotal(Math.round((stats.mine / stats.total) * 100)) : null) : null,
+      tile(t.stats.perPerson, fmtAmount(stats.perPerson, cur), t.stats.people(groupPeople(group).length)),
+      tile(t.stats.income, fmtAmount(stats.income, cur), stats.income ? t.stats.incomeTaken : t.stats.none),
     ),
     h(
       'div',
       { class: 'cards cards-2' },
-      h('section', { class: 'card' }, h('h2', null, 'Per categoria'), categoryDonut(stats, cur)),
+      h('section', { class: 'card' }, h('h2', null, t.stats.byCategory), categoryDonut(stats, cur)),
       h(
         'section',
         { class: 'card' },
-        h('h2', null, 'Chi ha pagato'),
+        h('h2', null, t.stats.whoPaid),
         h(
           'ul',
           { class: 'exp-paid-list' },
@@ -1074,18 +1093,18 @@ function statsTab(group, movements, me) {
           ),
         ),
       ),
-      h('section', { class: 'card card-wide' }, h('h2', null, 'Per mese'), h('p', { class: 'muted small' }, 'Gli ultimi 12 mesi. Passa sopra una barra per il totale.'), monthChart(stats, cur)),
+      h('section', { class: 'card card-wide' }, h('h2', null, t.stats.byMonth), h('p', { class: 'muted small' }, t.stats.byMonthHelp), monthChart(stats, cur)),
       h(
         'section',
         { class: 'card card-wide' },
-        h('h2', null, 'Tutte le categorie'),
+        h('h2', null, t.stats.allCategories),
         h(
           'div',
           { class: 'table-scroll' },
           h(
             'table',
             { class: 'table exp-category-table' },
-            h('thead', null, h('tr', null, h('th', null, 'Categoria'), h('th', null, 'Totale'), h('th', null, 'Sul totale'))),
+            h('thead', null, h('tr', null, h('th', null, t.stats.category), h('th', null, t.stats.categoryTotal), h('th', null, t.stats.share))),
             h('tbody', null, stats.categories.map((c) => h('tr', null, h('td', null, c.label), h('td', null, fmtAmount(c.total, cur)), h('td', null, `${Math.round((c.total / stats.total) * 100)}%`)))),
           ),
         ),
@@ -1099,14 +1118,14 @@ function settingsTab(group, movements, { writable }) {
     return h(
       'section',
       { class: 'card' },
-      h('h2', null, 'Persone'),
-      h('ul', null, groupPeople(group).map((p) => h('li', null, p.name, p.member ? h('span', { class: 'muted small' }, ' · ha un account') : null, p.pay ? h('div', { class: 'muted small' }, `Come pagarmi: ${payInfo(p.pay).text}`) : null))),
+      h('h2', null, t.people.label),
+      h('ul', null, groupPeople(group).map((p) => h('li', null, p.name, p.member ? h('span', { class: 'muted small' }, ` · ${t.people.hasAccount}`) : null, p.pay ? h('div', { class: 'muted small' }, t.people.payMe(payInfo(p.pay).text)) : null))),
       group.data.notes ? h('p', null, group.data.notes) : null,
     );
   }
   const fields = groupFields(group, { movements });
   const error = h('p', { class: 'form-error', role: 'alert', hidden: true });
-  const saveBtn = h('button', { type: 'button', class: 'btn btn-primary' }, 'Salva');
+  const saveBtn = h('button', { type: 'button', class: 'btn btn-primary' }, commonActions.save);
   saveBtn.addEventListener(
     'click',
     busy(saveBtn, async () => {
@@ -1119,26 +1138,26 @@ function settingsTab(group, movements, { writable }) {
       }
       const snapshot = fields.read();
       if (movements.length) snapshot.data.currency = group.data.currency;
-      const res = await saveSnapshot(getItem(group.id) || group, snapshot, 'Gruppo aggiornato');
+      const res = await saveSnapshot(getItem(group.id) || group, snapshot, t.group.updated);
       if (res.status !== 'ok') {
         error.textContent = statusError(res.status).message;
         error.hidden = false;
         return;
       }
-      toast('Gruppo salvato.', { type: 'success' });
+      toast(t.group.saved, { type: 'success' });
     }),
   );
-  const archive = h('button', { type: 'button', class: 'btn btn-danger' }, icon('trash', 14), h('span', null, 'Sposta il gruppo nel cestino'));
+  const archive = h('button', { type: 'button', class: 'btn btn-danger' }, icon('trash', 14), h('span', null, t.group.trash));
   archive.addEventListener(
     'click',
     busy(archive, async () => {
-      const ok = await confirmDialog(`Il gruppo «${group.title}» e i suoi movimenti spariscono dalle Spese. Si può ripristinare dal cestino.`, { title: 'Spostare nel cestino?', okLabel: 'Sposta nel cestino', danger: true });
+      const ok = await confirmDialog(t.group.trashConfirm(group.title), { title: t.movement.trashTitle, okLabel: t.movement.trash, danger: true });
       if (!ok) return;
       try {
-        await archiveItem(getItem(group.id) || group, 'Gruppo di spese spostato nel cestino');
-        navigate('/spese');
+        await archiveItem(getItem(group.id) || group, t.group.trashed);
+        navigate(HOME);
       } catch (err) {
-        toast(err?.message || 'Operazione non riuscita.', { type: 'error' });
+        toast(err?.message || t.movement.failed, { type: 'error' });
       }
     }),
   );
@@ -1147,19 +1166,19 @@ function settingsTab(group, movements, { writable }) {
 
 function mySummary(group, movements, me) {
   const cur = group.data.currency;
-  if (!me) return h('p', { class: 'exp-summary muted' }, 'Non sei tra le persone del gruppo: vedi i conti, ma nessun movimento ti riguarda.');
+  if (!me) return h('p', { class: 'exp-summary muted' }, t.summary.outside);
   const balance = groupBalances(group, movements).get(me.id)?.balance || 0;
   const stats = groupStats(group, movements, { me: me.id });
   return h(
     'p',
     { class: 'exp-summary' },
-    h('span', { class: ['exp-balance', balanceClass(balance)] }, `Tu ${balanceText(balance, cur, { you: true })}`),
-    h('span', { class: 'muted' }, ` · totale spese ${fmtAmount(stats.total, cur)} · la tua parte ${fmtAmount(stats.mine, cur)}`),
+    h('span', { class: ['exp-balance', balanceClass(balance)] }, balanceText(balance, cur, t.summaryBalance)),
+    h('span', { class: 'muted' }, ` · ${t.summary.totals(fmtAmount(stats.total, cur), fmtAmount(stats.mine, cur))}`),
   );
 }
 
 export function expenseGroupView(outlet, params, query) {
-  const tab = TABS.some(([key]) => key === params.tab) ? params.tab : 'movimenti';
+  const tab = TAB_KEYS.includes(params.tab) ? params.tab : MOVEMENTS_TAB;
   const writable = canWrite();
   const filters = { text: '', type: '', person: '', category: '' };
   let pendingOpen = query?.get('movimento') || null;
@@ -1170,32 +1189,32 @@ export function expenseGroupView(outlet, params, query) {
     if (!isGroup(group)) {
       mount(
         outlet,
-        pageHeader({ title: 'Gruppo non disponibile', back: { href: '#/spese' } }),
-        emptyState(group?.deleted_at ? 'Questo gruppo è nel cestino: ripristinalo da lì per vederlo.' : 'Il gruppo non esiste o non è più disponibile.', button('Torna alle spese', { href: '#/spese' })),
+        pageHeader({ title: t.group.unavailable, back: { href: `#${HOME}` } }),
+        emptyState(group?.deleted_at ? t.group.inTrash : t.group.missing, button(t.group.back, { href: `#${HOME}` })),
       );
       return;
     }
     const movements = sortMovements(movementsOf(group.id));
     const me = personOfMember(group, state.user?.id);
-    const add = writable && tab !== 'gruppo' ? button('Aggiungi', { kind: 'primary', iconName: 'plus', onClick: () => openMovementDialog(group, null) }) : null;
+    const add = writable && tab !== GROUP_TAB ? button(commonActions.add, { kind: 'primary', iconName: 'plus', onClick: () => openMovementDialog(group, null) }) : null;
     let body;
-    if (tab === 'saldi') body = balancesTab(group, movements, me, { writable });
-    else if (tab === 'statistiche') body = statsTab(group, movements, me);
-    else if (tab === 'gruppo') body = settingsTab(group, movements, { writable });
+    if (tab === BALANCES_TAB) body = balancesTab(group, movements, me, { writable });
+    else if (tab === STATS_TAB) body = statsTab(group, movements, me);
+    else if (tab === GROUP_TAB) body = settingsTab(group, movements, { writable });
     else body = movementsTab(group, movements, me, filters, { writable });
     mount(
       outlet,
       pageHeader({
         title: group.title,
-        subtitle: `${plural(groupPeople(group).length, 'persona', 'persone')} · ${group.data.currency}`,
-        back: { href: '#/spese' },
-        actions: [add, movements.length ? button('Esporta CSV', { iconName: 'download', onClick: () => exportCsv(group, movements) }) : null, button('Storico', { iconName: 'history', href: `#/storico/${group.id}` })],
+        subtitle: t.group.subtitle(groupPeople(group).length, group.data.currency),
+        back: { href: `#${HOME}` },
+        actions: [add, movements.length ? button(t.exportCsv, { iconName: 'download', onClick: () => exportCsv(group, movements) }) : null, button(t.history, { iconName: 'history', href: historyHref(group.id) })],
       }),
       mySummary(group, movements, me),
-      tabs(TABS, tab, (key) => `#/spese/${group.id}${key === 'movimenti' ? '' : `/${key}`}`, { ariaLabel: 'Sezioni del gruppo' }),
+      tabs(TABS, tab, (key) => groupHref(group.id, key), { ariaLabel: t.tabsLabel }),
       body,
     );
-    editing = tab === 'gruppo';
+    editing = tab === GROUP_TAB;
     if (pendingOpen) {
       const target = getItem(pendingOpen);
       pendingOpen = null;
@@ -1210,7 +1229,7 @@ export function expenseGroupView(outlet, params, query) {
       if (item.kind === 'expense' && item.data.group !== params.id) return;
       // Nella scheda Gruppo un aggiornamento da fuori non cancella quello che si sta scrivendo.
       if (editing && !byMe && item.id === params.id) {
-        toast('Qualcuno ha modificato il gruppo: ricarica la scheda prima di salvare.');
+        toast(t.group.changedElsewhere);
         return;
       }
       if (editing && item.kind === 'expense') return;

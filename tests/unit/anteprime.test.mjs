@@ -35,6 +35,27 @@ test('publishing writes the colour pages next to q.html', () => {
   assert.match(read('.github/workflows/deploy.yml'), /cp index\.html q\.html _site\/\n\s+cp -R assets _site\/\n\s+node scripts\/anteprime\.mjs pagine _site\n/);
 });
 
+// Messaging apps read the preview without running JavaScript: every survey of every project, in either language, gets
+// these same words, so they name no particular survey and say it in English, the default, and in Italian.
+test('the preview of a survey link names no particular survey and speaks English and Italian', () => {
+  const html = read('q.html');
+  const meta = (attribute, name) => html.match(new RegExp(`<meta ${attribute}="${name}" content="([^"]*)"`))?.[1] ?? null;
+  for (const [attribute, name] of [['name', 'description'], ['property', 'og:site_name'], ['property', 'og:title'], ['property', 'og:description'], ['property', 'og:image:alt']]) {
+    const value = meta(attribute, name);
+    assert.ok(value, name);
+    assert.doesNotMatch(value, /nutrizionist/i, name);
+  }
+  assert.equal(meta('property', 'og:title'), 'Survey · Questionario');
+  assert.equal(meta('property', 'og:site_name'), 'Survey · Questionario');
+  assert.match(meta('name', 'description'), /^Answers are anonymous.* · Le risposte sono anonime/);
+  assert.equal(meta('property', 'og:description'), meta('name', 'description'));
+  assert.equal(meta('property', 'og:locale'), 'en_GB');
+  assert.equal(meta('property', 'og:locale:alternate'), 'it_IT');
+  assert.match(html, /<title>Survey · Questionario<\/title>/);
+  assert.doesNotMatch(previewHtml('#15803d'), /nutrizionist/i);
+  assert.match(previewHtml('#15803d'), /<h1>Survey<br>Questionario<\/h1>/);
+});
+
 test('the image uses the colour and the text colour that reads best on it', () => {
   assert.match(previewHtml('#15803d'), /body\{background:#15803d;color:#ffffff;/);
   assert.match(previewHtml('#f5e663'), /color:#000000;/);

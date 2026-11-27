@@ -4,10 +4,16 @@ import { stepByKey } from './roadmap.js';
 import { LIMITS, cleanLine, isUuid } from './lib/validate.js';
 import { debounce } from './lib/format.js';
 import { EXAMPLES } from './examples.js';
+import { tx } from './i18n/index.js';
 
 export const state = {
   user: null,
   me: null,
+  // The project open on this page ({ id, name, role }), the projects of the person (my_projects) and whether they
+  // administer the platform.
+  project: null,
+  projects: [],
+  platformAdmin: false,
   members: [],
   items: new Map(),
   commentCounts: new Map(),
@@ -28,7 +34,7 @@ export function emit(event, payload) {
     try {
       fn(payload);
     } catch (error) {
-      console.error('Errore in un ascoltatore', event, error?.name);
+      console.error('Listener failed', event, error?.name);
     }
   }
 }
@@ -36,6 +42,9 @@ export function emit(event, payload) {
 export function resetStore() {
   state.user = null;
   state.me = null;
+  setProject(null);
+  state.projects = [];
+  state.platformAdmin = false;
   state.members = [];
   state.items = new Map();
   state.commentCounts = new Map();
@@ -69,16 +78,37 @@ export function applyItem(row) {
   return true;
 }
 
+const isProjectRow = (row) => Boolean(row && typeof row === 'object' && isUuid(row.id) && typeof row.name === 'string');
+
+/** Opens a project on this page: the store and every call to the database use it from now on. */
+export function setProject(row) {
+  state.project = isProjectRow(row) ? { id: row.id, name: row.name, role: row.role ?? null } : null;
+  api.useProject(state.project?.id ?? null);
+}
+
+export function setProjects(rows) {
+  state.projects = Array.isArray(rows) ? rows.filter(isProjectRow) : [];
+}
+
+export const currentProjectId = () => state.project?.id ?? null;
+export const isPlatformAdmin = () => state.platformAdmin === true;
+
+/** Whether the person administers the platform: only a real true counts. */
+export function setPlatformAdmin(value) {
+  state.platformAdmin = value === true;
+}
+
 export function setMembers(rows) {
   state.members = Array.isArray(rows) ? rows.filter((m) => isUuid(m?.user_id)) : [];
   state.me = state.members.find((m) => m.user_id === state.user?.id) || null;
 }
 
 export async function loadAll() {
+  const project = currentProjectId();
   const [members, items, counts] = await Promise.all([
-    api.membersOverview(),
-    api.listItems(),
-    api.commentCounts().catch(() => new Map()),
+    api.membersOverview(project),
+    api.listItems(project),
+    api.commentCounts(project).catch(() => new Map()),
   ]);
   setMembers(members);
   state.items = new Map(items.filter(isValidItemRow).map((i) => [i.id, i]));
@@ -88,6 +118,7 @@ export async function loadAll() {
 
 // Gli aggiornamenti dal vivo possono perdersi (rete, computer in stop, scheda in secondo piano):
 // per questo i dati si riallineano col database entrando nelle pagine, al ritorno sulla scheda e ogni minuto.
+// Members are not sent live any more (docs/PROGETTI.md): they are read again together with the items.
 const SYNC_MIN_INTERVAL = 3000;
 let lastSync = 0;
 let syncing = null;
@@ -97,7 +128,9 @@ export async function syncItems({ force = false } = {}) {
   if (!force && Date.now() - lastSync < SYNC_MIN_INTERVAL) return null;
   syncing = (async () => {
     try {
-      const rows = (await api.listItems()).filter(isValidItemRow);
+      // Whoever was removed from the project finds out here; an error reading the members does not stop the items.
+      const [items] = await Promise.all([api.listItems(currentProjectId()), reloadMembers({ onlyChanges: true }).catch(() => {})]);
+      const rows = items.filter(isValidItemRow);
       // Una risposta vuota quando abbiamo dei dati è più probabilmente un problema momentaneo che una board svuotata.
       if (!rows.length && state.items.size) return false;
       const seen = new Set();
@@ -151,10 +184,36 @@ export function stopSync() {
   stopSyncTriggers = null;
 }
 
-export async function reloadMembers() {
-  setMembers(await api.membersOverview());
-  emit('members', state.members);
-  if (!state.me) emit('removed');
+// The pages redraw when who is there changes, or their role, name or colour; the last access alone does not count.
+const membersKey = (rows) => JSON.stringify(rows.map((m) => [m.user_id, m.role, m.display_name, m.color]));
+
+// An answer without a list is an error, not an empty project: nobody is removed. A list without me means I cannot read
+// the project any more (removed, or the project was archived).
+export async function reloadMembers({ onlyChanges = false } = {}) {
+  const [rows, stillMine] = await Promise.all([api.membersOverview(currentProjectId()), openProjectStillMine()]);
+  if (!Array.isArray(rows)) throw new AppError(tx.errors.generic, { code: 'error' });
+  const before = membersKey(state.members);
+  setMembers(rows);
+  if (!onlyChanges || membersKey(state.members) !== before) emit('members', state.members);
+  if (!state.me || !stillMine) emit('removed');
+}
+
+// members_overview answers a platform admin for every project, archived ones too, so for them being in that list does
+// not mean the project can still be read: my_projects says it. An error says nothing, and nobody leaves.
+async function openProjectStillMine() {
+  if (!isPlatformAdmin()) return true;
+  let rows;
+  try {
+    rows = await api.myProjects();
+  } catch {
+    return true;
+  }
+  if (!Array.isArray(rows)) return true;
+  const ids = (list) => list.map((p) => p.id).join();
+  const before = ids(state.projects);
+  setProjects(rows);
+  if (ids(state.projects) !== before) emit('projects');
+  return state.projects.some((p) => p.id === currentProjectId());
 }
 
 const refreshCommentCounts = debounce(async () => {
@@ -172,7 +231,9 @@ let everSubscribed = false;
 
 export function startRealtime() {
   stopRealtime();
+  const projectId = currentProjectId();
   unsubscribeDb = api.subscribeDb({
+    projectId,
     onItem: (row) => applyItem(row),
     onRevision: (rev) => {
       if (isUuid(rev?.item_id)) emit('revision', rev);
@@ -182,7 +243,6 @@ export function startRealtime() {
       emit('comment', row);
       refreshCommentCounts();
     },
-    onMembers: () => reloadMembers().catch(() => {}),
     onChat: (row) => {
       if (isUuid(row?.id)) emit('chat-row', row);
     },
@@ -204,7 +264,7 @@ export function startRealtime() {
   presence = api.joinPresence(state.user.id, (presenceState) => {
     state.online = parsePresence(presenceState);
     emit('presence', state.online);
-  });
+  }, projectId);
 }
 
 export function stopRealtime() {
@@ -239,7 +299,7 @@ export const isExample = (item) => item?.example === true;
 export const exampleIdeas = () => EXAMPLES.filter((item) => item.kind === 'idea');
 export const getItem = (id) => state.items.get(id) || EXAMPLE_BY_ID.get(id) || null;
 export const memberById = (id) => state.members.find((m) => m.user_id === id) || null;
-export const memberName = (id) => memberById(id)?.display_name || (id ? 'Ex membro' : 'Sistema');
+export const memberName = (id) => memberById(id)?.display_name || (id ? tx.common.formerMember : tx.common.system);
 export const canWrite = () => state.me?.role === 'admin' || state.me?.role === 'member';
 export const isAdmin = () => state.me?.role === 'admin';
 
@@ -287,15 +347,10 @@ export const labelContext = {
 
 export const cleanMessage = (message) => cleanLine(message, LIMITS.message) || null;
 
-const STATUS_MESSAGES = {
-  conflict: 'Qualcuno ha modificato questo elemento nel frattempo.',
-  deleted: 'Questo elemento è stato archiviato nel frattempo. Ripristinalo dal cestino per modificarlo.',
-  forbidden: 'Non hai i permessi per questa operazione.',
-  not_found: 'Elemento non trovato.',
-};
-
 export function statusError(status) {
-  return new AppError(STATUS_MESSAGES[status] || 'Operazione non riuscita. Riprova.', { code: status || 'error' });
+  const messages = tx.errors.status;
+  const text = typeof status === 'string' && Object.hasOwn(messages, status) ? messages[status] : tx.errors.generic;
+  return new AppError(text, { code: status || 'error' });
 }
 
 export async function createItem(kind, snapshot, message) {
@@ -356,3 +411,23 @@ export function writeLocal(name, value) {
     // archiviazione locale non disponibile: si continua senza
   }
 }
+
+/** The name under which this device keeps something of the open project only. */
+export const projectKey = (name) => `${name}:${currentProjectId()}`;
+
+/**
+ * What this device remembers for the open project. Before the projects there was one value for the whole site, under
+ * the bare name: the first project opened takes it over and the bare value goes, so a project joined later never
+ * inherits it.
+ */
+export function readProjectLocal(name, fallback = null) {
+  const own = readLocal(projectKey(name), null);
+  const legacy = readLocal(name, null);
+  if (legacy !== null) writeLocal(name, null);
+  if (own !== null) return own;
+  if (legacy === null) return fallback;
+  writeLocal(projectKey(name), legacy);
+  return legacy;
+}
+
+export const writeProjectLocal = (name, value) => writeLocal(projectKey(name), value);

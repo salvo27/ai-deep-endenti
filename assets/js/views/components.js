@@ -1,4 +1,5 @@
 import { h } from '../lib/dom.js';
+import { tx } from '../i18n/index.js';
 import { isPhotoDataUrl } from '../lib/validate.js';
 import { icon } from '../lib/icons.js';
 import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, initials } from '../lib/format.js';
@@ -14,7 +15,7 @@ export function avatar(userId, size = 28) {
     'span',
     {
       class: 'avatar',
-      title: member?.display_name || 'Ex membro',
+      title: member?.display_name || tx.common.formerMember,
       style: { '--avatar': member?.color || '#8a8f98', width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.4)}px` },
     },
     initials(member?.display_name || '?'),
@@ -22,7 +23,7 @@ export function avatar(userId, size = 28) {
 }
 
 // Foto di una scheda (per ora la buyer persona); senza foto valida, le iniziali del titolo.
-export function photoView(src, { alt = 'Foto', size = 96, fallback = '' } = {}) {
+export function photoView(src, { alt = tx.editor.components.photo, size = 96, fallback = '' } = {}) {
   const style = { width: `${size}px`, height: `${size}px` };
   if (isPhotoDataUrl(src)) return h('img', { class: 'photo', src, alt, style });
   const words = String(fallback || '?').trim().split(/\s+/);
@@ -61,7 +62,7 @@ function backLink(back) {
       },
     },
     icon('back', 16),
-    'Indietro',
+    tx.common.actions.back,
   );
 }
 
@@ -92,7 +93,7 @@ export function emptyState(text, action) {
   return h('div', { class: 'empty' }, h('p', null, text), action || null);
 }
 
-export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', className } = {}) {
+export function tabs(entries, active, hrefFor, { ariaLabel = tx.editor.components.sections, className } = {}) {
   const nav = h(
     'nav',
     { class: ['tabs', className], 'aria-label': ariaLabel },
@@ -117,7 +118,7 @@ export function tabs(entries, active, hrefFor, { ariaLabel = 'Sezioni', classNam
 }
 
 export function itemLink(item, text) {
-  if (!item) return h('span', { class: 'muted' }, 'Elemento non disponibile');
+  if (!item) return h('span', { class: 'muted' }, tx.editor.components.itemUnavailable);
   return h('a', { href: routeFor(item), class: ['item-link', item.deleted_at && 'is-deleted'] }, text || item.title || KINDS[item.kind]?.label);
 }
 
@@ -134,7 +135,7 @@ export function commitmentBadge(value) {
 // Le ricerche online restano visibili ma si distinguono dai colloqui, che sono le sole prove.
 export function sourceBadge(interview) {
   if (!interview || isConversation(interview)) return null;
-  return h('span', { class: 'badge badge-warn', title: 'Non conta come intervista: non è stata sentita nessuna persona' }, 'Ricerca online');
+  return h('span', { class: 'badge badge-warn', title: tx.editor.components.onlineResearchHint }, tx.editor.components.onlineResearch);
 }
 
 export function fieldValue(kind, def, value, item = null) {
@@ -166,11 +167,11 @@ export function fieldValue(kind, def, value, item = null) {
     case 'money':
       return h('span', null, fmtMoney(value));
     case 'scale':
-      return h('span', { class: 'scale-view', 'aria-label': `${value} su 5` }, [1, 2, 3, 4, 5].map((n) => h('span', { class: ['dot', n <= value && 'on'] })));
+      return h('span', { class: 'scale-view', 'aria-label': tx.editor.components.scale(value) }, [1, 2, 3, 4, 5].map((n) => h('span', { class: ['dot', n <= value && 'on'] })));
     case 'select':
       return kind === 'interview' && def.key === 'commitment' ? commitmentBadge(value) : h('span', null, optionLabel(def, value));
     case 'image':
-      return photoView(value, { alt: `Foto: ${item?.title || ''}`.trim(), size: 72, fallback: item?.title });
+      return photoView(value, { alt: item?.title ? tx.editor.components.photoOf(item.title) : tx.editor.components.photo, size: 72, fallback: item?.title });
     default:
       return h('span', null, String(formatValue(kind, `data.${def.key}`, value, labelContext)));
   }
@@ -200,23 +201,15 @@ export function exampleBanner(item) {
   return h(
     'div',
     { class: 'banner banner-example' },
-    h('strong', null, 'Esempio in sola lettura. '),
-    idea?.exampleNote || 'Mostra come si compila questa parte della board.',
+    h('strong', null, tx.editor.components.exampleReadOnly),
+    ' ',
+    idea?.exampleNote || tx.editor.components.exampleHint,
   );
 }
 
 export function metaLine(item) {
-  if (isExample(item)) return h('span', { class: 'meta-line' }, h('span', { class: 'badge badge-example' }, 'Esempio'));
-  return h(
-    'span',
-    { class: 'meta-line' },
-    'Versione ',
-    String(item.version),
-    ' · modificato da ',
-    memberName(item.updated_by),
-    ' ',
-    timeAgo(item.updated_at),
-  );
+  if (isExample(item)) return h('span', { class: 'meta-line' }, h('span', { class: 'badge badge-example' }, tx.editor.components.example));
+  return h('span', { class: 'meta-line' }, tx.editor.components.versionBy(item.version, memberName(item.updated_by)), ' ', timeAgo(item.updated_at));
 }
 
 export function onlineHere(path) {
@@ -226,14 +219,14 @@ export function onlineHere(path) {
     'div',
     { class: 'here' },
     others.map((p) => avatar(p.userId, 22)),
-    h('span', null, others.some((p) => p.editing) ? 'sta modificando' : 'qui ora'),
+    h('span', null, others.some((p) => p.editing) ? tx.editor.components.editing : tx.editor.components.hereNow),
   );
 }
 
-export function loading(text = 'Caricamento…') {
+export function loading(text = tx.common.states.loading) {
   return h('div', { class: 'loading', role: 'status' }, h('span', { class: 'spinner' }), text);
 }
 
 export function errorBox(error) {
-  return h('p', { class: 'error-box', role: 'alert' }, error?.message || 'Operazione non riuscita.');
+  return h('p', { class: 'error-box', role: 'alert' }, error?.message || tx.editor.components.failed);
 }

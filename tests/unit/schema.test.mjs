@@ -350,7 +350,7 @@ test('snapshotProblem requires titles and parent ideas where the database does',
   assert.equal(snapshotProblem('interview', { title: 'I', idea_id: null }), null);
   assert.equal(snapshotProblem('score', { title: '', idea_id: null }), null);
   assert.equal(sanitizeSnapshot('experiment', { title: 'x', idea_id: 'bad' }).idea_id, null);
-  assert.throws(() => sanitizeSnapshot('boh', {}), /Tipo sconosciuto/);
+  assert.throws(() => sanitizeSnapshot('boh', {}), /Unknown kind: boh/);
 });
 
 test('an interview is a conversation with a person unless it is marked as online research', () => {

@@ -1,0 +1,5 @@
+# Same line endings on every computer: some tests read the files and the published site must not change with the OS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

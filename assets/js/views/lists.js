@@ -1,25 +1,26 @@
 import { h, mount } from '../lib/dom.js';
-import { daysUntil, fmtDate, plural, truncate } from '../lib/format.js';
+import { daysUntil, fmtDate, truncate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';
+import { tx } from '../i18n/index.js';
 import { COMMITMENT, KINDS, isConversation } from '../schema.js';
 import { canWrite, getItem, ideas, itemsOf, on, state } from '../store.js';
 import { navigate } from '../router.js';
 import { changeStatus } from './actions.js';
 import { avatar, button, commitmentBadge, emptyState, itemLink, pageHeader, sourceBadge, statusPill } from './components.js';
 
-const ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' };
-const SOURCE_FILTERS = [
-  ['colloquio', 'Colloqui con persone'],
-  ['ricerca', 'Ricerche online'],
-];
+// Addresses and filter parameters of the site: their Italian words are part of the URL, not text the reader sees.
+const ROUTES = { experiment: '/esperimenti', interview: '/interviste', decision: '/decisioni' }; // i18n-ignore
+const PARAMS = { idea: 'idea', member: 'persona', commitment: 'impegno', source: 'tipo', text: 'q' }; // i18n-ignore
+const SOURCES = ['colloquio', 'ricerca']; // i18n-ignore (stored in the URL)
+const SOURCE_FILTERS = SOURCES.map((value) => [value, tx.lists.sources[value]]);
 
 export function readListFilters(query) {
   return {
-    ideaId: isUuid(query.get('idea')) ? query.get('idea') : null,
-    memberId: isUuid(query.get('persona')) ? query.get('persona') : null,
-    commitment: COMMITMENT.some(([v]) => v === query.get('impegno')) ? query.get('impegno') : null,
-    source: SOURCE_FILTERS.some(([v]) => v === query.get('tipo')) ? query.get('tipo') : null,
-    text: (query.get('q') || '').slice(0, 100),
+    ideaId: isUuid(query.get(PARAMS.idea)) ? query.get(PARAMS.idea) : null,
+    memberId: isUuid(query.get(PARAMS.member)) ? query.get(PARAMS.member) : null,
+    commitment: COMMITMENT.some(([v]) => v === query.get(PARAMS.commitment)) ? query.get(PARAMS.commitment) : null,
+    source: SOURCES.includes(query.get(PARAMS.source)) ? query.get(PARAMS.source) : null,
+    text: (query.get(PARAMS.text) || '').slice(0, 100),
   };
 }
 
@@ -32,21 +33,22 @@ export function filterItems(kind, filters) {
       if (!people.includes(filters.memberId)) return false;
     }
     if (filters.commitment && item.data.commitment !== filters.commitment) return false;
-    if (kind === 'interview' && filters.source && isConversation(item) !== (filters.source === 'colloquio')) return false;
+    if (kind === 'interview' && filters.source && isConversation(item) !== (filters.source === SOURCES[0])) return false;
     if (text && !`${item.title} ${JSON.stringify(item.data)}`.toLowerCase().includes(text)) return false;
     return true;
   });
 }
 
 function filtersBar(kind, filters) {
+  const texts = tx.lists;
   const go = (patch) => {
     const next = { ...filters, ...patch };
     const params = new URLSearchParams();
-    if (next.ideaId) params.set('idea', next.ideaId);
-    if (next.memberId) params.set('persona', next.memberId);
-    if (next.commitment) params.set('impegno', next.commitment);
-    if (next.source) params.set('tipo', next.source);
-    if (next.text) params.set('q', next.text);
+    if (next.ideaId) params.set(PARAMS.idea, next.ideaId);
+    if (next.memberId) params.set(PARAMS.member, next.memberId);
+    if (next.commitment) params.set(PARAMS.commitment, next.commitment);
+    if (next.source) params.set(PARAMS.source, next.source);
+    if (next.text) params.set(PARAMS.text, next.text);
     const qs = params.toString();
     navigate(`${ROUTES[kind]}${qs ? `?${qs}` : ''}`, { replace: true });
   };
@@ -55,25 +57,25 @@ function filtersBar(kind, filters) {
       'label',
       { class: 'field field-inline' },
       h('span', { class: 'field-label' }, label),
-      h('select', { class: 'input', onChange: (e) => go({ [key]: e.target.value || null }) }, h('option', { value: '' }, 'Tutti'), entries.map(([v, l]) => h('option', { value: v, selected: v === value }, l))),
+      h('select', { class: 'input', onChange: (e) => go({ [key]: e.target.value || null }) }, h('option', { value: '' }, texts.all), entries.map(([v, l]) => h('option', { value: v, selected: v === value }, l))),
     );
-  const search = h('input', { class: 'input', type: 'search', placeholder: 'Cerca', value: filters.text, maxlength: 100 });
+  const search = h('input', { class: 'input', type: 'search', placeholder: tx.common.actions.search, value: filters.text, maxlength: 100 });
   search.addEventListener('change', () => go({ text: search.value.trim() }));
   return h(
     'div',
     { class: 'filters' },
-    select('Idea', filters.ideaId, ideas().map((i) => [i.id, i.title]), 'ideaId'),
-    select('Persona', filters.memberId, state.members.map((m) => [m.user_id, m.display_name]), 'memberId'),
-    kind === 'interview' ? select('Tipo', filters.source, SOURCE_FILTERS, 'source') : null,
-    kind === 'interview' ? select('Impegno', filters.commitment, COMMITMENT, 'commitment') : null,
-    h('label', { class: 'field field-inline' }, h('span', { class: 'field-label' }, 'Testo'), search),
+    select(texts.filters.idea, filters.ideaId, ideas().map((i) => [i.id, i.title]), 'ideaId'),
+    select(texts.filters.member, filters.memberId, state.members.map((m) => [m.user_id, m.display_name]), 'memberId'),
+    kind === 'interview' ? select(texts.filters.type, filters.source, SOURCE_FILTERS, 'source') : null,
+    kind === 'interview' ? select(texts.filters.commitment, filters.commitment, COMMITMENT, 'commitment') : null,
+    h('label', { class: 'field field-inline' }, h('span', { class: 'field-label' }, texts.filters.text), search),
   );
 }
 
 function deadline(item) {
   if (!item.data.end_date || item.status === 'concluso') return null;
   const days = daysUntil(item.data.end_date);
-  return h('span', { class: ['deadline', days < 0 && 'is-late'] }, days < 0 ? `in ritardo di ${plural(-days, 'giorno', 'giorni')}` : `${plural(days, 'giorno', 'giorni')} alla scadenza`);
+  return h('span', { class: ['deadline', days < 0 && 'is-late'] }, days < 0 ? tx.lists.late(-days) : tx.lists.untilDue(days));
 }
 
 function experimentsBody(list, writable) {
@@ -114,11 +116,12 @@ function experimentsBody(list, writable) {
 }
 
 function interviewsBody(list) {
+  const headers = tx.lists.headers;
   const sorted = [...list].sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''));
   return h(
     'table',
     { class: 'table' },
-    h('thead', null, h('tr', null, ['Data', 'Intervista', 'Idea', 'Intervistatore', 'Stato', 'Impegno', 'Problema'].map((t) => h('th', null, t)))),
+    h('thead', null, h('tr', null, [headers.date, headers.interview, headers.idea, headers.interviewer, headers.status, headers.commitment, headers.problem].map((t) => h('th', null, t)))),
     h(
       'tbody',
       null,
@@ -163,13 +166,14 @@ function decisionsBody(list) {
 
 export function listView(kind) {
   return (outlet, params, query) => {
+    const texts = tx.lists;
     const filters = readListFilters(query);
     const writable = canWrite();
     const render = () => {
       const list = filterItems(kind, filters);
-      const newHref = `#/nuovo/${kind}${filters.ideaId ? `?idea=${filters.ideaId}` : ''}`;
+      const newHref = `#/nuovo/${kind}${filters.ideaId ? `?idea=${filters.ideaId}` : ''}`; // i18n-ignore (address)
       let body;
-      if (!list.length) body = emptyState(`Nessun elemento: ${KINDS[kind].plural.toLowerCase()} con questi filtri.`);
+      if (!list.length) body = emptyState(texts.empty(KINDS[kind].plural.toLowerCase()));
       else if (kind === 'experiment') body = experimentsBody(list, writable);
       else if (kind === 'interview') body = interviewsBody(list);
       else body = decisionsBody(list);
@@ -177,12 +181,8 @@ export function listView(kind) {
         outlet,
         pageHeader({
           title: KINDS[kind].plural,
-          subtitle: {
-            experiment: 'Ogni esperimento mette alla prova un\'assunzione, con un criterio di successo deciso prima.',
-            interview: 'Fatti e impegni contano più delle opinioni e dei complimenti.',
-            decision: 'Cosa abbiamo deciso, quando e perché.',
-          }[kind],
-          actions: [writable ? button(`Nuovo: ${KINDS[kind].label.toLowerCase()}`, { kind: 'primary', iconName: 'plus', href: newHref }) : null],
+          subtitle: texts.subtitles[kind],
+          actions: [writable ? button(texts.newItem(KINDS[kind].label.toLowerCase()), { kind: 'primary', iconName: 'plus', href: newHref }) : null],
         }),
         filtersBar(kind, filters),
         body,

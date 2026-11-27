@@ -33,8 +33,10 @@ jobs:
       - run: npm ci
       - name: Test del sito e della funzione
         run: npm test
-      - name: Test del database
+      - name: Test del database (PGlite, pgTAP)
         run: npm run test:db
+      - name: Test del database con due connessioni vere (PostgreSQL del runner, dblink)
+        run: npm run test:db:pg
       - name: Test con il browser (Chrome del runner, anteprima con dati finti)
         run: npx playwright test
 

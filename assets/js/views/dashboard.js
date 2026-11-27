@@ -1,5 +1,6 @@
 import { h, mount } from '../lib/dom.js';
-import { daysUntil, fmtDate, plural } from '../lib/format.js';
+import { daysUntil, fmtDate } from '../lib/format.js';
+import { tx } from '../i18n/index.js';
 import { KINDS, STRONG_COMMITMENTS, isHeldConversation } from '../schema.js';
 import { api } from '../lib/api.js';
 import {
@@ -8,19 +9,23 @@ import {
   canWrite,
   itemsOf,
   on,
-  readLocal,
+  readProjectLocal,
   scoreItems,
   state,
-  writeLocal,
+  writeProjectLocal,
 } from '../store.js';
 import { ranking } from '../scoring.js';
 import { avatar, button, emptyState, errorBox, itemLink, kindBadge, loading, pageHeader, statusPill } from './components.js';
 import { revisionLine } from './history.js';
 import { dueLabel, myContactTodos, unownedContacts } from './contacts.js';
 
+// Addresses of the site: their Italian words are part of the URL, not text the reader sees.
+const PATHS = { ideas: '#/idee', experiments: '#/esperimenti', conversations: '#/interviste?tipo=colloquio', scoring: '#/valutazione', generator: '#/generatore', create: '#/nuovo/idea', unowned: '#/contatti?filtro=senza', history: '#/storico' }; // i18n-ignore
+const INACTIVE = ['scartata', 'parcheggiata']; // i18n-ignore: stored values
+
 export function dashboardData(now = new Date()) {
   const allIdeas = ideas();
-  const active = allIdeas.filter((i) => !['scartata', 'parcheggiata'].includes(i.status));
+  const active = allIdeas.filter((i) => !INACTIVE.includes(i.status));
   const experiments = itemsOf('experiment');
   const running = experiments.filter((e) => e.status === 'in_corso');
   const interviews = itemsOf('interview');
@@ -33,7 +38,7 @@ export function dashboardData(now = new Date()) {
   const myId = state.user?.id;
   const myTodo = [
     ...experiments.filter((e) => e.data.owner === myId && e.status !== 'concluso'),
-    ...interviews.filter((i) => i.data.interviewer === myId && i.status === 'da_fare'),
+    ...interviews.filter((i) => i.data.interviewer === myId && i.status === 'da_fare'), // i18n-ignore (status)
     ...myContactTodos(myId, now),
   ];
   const unowned = unownedContacts().length;
@@ -41,20 +46,24 @@ export function dashboardData(now = new Date()) {
   return { allIdeas, active, running, recentInterviews, strong, pipeline, myTodo, unowned, top };
 }
 
+// The number and its label: the label agrees with the number (1 idea, 2 ideas).
 function stat(value, label, href) {
-  return h('a', { class: 'stat', href }, h('strong', null, String(value)), h('span', null, label));
+  return h('a', { class: 'stat', href }, h('strong', null, String(value)), h('span', null, label(value)));
 }
 
 function deadline(item) {
   if (!item.data.end_date) return null;
   const days = daysUntil(item.data.end_date);
-  const text = days < 0 ? `scaduto da ${plural(-days, 'giorno', 'giorni')}` : days === 0 ? 'scade oggi' : `scade tra ${plural(days, 'giorno', 'giorni')}`;
+  const texts = tx.dashboard;
+  const text = days < 0 ? texts.late(-days) : days === 0 ? texts.dueToday : texts.dueIn(days);
   return h('span', { class: ['deadline', days < 0 && 'is-late'], title: fmtDate(item.data.end_date) }, text);
 }
 
 export function dashboardView(outlet) {
+  const texts = tx.dashboard;
   const news = h('div', null, loading());
-  const lastSeen = readLocal('lastSeen');
+  // The last visit is the one to this project: switching project lands on the dashboard of the other one.
+  const lastSeen = readProjectLocal('lastSeen');
 
   const render = () => {
     const d = dashboardData();
@@ -63,23 +72,18 @@ export function dashboardView(outlet) {
       outlet,
       pageHeader({
         back: false,
-        title: `Ciao, ${state.me?.display_name || ''}`,
-        subtitle: 'Le idee del team, gli esperimenti in corso e cosa è cambiato.',
-        actions: [button('Nuova idea', { kind: 'primary', iconName: 'plus', href: '#/nuovo/idea' })],
+        title: texts.hello(state.me?.display_name || ''),
+        subtitle: texts.subtitle,
+        actions: [button(texts.newIdea, { kind: 'primary', iconName: 'plus', href: PATHS.create })],
       }),
-      empty
-        ? emptyState(
-            'La board è vuota. Crea la prima idea, oppure parti dal generatore.',
-            canWrite() ? button('Apri il generatore', { href: '#/generatore', iconName: 'generator' }) : null,
-          )
-        : null,
+      empty ? emptyState(texts.empty, canWrite() ? button(texts.openGenerator, { href: PATHS.generator, iconName: 'generator' }) : null) : null,
       h(
         'section',
         { class: 'stats' },
-        stat(d.active.length, 'idee attive', '#/idee'),
-        stat(d.running.length, 'esperimenti in corso', '#/esperimenti'),
-        stat(d.recentInterviews.length, 'interviste negli ultimi 30 giorni', '#/interviste?tipo=colloquio'),
-        stat(d.strong.length, 'impegni concreti (piloti)', '#/interviste?tipo=colloquio'),
+        stat(d.active.length, texts.stats.activeIdeas, PATHS.ideas),
+        stat(d.running.length, texts.stats.running, PATHS.experiments),
+        stat(d.recentInterviews.length, texts.stats.interviews, PATHS.conversations),
+        stat(d.strong.length, texts.stats.commitments, PATHS.conversations),
       ),
       h(
         'div',
@@ -87,7 +91,7 @@ export function dashboardView(outlet) {
         h(
           'section',
           { class: 'card' },
-          h('h2', null, 'Classifica'),
+          h('h2', null, texts.ranking),
           d.top.length && d.top.some((r) => r.score !== null)
             ? h(
                 'ol',
@@ -99,38 +103,38 @@ export function dashboardView(outlet) {
                     itemLink(r.idea),
                     h('span', { class: 'bar', style: { '--value': `${r.score ?? 0}%` } }),
                     h('strong', null, r.score === null ? '-' : String(r.score)),
-                    r.disagreements ? h('span', { class: 'badge badge-warn', title: 'Criteri su cui il team non è d\'accordo' }, `${r.disagreements} disaccordi`) : null,
+                    r.disagreements ? h('span', { class: 'badge badge-warn', title: texts.disagreementsHint }, texts.disagreements(r.disagreements)) : null,
                   ),
                 ),
               )
-            : h('p', { class: 'muted' }, 'Nessun voto ancora. ', h('a', { href: '#/valutazione' }, 'Vota le idee')),
+            : h('p', { class: 'muted' }, texts.noVotes, ' ', h('a', { href: PATHS.scoring }, texts.voteIdeas)),
         ),
         h(
           'section',
           { class: 'card' },
-          h('h2', null, 'Pipeline delle idee'),
+          h('h2', null, texts.pipeline),
           h('ul', { class: 'pipeline' }, d.pipeline.map((p) => h('li', null, statusPill('idea', p.status), h('strong', null, String(p.count))))),
         ),
         h(
           'section',
           { class: 'card' },
-          h('h2', null, 'Esperimenti in corso'),
+          h('h2', null, texts.running),
           d.running.length
             ? h('ul', { class: 'list' }, d.running.map((e) => h('li', null, itemLink(e), e.data.owner ? avatar(e.data.owner, 20) : null, deadline(e))))
-            : h('p', { class: 'muted' }, 'Nessun esperimento in corso.'),
+            : h('p', { class: 'muted' }, texts.noRunning),
         ),
         h(
           'section',
           { class: 'card' },
-          h('h2', null, 'Le tue cose da fare'),
+          h('h2', null, texts.todo),
           d.myTodo.length
             ? h('ul', { class: 'list' }, d.myTodo.map((i) => h('li', null, kindBadge(i.kind), itemLink(i), i.kind === 'experiment' ? deadline(i) : i.kind === 'contact' ? dueLabel(i) : null)))
-            : h('p', { class: 'muted' }, 'Niente in sospeso.'),
+            : h('p', { class: 'muted' }, texts.nothingPending),
           canWrite() && d.unowned
-            ? h('p', { class: 'small' }, h('a', { href: '#/contatti?filtro=senza' }, `${plural(d.unowned, 'persona', 'persone')} senza responsabile`), ': scegli chi se ne occupa.')
+            ? h('p', { class: 'small' }, h('a', { href: PATHS.unowned }, texts.unowned(d.unowned)), texts.chooseOwner)
             : null,
         ),
-        h('section', { class: 'card card-wide' }, h('h2', null, lastSeen ? 'Novità dall\'ultima visita' : 'Ultime modifiche'), news),
+        h('section', { class: 'card card-wide' }, h('h2', null, lastSeen ? texts.newsSince : texts.latest), news),
       ),
     );
   };
@@ -142,8 +146,8 @@ export function dashboardView(outlet) {
       mount(news,
         others.length
           ? h('ul', { class: 'log' }, others.map((r) => revisionLine(r)))
-          : h('p', { class: 'muted' }, lastSeen ? 'Nessuna novità dagli altri dalla tua ultima visita.' : 'Ancora nessuna modifica.'),
-        h('a', { class: 'link-btn', href: '#/storico' }, 'Apri lo storico completo'),
+          : h('p', { class: 'muted' }, lastSeen ? texts.noNewsSince : texts.noChanges),
+        h('a', { class: 'link-btn', href: PATHS.history }, texts.fullHistory),
       );
     } catch (error) {
       mount(news, errorBox(error));
@@ -152,8 +156,7 @@ export function dashboardView(outlet) {
 
   render();
   loadNews();
-  writeLocal('lastSeen', new Date().toISOString());
+  writeProjectLocal('lastSeen', new Date().toISOString());
   const offs = [on('item', render), on('members', render)];
   return () => offs.forEach((off) => off());
 }
-

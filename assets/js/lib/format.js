@@ -1,12 +1,14 @@
-const dateTimeFormat = new Intl.DateTimeFormat('it-IT', {
+import { language, locale, tx } from '../i18n/index.js';
+
+const dateTimeFormat = new Intl.DateTimeFormat(locale, {
   day: '2-digit',
   month: '2-digit',
   year: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
 });
-const dateFormat = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
-const relativeFormat = new Intl.RelativeTimeFormat('it', { numeric: 'auto' });
+const dateFormat = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+const relativeFormat = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
 
 const UNITS = [
   ['year', 365 * 24 * 3600],
@@ -37,7 +39,7 @@ export function fmtRelative(value, now = new Date()) {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return '';
   const seconds = Math.round((date.getTime() - now.getTime()) / 1000);
-  if (Math.abs(seconds) < 45) return 'adesso';
+  if (Math.abs(seconds) < 45) return tx.common.format.now;
   for (const [unit, size] of UNITS) {
     if (Math.abs(seconds) >= size || unit === 'minute') {
       return relativeFormat.format(Math.round(seconds / size), unit);
@@ -57,8 +59,8 @@ export function dayKey(value) {
 export function dayLabel(key, now = new Date()) {
   const today = dayKey(now);
   const yesterday = dayKey(new Date(now.getTime() - 24 * 3600 * 1000));
-  if (key === today) return 'Oggi';
-  if (key === yesterday) return 'Ieri';
+  if (key === today) return tx.common.format.today;
+  if (key === yesterday) return tx.common.format.yesterday;
   return fmtDate(key);
 }
 
@@ -70,14 +72,14 @@ export function daysUntil(isoDate, now = new Date()) {
   return Math.round((end - start) / (24 * 3600 * 1000));
 }
 
-const wholeNumber = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
-const oneDecimal = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
+const wholeNumber = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+const oneDecimal = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
 
 export function fmtMoney(value) {
   if (!Number.isFinite(value)) return '';
-  if (Math.abs(value) >= 1e9) return `${oneDecimal.format(value / 1e9)} mld €`;
-  if (Math.abs(value) >= 1e6) return `${oneDecimal.format(value / 1e6)} mln €`;
-  return `${wholeNumber.format(value)} €`;
+  if (Math.abs(value) >= 1e9) return tx.common.format.billions(oneDecimal.format(value / 1e9));
+  if (Math.abs(value) >= 1e6) return tx.common.format.millions(oneDecimal.format(value / 1e6));
+  return tx.common.format.money(wholeNumber.format(value));
 }
 
 export function fmtPercent(value) {

@@ -1,8 +1,9 @@
 import { h } from './dom.js';
 
 // Un tag nel testo è @[Nome Cognome] o @[tutti]; nella pagina si vede come «@Nome Cognome».
+// The stored syntax is the same in every language: the database reads it (mentioned_users) to know who was tagged.
 export const MENTION_SOURCE = '@\\[([^\\]\\n]{1,80})\\]';
-export const ALL = 'tutti';
+export const ALL = 'tutti'; // i18n-ignore: stored syntax, the tag of everyone
 
 export const mentionToken = (name) => `@[${String(name).replace(/[[\]\n]/g, ' ').trim()}]`;
 

@@ -1,0 +1,31 @@
+// Same entries as ../it/ideas.js, which is the reference: tests/unit/i18n.test.mjs checks it.
+export const ideas = {
+  title: 'Ideas',
+  scoreHint: 'Team score (0-100)',
+  counters: {
+    experiments: 'Experiments',
+    interviews: 'Interviews',
+    comments: 'Comments',
+  },
+  example: 'Example',
+  columns: 'Columns',
+  table: 'Table',
+  examples: 'Examples',
+  hideExamples: 'Hide the example ideas',
+  showExamples: 'Show the example ideas',
+  none: 'No ideas yet.',
+  createFirst: 'Create the first idea',
+  headers: {
+    idea: 'Idea',
+    status: 'Status',
+    sector: 'Sector',
+    owner: 'Owner',
+    score: 'Score',
+    experiments: 'Experiments',
+    interviews: 'Interviews',
+    updated: 'Updated',
+  },
+  dragHint: 'To change the status, drag a card to another column, or use the menu on the idea page.',
+  examplesHint: 'The dashed cards are examples from well-known startups: they show how to fill in an idea in every status.',
+  newIdea: 'New idea',
+};

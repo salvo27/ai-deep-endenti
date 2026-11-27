@@ -1,3 +1,5 @@
+import { tx } from '../i18n/index.js';
+
 const PROPERTIES = new Set([
   'value',
   'checked',
@@ -22,7 +24,7 @@ export function h(tag, attrs, ...children) {
 function applyAttrs(el, attrs) {
   for (const [key, value] of Object.entries(attrs)) {
     if (value === undefined || value === null || value === false) continue;
-    if (key === 'innerHTML' || key === 'outerHTML') throw new Error('innerHTML non è permesso');
+    if (key === 'innerHTML' || key === 'outerHTML') throw new Error(`${key} is not allowed: build the elements with h()`);
     if (key === 'class') {
       el.className = Array.isArray(value) ? value.filter(Boolean).join(' ') : value;
     } else if (key === 'style') {
@@ -99,7 +101,7 @@ export function toast(message, { type = 'info', timeout = 4500 } = {}) {
 }
 
 export function openModal({ title, body, actions = [], wide = false, onClose } = {}) {
-  const dialog = h('dialog', { class: ['modal', wide && 'modal-wide'], 'aria-label': title || 'Finestra' });
+  const dialog = h('dialog', { class: ['modal', wide && 'modal-wide'], 'aria-label': title || tx.common.dialog.window });
   const footer = h('footer', { class: 'modal-actions' });
   let closed = false;
   const close = (result) => {
@@ -133,7 +135,7 @@ export function openModal({ title, body, actions = [], wide = false, onClose } =
       'header',
       { class: 'modal-header' },
       h('h2', null, title || ''),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Chiudi', onClick: () => close(undefined) }, '×'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': tx.common.actions.close, onClick: () => close(undefined) }, '×'),
     ),
     h('div', { class: 'modal-body' }, body),
     actions.length ? footer : null,
@@ -155,21 +157,21 @@ export function openModal({ title, body, actions = [], wide = false, onClose } =
   return { dialog, close };
 }
 
-export function confirmDialog(message, { title = 'Conferma', okLabel = 'Conferma', danger = false } = {}) {
+export function confirmDialog(message, { title = tx.common.dialog.confirmTitle, okLabel = tx.common.actions.confirm, danger = false } = {}) {
   return new Promise((resolve) => {
     openModal({
       title,
       body: h('p', null, message),
       onClose: (value) => resolve(value === true),
       actions: [
-        { label: 'Annulla', value: false },
+        { label: tx.common.actions.cancel, value: false },
         { label: okLabel, value: true, kind: danger ? 'danger' : 'primary' },
       ],
     });
   });
 }
 
-export function promptDialog({ title, label, placeholder = '', okLabel = 'Conferma', maxLength = 500, value = '' }) {
+export function promptDialog({ title, label, placeholder = '', okLabel = tx.common.actions.confirm, maxLength = 500, value = '' }) {
   return new Promise((resolve) => {
     const input = h('input', { type: 'text', class: 'input', placeholder, maxlength: maxLength, value });
     openModal({
@@ -177,7 +179,7 @@ export function promptDialog({ title, label, placeholder = '', okLabel = 'Confer
       body: h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), input),
       onClose: (result) => resolve(result === true ? input.value : null),
       actions: [
-        { label: 'Annulla', value: false },
+        { label: tx.common.actions.cancel, value: false },
         { label: okLabel, value: true, kind: 'primary' },
       ],
     });

@@ -1,130 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  BREVO_URL,
-  STRONG_COMMITMENTS,
-  addDays,
-  createHandler,
-  mondayOf,
-  personalTodo,
-  readConfig,
-  romeDate,
-  teamSummary,
-} from '../../supabase/functions/notify/handler.js';
+import { BREVO_URL, STRONG_COMMITMENTS, addDays, mondayOf, personalTodo, readConfig, romeDate, teamSummary } from '../../supabase/functions/notify/handler.js';
 import { escapeHtml, mentionRoute, mentionWhere } from '../../supabase/functions/notify/templates.js';
+import { ERRORS } from '../../supabase/functions/notify/texts.js';
 import { STRONG_COMMITMENTS as SITE_COMMITMENTS } from '../../assets/js/schema.js';
-
-const SECRET = 's'.repeat(40);
-const SITE = 'https://board.example/app';
-const ANNA = '00000000-0000-4000-8000-00000000000a';
-const BRUNO = '00000000-0000-4000-8000-00000000000b';
-const CHIARA = '00000000-0000-4000-8000-00000000000c';
-const DARIO = '00000000-0000-4000-8000-00000000000d';
-const CHAT = 'c0000000-0000-4000-8000-000000000001';
-const MSG = 'd0000000-0000-4000-8000-000000000001';
-const IDEA = '11111111-1111-4111-8111-111111111111';
-const IDEA2 = '11111111-1111-4111-8111-111111111112';
-const ITEM = '22222222-2222-4222-8222-222222222222';
-const XSS = '<img src=x onerror="alert(1)">';
-// Lunedì 2 novembre 2026, 6:00 UTC: le 7:00 in Italia (ora solare).
-const MONDAY = new Date('2026-11-02T06:00:00Z');
-
-const ENV = {
-  NOTIFY_SECRET: SECRET,
-  BREVO_API_KEY: 'chiave-di-prova',
-  BREVO_SENDER_EMAIL: 'avvisi@board.example',
-  BREVO_SENDER_NAME: 'Board di prova',
-  SITE_URL: SITE,
-  ALLOWED_ORIGINS: 'https://board.example, http://localhost:8080',
-};
-const ORIGIN = 'https://board.example';
-
-const people = () => [
-  { user_id: ANNA, display_name: 'Anna', email: 'anna@board.example', mentions: true, weekly: true },
-  { user_id: BRUNO, display_name: 'Bruno', email: 'bruno@board.example', mentions: true, weekly: true },
-  { user_id: CHIARA, display_name: 'Chiara', email: 'chiara@board.example', mentions: false, weekly: false },
-];
-
-const minutesAgo = (now, m) => new Date(now.getTime() - m * 60000).toISOString();
-
-function mention(over) {
-  return {
-    id: 1,
-    user_id: ANNA,
-    author_id: BRUNO,
-    author_name: 'Bruno',
-    source: 'chat',
-    source_id: MSG,
-    chat_id: CHAT,
-    chat_title: 'Generale',
-    item_id: null,
-    item_title: null,
-    item_kind: null,
-    excerpt: 'Ciao @Anna, guarda i dati',
-    created_at: minutesAgo(MONDAY, 15),
-    read_at: null,
-    ...over,
-  };
-}
-
-function emptyWeek() {
-  return { ideas: [], contacts: [], experiments: [], new_ideas: [], busy_ideas: [], reached: [], unread: [] };
-}
-
-function setup(over = {}) {
-  const logs = [];
-  const sent = [];
-  const calls = { claimed: [], released: [], claimedWeekly: [], releasedWeekly: [], recipients: 0, pending: 0, weekly: 0 };
-  let claimedOnce = new Set();
-  const deps = {
-    env: (name) => (over.env ? over.env[name] : ENV[name]),
-    now: () => MONDAY,
-    log: (event, fields) => logs.push({ event, ...fields }),
-    fetch: async (url, init) => {
-      sent.push({ url, init, body: JSON.parse(init.body) });
-      return over.brevoStatus ? new Response('{"message":"no"}', { status: over.brevoStatus(sent.length) }) : new Response('{"messageId":"m1"}', { status: 201 });
-    },
-    recipients: async () => {
-      calls.recipients += 1;
-      return over.people ?? people();
-    },
-    pendingMentions: async () => {
-      calls.pending += 1;
-      return over.mentions ?? [];
-    },
-    claimMentions: async (ids) => {
-      calls.claimed.push(ids);
-      const fresh = ids.filter((id) => !claimedOnce.has(id) && !(over.readMeanwhile || []).includes(id));
-      fresh.forEach((id) => claimedOnce.add(id));
-      return fresh;
-    },
-    releaseMentions: async (ids) => {
-      calls.released.push(ids);
-      ids.forEach((id) => claimedOnce.delete(id));
-    },
-    weeklyData: async () => {
-      calls.weekly += 1;
-      return over.week ?? emptyWeek();
-    },
-    claimWeekly: async (userId, week) => {
-      calls.claimedWeekly.push([userId, week]);
-      return !(over.alreadySent || []).includes(userId);
-    },
-    releaseWeekly: async (userId, week) => calls.releasedWeekly.push([userId, week]),
-    ...over.deps,
-  };
-  return { handle: createHandler(deps), logs, sent, calls };
-}
-
-function request({ job = 'mentions', secret = SECRET, method = 'POST', body } = {}) {
-  const headers = { 'content-type': 'application/json' };
-  if (secret) headers['x-notify-secret'] = secret;
-  return new Request('https://x.supabase.co/functions/v1/notify', {
-    method,
-    headers,
-    body: method === 'POST' ? (body ?? JSON.stringify({ job })) : undefined,
-  });
-}
+import {
+  ALFA, ANNA, BRUNO, CHAT, CHIARA, DARIO, ENV, IDEA, IDEA2, ITEM, MONDAY, MSG, ORIGIN, SECRET, SITE, XSS,
+  busyWeek, cron as request, emptyWeek, fromSite, mention, minutesAgo, people, setup,
+} from './notify.helpers.mjs';
 
 test('only calls with the shared secret are accepted', async () => {
   const { handle, calls, sent, logs } = setup();
@@ -134,8 +17,9 @@ test('only calls with the shared secret are accepted', async () => {
   assert.equal((await handle(request({ method: 'GET' }))).status, 405);
   assert.equal((await handle(request({ body: '{"job":"tutto"}' }))).status, 400);
   assert.equal((await handle(request({ body: '{"job":"mentions","extra":1}' }))).status, 400);
+  assert.equal((await handle(request({ body: `{"job":"weekly","project":"${ALFA}"}` }))).status, 400, 'i job di pg_cron lavorano su tutti i progetti');
   assert.equal((await handle(request({ body: 'non json' }))).status, 400);
-  assert.equal(calls.recipients + calls.pending + calls.weekly, 0);
+  assert.equal(calls.recipients + calls.pending + calls.weekly.length, 0);
   assert.equal(sent.length, 0);
   assert.ok(logs.every((l) => !JSON.stringify(l).includes(SECRET)));
   assert.equal((await handle(request())).status, 200);
@@ -146,6 +30,7 @@ test('without a long enough secret in the environment every call is refused', as
     const { handle, calls } = setup({ env: { ...ENV, NOTIFY_SECRET: secret } });
     const res = await handle(request({ secret: secret || SECRET }));
     assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: ERRORS.en.not_configured, code: 'not_configured' });
     assert.equal(calls.recipients, 0);
   }
 });
@@ -186,15 +71,15 @@ test('mentions are grouped in one email per person after 10 minutes, then marked
   assert.equal(sent[0].init.headers['api-key'], 'chiave-di-prova');
   assert.deepEqual(toAnna.sender, { email: 'avvisi@board.example', name: 'Board di prova' });
   assert.deepEqual(toAnna.to, [{ email: 'anna@board.example', name: 'Anna' }]);
-  assert.equal(toAnna.subject, 'Hai 2 menzioni da leggere su ai-deep-endenti');
+  assert.equal(toAnna.subject, 'Hai 2 menzioni da leggere in Alfa');
   assert.match(toAnna.htmlContent, /Bruno ti ha taggato in «Generale»/);
   assert.match(toAnna.htmlContent, /in un commento su «Idea alfa»/);
-  assert.ok(toAnna.htmlContent.includes(`href="${SITE}/#/chat/${CHAT}?messaggio=${MSG}"`), 'link al messaggio esatto');
-  assert.ok(toAnna.htmlContent.includes(`href="${SITE}/#/idea/${IDEA}/commenti"`));
-  assert.ok(toAnna.htmlContent.includes(`${SITE}/#/profilo`), 'si spiega come spegnerle');
+  assert.ok(toAnna.htmlContent.includes(`href="${SITE}/#/chat/${CHAT}?messaggio=${MSG}&amp;progetto=${ALFA}"`), 'link al messaggio esatto, nel suo progetto');
+  assert.ok(toAnna.htmlContent.includes(`href="${SITE}/#/idea/${IDEA}/commenti?progetto=${ALFA}"`));
+  assert.ok(toAnna.htmlContent.includes(`${SITE}/#/profilo?progetto=${ALFA}`), 'si spiega come spegnerle');
   assert.match(toAnna.textContent, /Ciao Anna,\nci sono 2 menzioni/);
   assert.match(toAnna.textContent, /"Ciao @Anna, guarda i dati"/);
-  assert.ok(toAnna.textContent.includes(`${SITE}/#/chat/${CHAT}?messaggio=${MSG}`));
+  assert.ok(toAnna.textContent.includes(`${SITE}/#/chat/${CHAT}?messaggio=${MSG}&progetto=${ALFA}`));
   assert.deepEqual(toBruno.to, [{ email: 'bruno@board.example', name: 'Bruno' }]);
   assert.match(toBruno.htmlContent, /Anna ti ha taggato nella nota «Riunione»/);
 });
@@ -202,9 +87,9 @@ test('mentions are grouped in one email per person after 10 minutes, then marked
 test('a single mention names who tagged and where', async () => {
   const { handle, sent } = setup({ mentions: [mention({ id: 9, user_id: BRUNO, author_name: 'Anna', source: 'note', chat_id: null, item_id: ITEM, item_title: 'Riunione' })] });
   await handle(request());
-  assert.equal(sent[0].body.subject, 'Anna ti ha taggato su ai-deep-endenti');
+  assert.equal(sent[0].body.subject, 'Anna ti ha taggato in Alfa');
   assert.match(sent[0].body.htmlContent, /Anna ti ha taggato nella nota «Riunione»/);
-  assert.ok(sent[0].body.htmlContent.includes(`${SITE}/#/elemento/${ITEM}"`));
+  assert.ok(sent[0].body.htmlContent.includes(`${SITE}/#/elemento/${ITEM}?progetto=${ALFA}"`));
 });
 
 test('people who turned mentions off, or cannot receive email, are skipped but their mentions are marked', async () => {
@@ -272,45 +157,13 @@ test('database errors become a generic 500 without details', async () => {
   assert.deepEqual(logs.at(-1), { event: 'notify_failed', job: 'mentions', kind: 'Error' });
 });
 
-function busyWeek() {
-  return {
-    ideas: [
-      { id: IDEA, title: 'Idea alfa', owner: ANNA, next_step: 'Chiamare tre clienti' },
-      { id: IDEA2, title: 'Idea beta', owner: ANNA, next_step: '  ' },
-      { id: ITEM, title: 'Idea di Bruno', owner: BRUNO, next_step: '' },
-    ],
-    contacts: [
-      { id: 'a0000000-0000-4000-8000-000000000001', role: 'Responsabile acquisti', idea_title: 'Idea alfa', owner: ANNA, next_date: '2026-10-28' },
-      { id: 'a0000000-0000-4000-8000-000000000002', role: 'Esperto del settore', idea_title: 'Idea alfa', owner: ANNA, next_date: '2026-11-05' },
-      { id: 'a0000000-0000-4000-8000-000000000003', role: 'Contatto lontano', idea_title: 'Idea alfa', owner: ANNA, next_date: '2026-11-20' },
-      { id: 'a0000000-0000-4000-8000-000000000004', role: 'Contatto di Bruno', idea_title: 'Idea alfa', owner: BRUNO, next_date: '2026-11-02' },
-    ],
-    experiments: [
-      { id: 'b0000000-0000-4000-8000-000000000001', title: 'I clienti pagano?', idea_title: 'Idea alfa', owner: ANNA, status: 'in_corso', end_date: '2026-10-30' },
-      { id: 'b0000000-0000-4000-8000-000000000002', title: 'Landing page', idea_title: 'Idea beta', owner: ANNA, status: 'pianificato' },
-      { id: 'b0000000-0000-4000-8000-000000000003', title: 'Pilota futuro', idea_title: 'Idea beta', owner: ANNA, status: 'pianificato', start_date: '2026-12-01' },
-      { id: 'b0000000-0000-4000-8000-000000000004', title: 'In corso e in tempo', idea_title: 'Idea beta', owner: ANNA, status: 'in_corso', end_date: '2026-11-30' },
-    ],
-    new_ideas: [{ id: IDEA2, title: 'Idea beta' }],
-    busy_ideas: [{ id: IDEA, title: 'Idea alfa', changes: 12 }, { id: IDEA2, title: 'Idea beta', changes: 3 }],
-    reached: [
-      { id: 'e0000000-0000-4000-8000-000000000001', kind: 'interview', title: 'Azienda A', source: null, commitment: 'pilota' },
-      { id: 'e0000000-0000-4000-8000-000000000002', kind: 'interview', title: 'Azienda B', source: 'campo', commitment: 'interesse' },
-      { id: 'e0000000-0000-4000-8000-000000000003', kind: 'interview', title: 'Rapporto di settore', source: 'ricerca', commitment: 'pagamento' },
-      { id: 'e0000000-0000-4000-8000-000000000004', kind: 'experiment', title: 'Prezzo giusto?' },
-      { id: 'e0000000-0000-4000-8000-000000000005', kind: 'decision', title: 'Due finalisti' },
-    ],
-    unread: [{ user_id: ANNA, mentions: 2, chat: 5 }],
-  };
-}
-
 test('the weekly report has the three sections, short and only with what matters', async () => {
   const { handle, sent, calls } = setup({ people: [people()[0]], week: busyWeek() });
   const body = await (await handle(request({ job: 'weekly' }))).json();
   assert.equal(body.sent, 1);
-  assert.deepEqual(calls.claimedWeekly, [[ANNA, '2026-11-02']]);
+  assert.deepEqual(calls.claimedWeekly, [[ANNA, ALFA, '2026-11-02']]);
   const { subject, htmlContent: html, textContent: text } = sent[0].body;
-  assert.equal(subject, 'La tua settimana su ai-deep-endenti');
+  assert.equal(subject, 'La tua settimana in Alfa');
 
   assert.match(html, /<h2[^>]*>Da fare questa settimana<\/h2>/);
   assert.match(text, /Contatto \(Responsabile acquisti\) per l'idea «Idea alfa»: in ritardo, era previsto il 28 ott/);
@@ -332,19 +185,19 @@ test('the weekly report has the three sections, short and only with what matters
   assert.match(html, /<h2[^>]*>Da leggere<\/h2>/);
   assert.match(text, /2 menzioni non lette/);
   assert.match(text, /5 messaggi non letti in chat/);
-  assert.ok(html.includes(`href="${SITE}/#/chat"`));
-  assert.ok(html.includes(`href="${SITE}/#/idea/${IDEA2}"`));
-  assert.ok(html.includes(`href="${SITE}/"`), 'link al sito');
-  assert.ok(text.includes(`${SITE}/#/elemento/a0000000-0000-4000-8000-000000000001`));
-  assert.doesNotMatch(html + text, /\u2014/, 'niente lineette lunghe');
+  assert.ok(html.includes(`href="${SITE}/#/chat?progetto=${ALFA}"`));
+  assert.ok(html.includes(`href="${SITE}/#/idea/${IDEA2}?progetto=${ALFA}"`));
+  assert.ok(html.includes(`href="${SITE}/#/?progetto=${ALFA}"`), 'link al progetto sul sito');
+  assert.ok(text.includes(`${SITE}/#/elemento/a0000000-0000-4000-8000-000000000001?progetto=${ALFA}`));
+  assert.doesNotMatch(html + text, /—/, 'niente lineette lunghe');
 });
 
 test('empty sections are left out and an empty report is not sent at all', async () => {
-  const onlyUnread = { ...emptyWeek(), unread: [{ user_id: ANNA, mentions: 0, chat: 1 }] };
+  const onlyUnread = { ...emptyWeek(), unread: [{ user_id: ANNA, language: 'it', mentions: 0, chat: 1 }] };
   const { handle, sent, calls } = setup({ week: onlyUnread });
   const body = await (await handle(request({ job: 'weekly' }))).json();
   assert.deepEqual([body.sent, body.empty, body.optedOut], [1, 1, 1]);
-  assert.deepEqual(calls.claimedWeekly, [[ANNA, '2026-11-02']], 'chi non ha nulla da leggere non riceve nulla');
+  assert.deepEqual(calls.claimedWeekly, [[ANNA, ALFA, '2026-11-02']], 'chi non ha nulla da leggere non riceve nulla');
   assert.doesNotMatch(sent[0].body.htmlContent, /Da fare questa settimana|Nel team/);
   assert.match(sent[0].body.textContent, /1 messaggio non letto in chat/);
 
@@ -367,12 +220,12 @@ test('weekly: people who turned it off are skipped and a retry in the same week 
 
   const refused = setup({ people: [people()[0]], week: busyWeek(), brevoStatus: () => 400 });
   await refused.handle(request({ job: 'weekly' }));
-  assert.deepEqual(refused.calls.releasedWeekly, [[ANNA, '2026-11-02']], 'rifiutato: si potrà riprovare');
+  assert.deepEqual(refused.calls.releasedWeekly, [[ANNA, ALFA, '2026-11-02']], 'rifiutato: si potrà riprovare');
 });
 
 test('user content is escaped in every HTML email', async () => {
-  const people1 = [{ ...people()[0], display_name: `Anna ${XSS}` }];
-  const m = setup({ people: people1, mentions: [mention({ id: 1, author_name: `Bruno ${XSS}`, chat_title: XSS, excerpt: `ciao ${XSS} & "amici"` })] });
+  const people1 = [{ ...people()[0], display_name: `Anna ${XSS}`, project_name: `Alfa ${XSS}` }];
+  const m = setup({ people: people1, mentions: [mention({ id: 1, author_name: `Bruno ${XSS}`, chat_title: XSS, chat_is_general: false, excerpt: `ciao ${XSS} & "amici"` })] });
   await m.handle(request());
   const html = m.sent[0].body.htmlContent;
   assert.doesNotMatch(html, /<img/);
@@ -394,7 +247,7 @@ test('links are built only from valid identifiers', () => {
   assert.equal(mentionRoute({ source: 'chat', chat_id: 'x"><script>', source_id: MSG }), 'chat');
   assert.equal(mentionRoute({ source: 'comment', item_id: 'javascript:alert(1)' }), '');
   assert.equal(mentionRoute({ source: 'comment', item_id: ITEM, item_kind: 'experiment' }), `elemento/${ITEM}/commenti`);
-  assert.equal(mentionWhere({ source: 'comment', item_title: '' }), 'in un commento su «una scheda»');
+  assert.equal(mentionWhere({ source: 'comment', item_title: '' }, 'it'), 'in un commento su «una scheda»');
 });
 
 test('logs carry only counts, never names, emails or content', async () => {
@@ -407,7 +260,7 @@ test('logs carry only counts, never names, emails or content', async () => {
   await runs[1].handle(request());
   await runs[2].handle(request({ job: 'weekly' }));
   const logged = JSON.stringify(runs.flatMap((r) => r.logs));
-  for (const secretish of ['Anna', 'Bruno', 'Chiara', 'board.example', 'Generale', 'guarda i dati', 'Idea alfa', 'Responsabile', 'chiave-di-prova', ANNA]) {
+  for (const secretish of ['Anna', 'Bruno', 'Chiara', 'board.example', 'Generale', 'guarda i dati', 'Idea alfa', 'Responsabile', 'chiave-di-prova', 'Alfa', ANNA, ALFA]) {
     assert.ok(!logged.includes(secretish), `nei log compare ${secretish}`);
   }
   assert.deepEqual(runs[0].logs, [{ event: 'notify_done', job: 'mentions', sent: 1, mentions: 1, skipped: 1, waiting: 0, failed: 0, statuses: [] }]);
@@ -434,21 +287,8 @@ test('personal tasks and team news follow the rules of the report', () => {
   assert.deepEqual([...STRONG_COMMITMENTS].sort(), [...SITE_COMMITMENTS].sort(), 'stessi impegni concreti del sito');
 });
 
-function fromSite({ job = 'weekly-preview', origin = ORIGIN, token = 'Bearer admin', method = 'POST', body } = {}) {
-  const headers = { 'content-type': 'application/json' };
-  if (origin) headers.origin = origin;
-  if (token) headers.authorization = token;
-  return new Request('https://x.supabase.co/functions/v1/notify', { method, headers, body: method === 'POST' ? (body ?? JSON.stringify({ job })) : undefined });
-}
-
-const verifyAdmin = async (authorization) => {
-  if (authorization === 'Bearer admin') return { userId: ANNA, admin: true };
-  if (authorization === 'Bearer membro') return { userId: BRUNO, admin: false };
-  return null;
-};
-
-test('from the site only an admin from an allowed origin can ask for the weekly report, and never the cron jobs', async () => {
-  const { handle, calls, sent } = setup({ deps: { verifyAdmin }, week: busyWeek() });
+test('from the site only an admin of the project from an allowed origin can ask for the weekly report, and never the cron jobs', async () => {
+  const { handle, calls, sent } = setup({ week: busyWeek() });
   const pre = await handle(fromSite({ method: 'OPTIONS' }));
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get('access-control-allow-origin'), ORIGIN);
@@ -459,29 +299,30 @@ test('from the site only an admin from an allowed origin can ask for the weekly 
   assert.equal((await handle(fromSite({ token: 'Bearer falso' }))).status, 401);
   const member = await handle(fromSite({ token: 'Bearer membro' }));
   assert.equal(member.status, 403);
-  assert.match((await member.json()).error, /Solo l'admin/);
+  assert.deepEqual(await member.json(), { error: ERRORS.en.admin_only, code: 'admin_only' });
   for (const job of ['weekly', 'mentions', 'tutto']) assert.equal((await handle(fromSite({ job }))).status, 400, job);
-  assert.equal((await handle(fromSite({ body: '{"job":"weekly-now","to":"x"}' }))).status, 400);
-  assert.equal(calls.recipients + calls.pending + calls.weekly, 0);
+  assert.equal((await handle(fromSite({ body: `{"job":"weekly-now","project":"${ALFA}","to":"x"}` }))).status, 400);
+  assert.equal(calls.recipients + calls.pending + calls.weekly.length, 0);
   assert.equal(sent.length, 0);
 });
 
 test('the admin preview is their own report as text and links, with how many would receive it, and sends nothing', async () => {
-  const { handle, calls, sent } = setup({ deps: { verifyAdmin }, week: busyWeek() });
+  const { handle, calls, sent } = setup({ week: busyWeek() });
   const res = await handle(fromSite());
   assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
   const body = await res.json();
   assert.deepEqual([body.recipients, body.empty, body.optedOut], [2, 0, 1]);
-  assert.equal(body.preview.subject, 'La tua settimana su ai-deep-endenti');
+  assert.equal(body.preview.language, 'it');
+  assert.equal(body.preview.subject, 'La tua settimana in Alfa');
   assert.equal(body.preview.hello, 'Ciao Anna,');
   assert.equal(body.preview.intro, 'ecco il riepilogo della settimana.');
   assert.deepEqual(body.preview.sections.map((x) => x.title), ['Da fare questa settimana', 'Nel team negli ultimi 7 giorni', 'Da leggere']);
   const chat = body.preview.sections[2].lines[1].parts[0];
-  assert.deepEqual(chat, { text: '5 messaggi non letti in chat', href: `${SITE}/#/chat` });
+  assert.deepEqual(chat, { text: '5 messaggi non letti in chat', href: `${SITE}/#/chat?progetto=${ALFA}` });
   assert.equal(sent.length, 0);
   assert.deepEqual(calls.claimedWeekly, []);
 
-  const quiet = setup({ deps: { verifyAdmin }, week: emptyWeek() });
+  const quiet = setup({ week: emptyWeek() });
   const empty = await (await quiet.handle(fromSite())).json();
   assert.equal(empty.preview, null);
   assert.equal(empty.recipients, 0);
@@ -489,20 +330,20 @@ test('the admin preview is their own report as text and links, with how many wou
 
 test('sending now from the site marks today, not Monday: a second click the same day sends nothing', async () => {
   const thursday = new Date('2026-10-29T15:00:00Z');
-  const { handle, calls, sent, logs } = setup({ deps: { verifyAdmin, now: () => thursday }, week: busyWeek() });
+  const { handle, calls, sent, logs } = setup({ deps: { now: () => thursday }, week: busyWeek() });
   const body = await (await handle(fromSite({ job: 'weekly-now' }))).json();
   assert.equal(body.sent, 2);
-  assert.deepEqual(calls.claimedWeekly, [[ANNA, '2026-10-29'], [BRUNO, '2026-10-29']]);
+  assert.deepEqual(calls.claimedWeekly, [[ANNA, ALFA, '2026-10-29'], [BRUNO, ALFA, '2026-10-29']]);
   assert.match(sent[0].body.textContent, /ecco il riepilogo della settimana\./);
   assert.doesNotMatch(sent[0].body.textContent, /del lunedì/);
   assert.ok(logs.some((l) => l.event === 'notify_done' && l.job === 'weekly-now' && l.sent === 2));
 
-  const again = setup({ deps: { verifyAdmin, now: () => thursday }, week: busyWeek(), alreadySent: [ANNA, BRUNO] });
+  const again = setup({ deps: { now: () => thursday }, week: busyWeek(), alreadySent: [ANNA, BRUNO] });
   const second = await (await again.handle(fromSite({ job: 'weekly-now' }))).json();
   assert.deepEqual([second.sent, second.already], [0, 2]);
   assert.equal(again.sent.length, 0);
 
-  const noBrevo = setup({ deps: { verifyAdmin }, env: { ...ENV, BREVO_API_KEY: '' }, week: busyWeek() });
+  const noBrevo = setup({ env: { ...ENV, BREVO_API_KEY: '' }, week: busyWeek() });
   const off = await (await noBrevo.handle(fromSite({ job: 'weekly-now' }))).json();
   assert.equal(off.configured, false);
   assert.equal(noBrevo.sent.length, 0);

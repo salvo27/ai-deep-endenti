@@ -1,27 +1,131 @@
 -- ai-deep-endenti: schema del database.
 -- Va eseguito per intero nel SQL Editor di Supabase. Si può rieseguire: non cancella dati.
+-- Il sito ospita più progetti, ognuno una board completa e isolata: il contratto è in docs/PROGETTI.md.
+-- Le funzioni nuove non scrivono frasi: rispondono con un codice (not_allowed, project_not_found, ...) che il sito traduce.
 
 -- =========================================================================
--- Membri del team
+-- Progetti, amministratori della piattaforma e profili
 -- =========================================================================
 
-create table if not exists public.members (
+-- Un progetto non si cancella: si archivia e i dati restano. Si scrive solo con le funzioni più sotto o dal SQL Editor.
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(name) between 1 and 80 and name = btrim(name)),
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  archived_at timestamptz
+);
+
+alter table public.projects enable row level security;
+
+-- Chi crea e archivia i progetti e gestisce le persone di tutti. Da solo non legge i contenuti di un progetto:
+-- per vederli deve aggiungersi, e l'aggiunta finisce nel registro di sicurezza.
+create table if not exists public.platform_admins (
   user_id uuid primary key references auth.users (id) on delete cascade,
-  display_name text not null check (char_length(display_name) between 1 and 80),
-  role text not null default 'member' check (role in ('admin', 'member', 'advisor')),
-  color text not null default '#4f5bd5' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
 );
 
-create or replace function public.my_role()
-returns text
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select m.role from public.members m where m.user_id = auth.uid()
+alter table public.platform_admins enable row level security;
+
+-- Nome, colore e lingua di una persona, uguali in tutti i progetti. language null = segue il dispositivo;
+-- decide anche la lingua delle email e delle risposte di Claude.
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  display_name text not null check (char_length(display_name) between 1 and 80),
+  color text not null default '#4f5bd5' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  language text check (language is null or language in ('en', 'it')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+-- =========================================================================
+-- Aggiornamento da squadra unica (una volta sola)
+-- =========================================================================
+
+-- Un database di prima dei progetti si riconosce da members con nome e colore. Alla prima esecuzione tutto finisce nel
+-- progetto ai-deep-endenti con i trigger degli utenti spenti: niente revisioni, menzioni o email nuove, versioni e date
+-- come prima. Nomi e colori passano nei profili, con l'italiano come lingua; gli admin di allora diventano amministratori
+-- della piattaforma (solo se non ce n'è ancora nessuno). Dopo, members non ha più display_name e questo blocco non fa più nulla.
+do $$
+declare
+  v_project uuid;
+  t text;
+begin
+  -- to_regclass e non ::regclass: su un database nuovo members non c'è ancora, e la conversione fallirebbe.
+  if not exists (
+    select 1 from pg_attribute
+    where attrelid = to_regclass('public.members') and attname = 'display_name' and not attisdropped
+  ) then
+    return;
+  end if;
+
+  -- La chat Generale c'è già: il progetto nasce senza aprirne un'altra.
+  alter table public.projects disable trigger user;
+  insert into public.projects (name) values ('ai-deep-endenti') returning id into v_project;
+  alter table public.projects enable trigger user;
+
+  -- Funzioni che restituiscono colonne nuove: create or replace non può cambiarle, si ricreano più sotto.
+  drop function if exists public.notify_recipients();
+  drop function if exists public.notify_pending_mentions(timestamptz);
+
+  foreach t in array array[
+    'members', 'items', 'revisions', 'comments', 'chats', 'chat_messages', 'mentions', 'survey_responses', 'survey_events',
+    'audit_log', 'email_weekly'
+  ] loop
+    continue when to_regclass('public.' || t) is null;
+    execute format('alter table public.%I disable trigger user', t);
+    execute format('alter table public.%I add column if not exists project_id uuid references public.projects (id)', t);
+    execute format('update public.%I set project_id = $1 where project_id is null', t) using v_project;
+    execute format('alter table public.%I enable trigger user', t);
+    -- Il registro tiene anche gli eventi della piattaforma, fuori da ogni progetto.
+    if t <> 'audit_log' then
+      execute format('alter table public.%I alter column project_id set not null', t);
+    end if;
+  end loop;
+
+  -- Il sito di allora era solo in italiano: chi c'era tiene l'italiano. I profili nuovi restano senza lingua (= il dispositivo).
+  insert into public.profiles (user_id, display_name, color, language, created_at)
+  select m.user_id, m.display_name, m.color, 'it', m.created_at from public.members m
+  on conflict (user_id) do nothing;
+
+  if not exists (select 1 from public.platform_admins) then
+    insert into public.platform_admins (user_id)
+    select m.user_id from public.members m where m.role = 'admin';
+  end if;
+
+  alter table public.members drop constraint if exists members_pkey;
+  alter table public.members add constraint members_pkey primary key (project_id, user_id);
+  alter table public.members drop column display_name, drop column color;
+
+  if to_regclass('public.email_weekly') is not null then
+    alter table public.email_weekly drop constraint if exists email_weekly_pkey;
+    alter table public.email_weekly add constraint email_weekly_pkey primary key (user_id, project_id, week_start);
+  end if;
+
+  -- Le unicità di prima valevano per tutto il sito: si ricreano per progetto più sotto.
+  drop index if exists public.items_one_score_per_member_idx;
+  drop index if exists public.items_one_availability_per_member_idx;
+  drop index if exists public.items_one_timesheet_per_week_idx;
+  drop index if exists public.chats_one_general_idx;
+end
 $$;
+
+-- =========================================================================
+-- Membri dei progetti e ruoli
+-- =========================================================================
+
+-- Una persona sta in un progetto al massimo una volta, con un ruolo di quel progetto; può stare in più progetti.
+create table if not exists public.members (
+  project_id uuid not null references public.projects (id),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  role text not null default 'member' check (role in ('admin', 'member', 'advisor')),
+  created_at timestamptz not null default now(),
+  primary key (project_id, user_id)
+);
+
+create index if not exists members_user_idx on public.members (user_id);
 
 create or replace function public.has_mfa()
 returns boolean
@@ -32,49 +136,120 @@ as $$
   select coalesce(auth.jwt() ->> 'aal', '') = 'aal2'
 $$;
 
-create or replace function public.can_read()
+create or replace function public.is_platform_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.has_mfa() and exists (select 1 from public.platform_admins a where a.user_id = auth.uid())
+$$;
+
+-- Il ruolo nel progetto: solo con la verifica in due passaggi e solo se il progetto non è archiviato.
+create or replace function public.my_role(p_project uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.role
+  from public.members m
+  join public.projects p on p.id = m.project_id
+  where m.project_id = p_project and m.user_id = auth.uid() and p.archived_at is null and public.has_mfa()
+$$;
+
+create or replace function public.can_read(p_project uuid)
 returns boolean
 language sql
 stable
 set search_path = ''
 as $$
-  select public.has_mfa() and public.my_role() is not null
+  select public.my_role(p_project) is not null
 $$;
 
-create or replace function public.can_write()
+create or replace function public.can_write(p_project uuid)
 returns boolean
 language sql
 stable
 set search_path = ''
 as $$
-  select public.has_mfa() and coalesce(public.my_role() in ('admin', 'member'), false)
+  select coalesce(public.my_role(p_project) in ('admin', 'member'), false)
 $$;
 
-create or replace function public.is_admin()
+create or replace function public.is_admin(p_project uuid)
 returns boolean
 language sql
 stable
 set search_path = ''
 as $$
-  select public.has_mfa() and coalesce(public.my_role() = 'admin', false)
+  select coalesce(public.my_role(p_project) = 'admin', false)
 $$;
 
+-- Gestisce le persone di un progetto: il suo admin o un amministratore della piattaforma, che non per questo lo legge.
+create or replace function public.can_manage(p_project uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select public.is_admin(p_project) or public.is_platform_admin()
+$$;
+
+-- Se chi chiede condivide con quella persona almeno un progetto attivo: serve a mostrarne il profilo.
+create or replace function public.shares_project(p_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.members mine
+    join public.members theirs on theirs.project_id = mine.project_id
+    join public.projects p on p.id = mine.project_id
+    where mine.user_id = auth.uid() and theirs.user_id = p_user and p.archived_at is null
+  )
+$$;
+
+-- Membro con 2FA di almeno un progetto attivo: per ciò che vale per la persona e non per un progetto (preferenze, attività).
+create or replace function public.has_any_project()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.has_mfa() and exists (
+    select 1 from public.members m join public.projects p on p.id = m.project_id
+    where m.user_id = auth.uid() and p.archived_at is null
+  )
+$$;
+
+-- Ruoli e uscite si cambiano su members, solo da chi gestisce il progetto (le regole di accesso lo filtrano già).
+-- In ogni progetto resta sempre almeno un admin, contato in quel progetto soltanto.
 create or replace function public.members_before_update()
 returns trigger
 language plpgsql
+security definer
 set search_path = ''
 as $$
 begin
+  new.project_id := old.project_id;
   new.user_id := old.user_id;
   new.created_at := old.created_at;
   if new.role is distinct from old.role then
-    if auth.uid() is not null and not public.is_admin() then
-      raise exception 'Solo un admin può cambiare i ruoli';
+    if auth.uid() is not null and not public.can_manage(old.project_id) then
+      raise exception 'not_allowed' using errcode = '42501';
     end if;
+    -- Una fila per progetto: due admin che si tolgono il ruolo insieme non lasciano il progetto senza admin.
+    perform pg_advisory_xact_lock(hashtextextended('members:' || old.project_id::text, 0));
     if old.role = 'admin' and not exists (
-      select 1 from public.members m where m.role = 'admin' and m.user_id <> old.user_id
+      select 1 from public.members m where m.project_id = old.project_id and m.role = 'admin' and m.user_id <> old.user_id
     ) then
-      raise exception 'Deve restare almeno un admin';
+      raise exception 'last_project_admin' using errcode = 'P0001';
     end if;
   end if;
   return new;
@@ -86,9 +261,66 @@ create trigger members_before_update
   before update on public.members
   for each row execute function public.members_before_update();
 
--- Aggiunge un utente già creato in Authentication > Users.
--- Dal SQL Editor funziona sempre; dal sito solo per gli admin.
-create or replace function public.add_member(p_email text, p_display_name text, p_role text default 'member')
+-- Nemmeno togliendolo si lascia un progetto senza admin. Vale solo per le cancellazioni dirette (profondità 1):
+-- un account tolto da Authentication porta via le sue righe anche se era l'ultimo admin.
+create or replace function public.members_before_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.role = 'admin' and pg_trigger_depth() = 1 then
+    perform pg_advisory_xact_lock(hashtextextended('members:' || old.project_id::text, 0));
+    if not exists (
+      select 1 from public.members m where m.project_id = old.project_id and m.role = 'admin' and m.user_id <> old.user_id
+    ) then
+      raise exception 'last_project_admin' using errcode = 'P0001';
+    end if;
+  end if;
+  return old;
+end
+$$;
+
+drop trigger if exists members_before_delete on public.members;
+create trigger members_before_delete
+  before delete on public.members
+  for each row execute function public.members_before_delete();
+
+-- Dal sito un'istruzione tocca le persone di un solo progetto: chi toglie qualcuno filtrando per persona e non per
+-- progetto (il sito di prima, una scheda rimasta aperta) lo toglierebbe da tutti i progetti che gestisce.
+-- Il SQL Editor e un account tolto da Authentication (la cascata gira come proprietario) restano liberi.
+create or replace function public.members_one_project_per_statement()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if current_user in ('anon', 'authenticated') and (select count(distinct x.project_id) from changed x) > 1 then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  return null;
+end
+$$;
+
+drop trigger if exists members_delete_one_project on public.members;
+create trigger members_delete_one_project
+  after delete on public.members
+  referencing old table as changed
+  for each statement execute function public.members_one_project_per_statement();
+
+drop trigger if exists members_update_one_project on public.members;
+create trigger members_update_one_project
+  after update on public.members
+  referencing old table as changed
+  for each statement execute function public.members_one_project_per_statement();
+
+-- Aggiunge a un progetto un utente già creato in Authentication > Users, con il suo profilo se non ne ha uno:
+-- chi ha già un profilo non viene mai rinominato. Dal SQL Editor funziona sempre; dal sito solo per chi gestisce il progetto.
+-- Sulla piattaforma ci sono più team: l'admin di un progetto aggiunge un account nuovo (in nessun progetto) o chi sta già
+-- in uno dei suoi progetti; chi sta solo nei progetti di altri lo aggiunge un amministratore della piattaforma. A un admin
+-- quell'account risponde user_not_found come un indirizzo senza account: non scopre chi c'è sulla piattaforma.
+create or replace function public.add_member(p_project uuid, p_email text, p_display_name text, p_role text default 'member')
 returns public.members
 language plpgsql
 security definer
@@ -96,27 +328,44 @@ set search_path = ''
 as $$
 declare
   v_user_id uuid;
+  v_email text;
   r public.members;
 begin
-  if auth.uid() is not null and not public.is_admin() then
-    raise exception 'Solo un admin può aggiungere membri';
+  if auth.uid() is not null and not public.can_manage(p_project) then
+    raise exception 'not_allowed' using errcode = '42501';
   end if;
-  select u.id into v_user_id from auth.users u where lower(u.email) = lower(btrim(p_email));
+  if not exists (select 1 from public.projects p where p.id = p_project and p.archived_at is null) then
+    raise exception 'project_not_found' using errcode = 'P0002';
+  end if;
+  if p_role is null or p_role not in ('admin', 'member', 'advisor') then
+    raise exception 'invalid_role' using errcode = '22023';
+  end if;
+  select u.id, u.email into v_user_id, v_email from auth.users u where lower(u.email) = lower(btrim(p_email)) limit 1;
+  if v_user_id is not null and auth.uid() is not null and not public.is_platform_admin()
+    and exists (select 1 from public.members m where m.user_id = v_user_id)
+    and not public.shares_project(v_user_id) then
+    v_user_id := null;
+  end if;
   if v_user_id is null then
-    raise exception 'Nessun utente con email %: crealo prima in Authentication > Users', p_email;
+    raise exception 'user_not_found' using errcode = 'P0002';
   end if;
-  insert into public.members (user_id, display_name, role)
-  values (v_user_id, btrim(p_display_name), p_role)
-  on conflict (user_id) do update
-    set display_name = excluded.display_name, role = excluded.role
+  insert into public.profiles (user_id, display_name)
+  values (v_user_id, left(coalesce(nullif(btrim(p_display_name), ''), nullif(split_part(v_email, '@', 1), ''), '?'), 80))
+  on conflict (user_id) do nothing;
+  insert into public.members (project_id, user_id, role)
+  values (p_project, v_user_id, p_role)
+  on conflict (project_id, user_id) do update set role = excluded.role
   returning * into r;
   return r;
 end
 $$;
 
--- Ultimo accesso reale: login, rinnovo della sessione, attività salvata dal sito, modifiche, commenti, chat e menzioni lette.
+-- Le persone di un progetto con nome e colore del profilo, ruolo, email, 2FA e ultimo accesso.
+-- Ultimo accesso: quello che ha fatto in questo progetto (modifiche, commenti, messaggi, chat lette e menzioni lette).
+-- Login, rinnovo della sessione e attività salvata dal sito valgono per la persona e possono venire da un altro progetto:
+-- contano solo se questo è il suo unico progetto attivo, altrimenti direbbero a chi legge quando ha usato gli altri.
 -- Le sessioni si cancellano a ogni uscita: member_activity resta, così l'ultimo accesso non torna indietro.
-create or replace function public.members_overview()
+create or replace function public.members_overview(p_project uuid)
 returns table (
   user_id uuid,
   display_name text,
@@ -136,19 +385,25 @@ begin
   return query
   select
     m.user_id,
-    m.display_name,
+    pr.display_name,
     m.role,
-    m.color,
+    pr.color,
     u.email::text,
     greatest(
-      u.last_sign_in_at,
-      (select max(greatest(s.updated_at, s.refreshed_at at time zone 'utc')) from auth.sessions s where s.user_id = m.user_id),
-      (select max(r.created_at) from public.revisions r where r.author_id = m.user_id),
-      (select max(c.created_at) from public.comments c where c.author_id = m.user_id),
-      (select a.last_seen_at from public.member_activity a where a.user_id = m.user_id),
-      (select max(x.created_at) from public.chat_messages x where x.author_id = m.user_id),
-      (select max(cr.last_read_at) from public.chat_reads cr where cr.user_id = m.user_id),
-      (select max(mn.read_at) from public.mentions mn where mn.user_id = m.user_id)
+      case when not exists (
+        select 1 from public.members o join public.projects op on op.id = o.project_id
+        where o.user_id = m.user_id and o.project_id <> p_project and op.archived_at is null
+      ) then greatest(
+        u.last_sign_in_at,
+        (select max(greatest(s.updated_at, s.refreshed_at at time zone 'utc')) from auth.sessions s where s.user_id = m.user_id),
+        (select a.last_seen_at from public.member_activity a where a.user_id = m.user_id)
+      ) end,
+      (select max(r.created_at) from public.revisions r where r.author_id = m.user_id and r.project_id = p_project),
+      (select max(c.created_at) from public.comments c where c.author_id = m.user_id and c.project_id = p_project),
+      (select max(x.created_at) from public.chat_messages x where x.author_id = m.user_id and x.project_id = p_project),
+      (select max(cr.last_read_at) from public.chat_reads cr join public.chats ch on ch.id = cr.chat_id
+        where cr.user_id = m.user_id and ch.project_id = p_project),
+      (select max(mn.read_at) from public.mentions mn where mn.user_id = m.user_id and mn.project_id = p_project)
     ),
     exists (
       select 1 from auth.mfa_factors f where f.user_id = m.user_id and f.status = 'verified'
@@ -156,7 +411,8 @@ begin
     m.created_at
   from public.members m
   join auth.users u on u.id = m.user_id
-  where public.can_read()
+  left join public.profiles pr on pr.user_id = m.user_id
+  where m.project_id = p_project and (public.can_read(p_project) or public.is_platform_admin())
   order by m.created_at;
 end
 $$;
@@ -169,7 +425,7 @@ create table if not exists public.member_activity (
 
 alter table public.member_activity enable row level security;
 
--- Chiamata dal sito all'apertura e ogni 5 minuti di uso; più spesso non scrive nulla.
+-- Chiamata dal sito all'apertura e ogni 5 minuti di uso; più spesso non scrive nulla. Chi non è in nessun progetto non lascia tracce.
 create or replace function public.touch_activity()
 returns void
 language plpgsql
@@ -177,7 +433,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  if not public.can_read() then
+  if not public.has_any_project() then
     return;
   end if;
   insert into public.member_activity (user_id, last_seen_at)
@@ -190,28 +446,115 @@ $$;
 
 alter table public.members enable row level security;
 
+-- Ognuno vede le persone dei suoi progetti; l'amministratore della piattaforma quelle di tutti, per gestirle.
 drop policy if exists members_select on public.members;
 create policy members_select on public.members
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id) or (select public.is_platform_admin()));
 
 drop policy if exists members_update on public.members;
 create policy members_update on public.members
   for update to authenticated
-  using ((select public.is_admin()) or (user_id = (select auth.uid()) and (select public.can_read())))
-  with check ((select public.is_admin()) or (user_id = (select auth.uid()) and (select public.can_read())));
+  using (public.can_manage(project_id))
+  with check (public.can_manage(project_id));
 
+-- L'admin non toglie se stesso (lo fa un altro admin); l'amministratore della piattaforma può uscire da un progetto in cui è entrato.
 drop policy if exists members_delete on public.members;
 create policy members_delete on public.members
   for delete to authenticated
-  using ((select public.is_admin()) and user_id <> (select auth.uid()));
+  using (public.can_manage(project_id) and (user_id <> (select auth.uid()) or (select public.is_platform_admin())));
+
+-- Profili: ognuno modifica solo il proprio; lo vede chi condivide un progetto con lui e l'amministratore della piattaforma.
+create or replace function public.profiles_before_update()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.user_id := old.user_id;
+  new.created_at := old.created_at;
+  return new;
+end
+$$;
+
+drop trigger if exists profiles_before_update on public.profiles;
+create trigger profiles_before_update
+  before update on public.profiles
+  for each row execute function public.profiles_before_update();
+
+drop policy if exists profiles_select on public.profiles;
+create policy profiles_select on public.profiles
+  for select to authenticated
+  using (
+    (select public.has_mfa())
+    and (user_id = (select auth.uid()) or (select public.is_platform_admin()) or public.shares_project(user_id))
+  );
+
+drop policy if exists profiles_update on public.profiles;
+create policy profiles_update on public.profiles
+  for update to authenticated
+  using ((select public.has_mfa()) and user_id = (select auth.uid()))
+  with check ((select public.has_mfa()) and user_id = (select auth.uid()));
+
+-- Un progetto lo leggono i suoi membri (finché non è archiviato) e l'amministratore della piattaforma.
+drop policy if exists projects_select on public.projects;
+create policy projects_select on public.projects
+  for select to authenticated
+  using (public.can_read(id) or (select public.is_platform_admin()));
+
+drop policy if exists platform_admins_select on public.platform_admins;
+create policy platform_admins_select on public.platform_admins
+  for select to authenticated
+  using ((select public.is_platform_admin()));
+
+-- I progetti che può aprire chi chiama, con il suo ruolo: per il selettore del sito.
+create or replace function public.my_projects()
+returns table (id uuid, name text, role text, created_at timestamptz)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p.id, p.name, m.role, p.created_at
+  from public.members m
+  join public.projects p on p.id = m.project_id
+  where m.user_id = auth.uid() and p.archived_at is null and public.has_mfa()
+  order by p.name, p.created_at
+$$;
+
+-- Tutti i progetti, archiviati compresi, con quante persone e quanti admin hanno: solo per l'amministratore della piattaforma.
+create or replace function public.all_projects()
+returns table (
+  id uuid,
+  name text,
+  created_by uuid,
+  created_at timestamptz,
+  archived_at timestamptz,
+  member_count integer,
+  admin_count integer
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    p.id, p.name, p.created_by, p.created_at, p.archived_at,
+    (select count(*)::integer from public.members m where m.project_id = p.id),
+    (select count(*)::integer from public.members m where m.project_id = p.id and m.role = 'admin')
+  from public.projects p
+  where public.is_platform_admin()
+  order by p.name, p.created_at
+$$;
 
 -- =========================================================================
 -- Elementi delle board e storico
 -- =========================================================================
 
+-- Ogni elemento sta in un progetto, che sceglie chi lo crea e non cambia più.
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id),
   kind text not null,
   idea_id uuid references public.items (id),
   title text not null default '' check (char_length(title) <= 200),
@@ -236,22 +579,25 @@ alter table public.items add constraint items_kind_check check (
   )
 );
 
+create index if not exists items_project_idx on public.items (project_id, kind);
 create index if not exists items_kind_idx on public.items (kind);
 create index if not exists items_idea_idx on public.items (idea_id);
--- Il link pubblico di un questionario porta a un solo questionario.
+-- Il link pubblico di un questionario porta a un solo questionario, in tutto il sito.
 create unique index if not exists items_survey_token_idx on public.items ((data ->> 'token')) where kind = 'survey';
+-- Le altre unicità valgono per progetto: una scheda per tipo, un voto e un foglio impegni per persona, un foglio ore per settimana.
 drop index if exists public.items_singleton_idx;
-create unique index items_singleton_idx on public.items (kind)
+create unique index items_singleton_idx on public.items (project_id, kind)
   where kind in ('criteria', 'generator', 'teamcanvas', 'equity');
-create unique index if not exists items_one_score_per_member_idx on public.items (created_by)
+create unique index if not exists items_one_score_per_member_idx on public.items (project_id, created_by)
   where kind = 'score';
-create unique index if not exists items_one_availability_per_member_idx on public.items (created_by)
+create unique index if not exists items_one_availability_per_member_idx on public.items (project_id, created_by)
   where kind = 'availability';
-create unique index if not exists items_one_timesheet_per_week_idx on public.items (created_by, (data ->> 'week'))
+create unique index if not exists items_one_timesheet_per_week_idx on public.items (project_id, created_by, (data ->> 'week'))
   where kind = 'timesheet';
 
 create table if not exists public.revisions (
   id bigint generated always as identity primary key,
+  project_id uuid not null references public.projects (id),
   item_id uuid not null references public.items (id) on delete cascade,
   version integer not null,
   op text not null check (op in ('create', 'update', 'delete', 'restore', 'revert')),
@@ -267,6 +613,10 @@ create table if not exists public.revisions (
   unique (item_id, version)
 );
 
+-- Un ripristino ricorda la versione a cui è tornato: la frase per le persone la scrive il sito, nella lingua di chi legge.
+alter table public.revisions add column if not exists reverted_from integer check (reverted_from is null or reverted_from > 0);
+
+create index if not exists revisions_project_idx on public.revisions (project_id, created_at desc);
 create index if not exists revisions_created_idx on public.revisions (created_at desc);
 create index if not exists revisions_idea_idx on public.revisions (idea_id, created_at desc);
 create index if not exists revisions_author_idx on public.revisions (author_id, created_at desc);
@@ -296,9 +646,13 @@ returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  v_idea_project uuid;
+  v_group_project uuid;
 begin
   if tg_op = 'UPDATE' then
     new.id := old.id;
+    new.project_id := old.project_id;
     new.kind := old.kind;
     new.created_by := old.created_by;
     new.created_at := old.created_at;
@@ -317,31 +671,38 @@ begin
         and new.status is null),
     false
   ) then
-    raise exception 'Stato non valido per questo tipo di elemento';
+    raise exception 'invalid_status' using errcode = '22023';
   end if;
   if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap', 'survey',
                   'expensegroup', 'expense')
      and btrim(new.title) = '' then
-    raise exception 'Il titolo è obbligatorio';
+    raise exception 'title_required' using errcode = '22023';
   end if;
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
-    raise exception 'Questo elemento deve appartenere a un''idea';
+    raise exception 'idea_required' using errcode = '22023';
   end if;
   if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense', 'availability',
                   'timesheet')
      and new.idea_id is not null then
-    raise exception 'Questo elemento non può appartenere a un''idea';
+    raise exception 'idea_not_allowed' using errcode = '22023';
   end if;
-  if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end)
-     and not exists (select 1 from public.items i where i.id = new.idea_id and i.kind = 'idea') then
-    raise exception 'idea_id deve indicare un''idea esistente';
+  -- L'idea si cerca con i permessi di chi scrive: un'idea che non vede non esiste. Una che vede ma di un altro
+  -- progetto non si usa: il collegamento resta dentro il progetto.
+  if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end) then
+    select i.project_id into v_idea_project from public.items i where i.id = new.idea_id and i.kind = 'idea';
+    if not found then
+      raise exception 'idea_not_found' using errcode = 'P0002';
+    end if;
+    if new.project_id is not null and v_idea_project is distinct from new.project_id then
+      raise exception 'cross_project' using errcode = 'P0001';
+    end if;
   end if;
 
   -- Questionari: quello che finisce nella pagina pubblica (link, impostazioni, aspetto) si controlla anche qui.
   if new.kind = 'survey' then
     if new.data ? 'token'
        and (jsonb_typeof(new.data -> 'token') <> 'string' or (new.data ->> 'token') !~ '^[A-Za-z0-9_-]{22}$') then
-      raise exception 'Il link pubblico del questionario non è valido';
+      raise exception 'invalid_survey_token' using errcode = '22023';
     end if;
     if (new.data ? 'layout' and coalesce(new.data ->> 'layout', '') not in ('una', 'sezioni'))
        or (new.data ? 'progress' and coalesce(new.data ->> 'progress', '') not in ('contatore', 'barra', 'nessuno'))
@@ -350,7 +711,7 @@ begin
              when jsonb_typeof(new.data -> 'questions') = 'array' then jsonb_array_length(new.data -> 'questions') > 40
              else true
            end) then
-      raise exception 'Impostazioni del questionario non valide';
+      raise exception 'invalid_survey_settings' using errcode = '22023';
     end if;
     -- Aspetto: solo tema e colore, mai altro (caratteri, immagini o CSS aprirebbero la pagina pubblica a contenuti estranei).
     if new.data ? 'appearance' and (case
@@ -363,7 +724,7 @@ begin
          )
          else true
        end) then
-      raise exception 'Aspetto del questionario non valido';
+      raise exception 'invalid_survey_appearance' using errcode = '22023';
     end if;
     -- Immagini della schermata iniziale e del grazie: solo un file dello spazio «questionari-immagini» e la sua descrizione.
     if new.data ? 'cover' and (case
@@ -374,7 +735,7 @@ begin
            or exists (select 1 from jsonb_object_keys(new.data -> 'cover') k where k not in ('path', 'alt'))
          else true
        end) then
-      raise exception 'Immagine del questionario non valida';
+      raise exception 'invalid_survey_image' using errcode = '22023';
     end if;
     if new.data ? 'thanks_image' and (case
          when jsonb_typeof(new.data -> 'thanks_image') = 'object' then
@@ -384,20 +745,21 @@ begin
            or exists (select 1 from jsonb_object_keys(new.data -> 'thanks_image') k where k not in ('path', 'alt'))
          else true
        end) then
-      raise exception 'Immagine del questionario non valida';
+      raise exception 'invalid_survey_image' using errcode = '22023';
     end if;
     if new.data ? 'experiment_id' then
       if jsonb_typeof(new.data -> 'experiment_id') <> 'string'
          or (new.data ->> 'experiment_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
-        raise exception 'L''esperimento collegato non è valido';
+        raise exception 'invalid_experiment' using errcode = '22023';
       end if;
       if (new.data -> 'experiment_id') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'experiment_id' end)
          or new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end) then
         if not exists (
           select 1 from public.items e
           where e.id = (new.data ->> 'experiment_id')::uuid and e.kind = 'experiment' and e.idea_id = new.idea_id
+            and e.project_id = new.project_id
         ) then
-          raise exception 'L''esperimento collegato deve essere della stessa idea';
+          raise exception 'experiment_not_in_idea' using errcode = 'P0001';
         end if;
       end if;
     end if;
@@ -418,7 +780,7 @@ begin
          )
        else false end,
        false) then
-    raise exception 'Gruppo di spese non valido';
+    raise exception 'invalid_expense_group' using errcode = '22023';
   end if;
   if new.kind = 'expense' then
     if not coalesce(
@@ -435,14 +797,19 @@ begin
               or (new.data ->> 'receipt') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'),
          false
        ) then
-      raise exception 'Movimento non valido';
+      raise exception 'invalid_expense' using errcode = '22023';
     end if;
-    if (tg_op = 'INSERT' or (new.data -> 'group') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'group' end))
-       and not exists (
-         select 1 from public.items g
-         where g.id::text = new.data ->> 'group' and g.kind = 'expensegroup' and g.deleted_at is null
-       ) then
-      raise exception 'Il gruppo di spese non esiste';
+    -- Come per le idee: il gruppo si cerca con i permessi di chi scrive, e uno che vede ma di un altro progetto non si usa.
+    if tg_op = 'INSERT' or (new.data -> 'group') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'group' end) then
+      select g.project_id into v_group_project
+      from public.items g
+      where g.id::text = new.data ->> 'group' and g.kind = 'expensegroup' and g.deleted_at is null;
+      if not found then
+        raise exception 'expense_group_not_found' using errcode = 'P0002';
+      end if;
+      if new.project_id is not null and v_group_project is distinct from new.project_id then
+        raise exception 'cross_project' using errcode = 'P0001';
+      end if;
     end if;
   end if;
 
@@ -451,7 +818,7 @@ begin
   if new.kind = 'availability' then
     new.title := 'Impegni';
     if new.deleted_at is not null then
-      raise exception 'Gli impegni non si possono mettere nel cestino';
+      raise exception 'availability_not_trashable' using errcode = 'P0001';
     end if;
     if not coalesce(case when jsonb_typeof(new.data) = 'object' then
          not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('busy', 'until', 'weeks'))
@@ -471,7 +838,7 @@ begin
                and (select count(distinct w ->> 'key') from jsonb_array_elements(new.data -> 'weeks') w) = jsonb_array_length(new.data -> 'weeks')
              else false end)
        else false end, false) then
-      raise exception 'Impegni non validi';
+      raise exception 'invalid_availability' using errcode = '22023';
     end if;
     -- Date vere e lunedì: una data impossibile come il 31 febbraio fa fallire la conversione, e anche quella è rifiutata.
     begin
@@ -480,10 +847,10 @@ begin
       end if;
       if jsonb_typeof(new.data -> 'weeks') = 'array'
          and exists (select 1 from jsonb_array_elements(new.data -> 'weeks') w where extract(isodow from (w ->> 'key')::date) <> 1) then
-        raise exception 'Impegni non validi';
+        raise exception 'invalid_availability' using errcode = '22023';
       end if;
     exception when others then
-      raise exception 'Impegni non validi';
+      raise exception 'invalid_availability' using errcode = '22023';
     end;
   end if;
 
@@ -491,12 +858,12 @@ begin
   if new.kind = 'timesheet' then
     new.title := 'Ore lavorate';
     if new.deleted_at is not null then
-      raise exception 'Le ore lavorate non si possono mettere nel cestino';
+      raise exception 'timesheet_not_trashable' using errcode = 'P0001';
     end if;
     if tg_op = 'UPDATE' and (new.data -> 'week') is distinct from (old.data -> 'week') then
-      raise exception 'La settimana delle ore non si può cambiare';
+      raise exception 'timesheet_week_locked' using errcode = 'P0001';
     end if;
-    -- Ogni controllo che converte in numero sta dentro un case: un valore sbagliato dà il messaggio, non un errore tecnico.
+    -- Ogni controllo che converte in numero sta dentro un case: un valore sbagliato dà il codice invalid_timesheet, non un errore tecnico.
     if not coalesce(case when jsonb_typeof(new.data) = 'object' then
          not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('week', 'pledge', 'entries'))
          and coalesce(jsonb_typeof(new.data -> 'week'), '') = 'string'
@@ -526,7 +893,7 @@ begin
                and (select count(distinct e ->> 'id') from jsonb_array_elements(new.data -> 'entries') e) = jsonb_array_length(new.data -> 'entries')
              else false end
        else false end, false) then
-      raise exception 'Ore lavorate non valide';
+      raise exception 'invalid_timesheet' using errcode = '22023';
     end if;
     -- Qui la forma è già giusta: si può convertire senza sorprese.
     if exists (
@@ -534,7 +901,7 @@ begin
          where a ->> 'id' < b ->> 'id' and a ->> 'day' = b ->> 'day'
            and (a ->> 'start')::int < (b ->> 'end')::int and (b ->> 'start')::int < (a ->> 'end')::int
        ) then
-      raise exception 'Due righe dello stesso giorno si accavallano';
+      raise exception 'timesheet_overlap' using errcode = '22023';
     end if;
     declare
       v_week date;
@@ -544,24 +911,29 @@ begin
       begin
         v_week := (new.data ->> 'week')::date;
       exception when others then
-        raise exception 'Ore lavorate non valide';
+        raise exception 'invalid_timesheet' using errcode = '22023';
       end;
       if extract(isodow from v_week) <> 1 then
-        raise exception 'Ore lavorate non valide';
+        raise exception 'invalid_timesheet' using errcode = '22023';
       end if;
       if v_week > v_today then
-        raise exception 'Non si possono segnare ore in una settimana che deve ancora venire';
+        raise exception 'timesheet_future_week' using errcode = 'P0001';
       end if;
       if exists (
            select 1 from jsonb_array_elements(new.data -> 'entries') e
            where v_week + (array_position(array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'], e ->> 'day') - 1) > v_today
          ) then
-        raise exception 'Non si possono segnare ore in un giorno che deve ancora venire';
+        raise exception 'timesheet_future_day' using errcode = 'P0001';
       end if;
     end;
   end if;
 
   if tg_op = 'INSERT' then
+    -- L'id lo sceglie il database: copiando l'id di una chat o di un'idea di un altro progetto si prenderebbe la cartella
+    -- delle sue immagini. Il SQL Editor può ancora sceglierlo.
+    if current_user in ('anon', 'authenticated') then
+      new.id := gen_random_uuid();
+    end if;
     new.version := 1;
     new.created_by := auth.uid();
     new.updated_by := auth.uid();
@@ -635,8 +1007,11 @@ begin
       ) d;
   end if;
 
-  insert into public.revisions (item_id, version, op, kind, idea_id, title, status, data, changed, author_id, message)
-  values (new.id, new.version, v_op, new.kind, new.idea_id, new.title, new.status, new.data, v_changed, auth.uid(), left(v_message, 500));
+  insert into public.revisions (project_id, item_id, version, op, kind, idea_id, title, status, data, changed, author_id, message, reverted_from)
+  values (
+    new.project_id, new.id, new.version, v_op, new.kind, new.idea_id, new.title, new.status, new.data, v_changed, auth.uid(), left(v_message, 500),
+    case when v_op = 'revert' then v_revert::integer end
+  );
   return null;
 end
 $$;
@@ -654,56 +1029,59 @@ create trigger items_after_write
 alter table public.items enable row level security;
 alter table public.revisions enable row level security;
 
+-- Ognuno vede gli elementi dei progetti di cui è membro, e in ciascuno vale il ruolo che ha lì.
 drop policy if exists items_select on public.items;
 create policy items_select on public.items
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id));
 
 -- Gli advisor possono gestire solo i propri voti e i propri impegni.
 drop policy if exists items_insert on public.items;
 create policy items_insert on public.items
   for insert to authenticated
   with check (
-    (select public.can_read())
-    and ((select public.can_write()) or kind in ('score', 'availability'))
+    public.can_read(project_id)
+    and (public.can_write(project_id) or kind in ('score', 'availability'))
   );
 
--- Le ore lavorate le scrive solo chi le ha create, e solo finché è admin o membro.
+-- Le ore lavorate le scrive solo chi le ha create, e solo finché è admin o membro del progetto.
 drop policy if exists items_update on public.items;
 create policy items_update on public.items
   for update to authenticated
   using (
-    (select public.can_read())
+    public.can_read(project_id)
     and (
       (kind in ('score', 'availability') and created_by = (select auth.uid()))
-      or (kind = 'timesheet' and created_by = (select auth.uid()) and (select public.can_write()))
-      or (kind not in ('score', 'availability', 'timesheet') and (select public.can_write()))
+      or (kind = 'timesheet' and created_by = (select auth.uid()) and public.can_write(project_id))
+      or (kind not in ('score', 'availability', 'timesheet') and public.can_write(project_id))
     )
   )
   with check (
-    (select public.can_read())
+    public.can_read(project_id)
     and (
       (kind in ('score', 'availability') and created_by = (select auth.uid()))
-      or (kind = 'timesheet' and created_by = (select auth.uid()) and (select public.can_write()))
-      or (kind not in ('score', 'availability', 'timesheet') and (select public.can_write()))
+      or (kind = 'timesheet' and created_by = (select auth.uid()) and public.can_write(project_id))
+      or (kind not in ('score', 'availability', 'timesheet') and public.can_write(project_id))
     )
   );
 
 drop policy if exists revisions_select on public.revisions;
 create policy revisions_select on public.revisions
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id));
 
 -- =========================================================================
 -- Operazioni stile git (usate dal sito)
 -- =========================================================================
 
+-- Crea un elemento nel progetto dato, con i permessi di chi chiama. Le altre operazioni ricavano il progetto dall'elemento.
 create or replace function public.create_item(
+  p_project uuid,
   p_kind text,
   p_title text,
   p_status text,
   p_data jsonb,
-  p_idea_id uuid default null,
+  p_idea uuid default null,
   p_message text default null
 )
 returns public.items
@@ -714,8 +1092,8 @@ declare
   r public.items;
 begin
   perform set_config('app.commit_message', coalesce(p_message, ''), true);
-  insert into public.items (kind, title, status, data, idea_id)
-  values (p_kind, coalesce(p_title, ''), p_status, coalesce(p_data, '{}'::jsonb), p_idea_id)
+  insert into public.items (project_id, kind, title, status, data, idea_id)
+  values (p_project, p_kind, coalesce(p_title, ''), p_status, coalesce(p_data, '{}'::jsonb), p_idea)
   returning * into r;
   return r;
 end
@@ -840,11 +1218,8 @@ begin
   if not found then
     return jsonb_build_object('status', 'not_found');
   end if;
-  perform set_config(
-    'app.commit_message',
-    coalesce(nullif(btrim(p_message), ''), 'Ripristinata la versione ' || p_to_version),
-    true
-  );
+  -- Senza messaggio la revisione resta senza: reverted_from dice a quale versione è tornata.
+  perform set_config('app.commit_message', coalesce(nullif(btrim(p_message), ''), ''), true);
   perform set_config('app.revert_from', p_to_version::text, true);
   update public.items
      set title = v.title, status = v.status, data = v.data, idea_id = v.idea_id
@@ -865,6 +1240,7 @@ $$;
 
 create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id),
   item_id uuid not null references public.items (id) on delete cascade,
   author_id uuid references auth.users (id) on delete set null,
   body text not null check (char_length(btrim(body)) between 1 and 20000),
@@ -877,6 +1253,7 @@ create table if not exists public.comments (
   deleted_at timestamptz
 );
 
+create index if not exists comments_project_idx on public.comments (project_id, created_at);
 create index if not exists comments_item_idx on public.comments (item_id, created_at);
 
 create or replace function public.comments_before_write()
@@ -886,6 +1263,9 @@ set search_path = ''
 as $$
 begin
   if tg_op = 'INSERT' then
+    -- Il progetto è quello dell'elemento, qualunque cosa mandi il client. Cercato con i permessi di chi scrive:
+    -- un elemento che non vede dà null, e la regola di accesso rifiuta il commento.
+    new.project_id := (select i.project_id from public.items i where i.id = new.item_id);
     new.author_id := auth.uid();
     new.created_at := now();
     new.edited_at := null;
@@ -893,6 +1273,7 @@ begin
     return new;
   end if;
   new.id := old.id;
+  new.project_id := old.project_id;
   new.item_id := old.item_id;
   new.author_id := old.author_id;
   new.created_at := old.created_at;
@@ -914,26 +1295,28 @@ alter table public.comments enable row level security;
 drop policy if exists comments_select on public.comments;
 create policy comments_select on public.comments
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id));
 
 drop policy if exists comments_insert on public.comments;
 create policy comments_insert on public.comments
   for insert to authenticated
-  with check ((select public.can_read()));
+  with check (public.can_read(project_id));
 
 drop policy if exists comments_update on public.comments;
 create policy comments_update on public.comments
   for update to authenticated
-  using ((select public.can_read()) and author_id = (select auth.uid()))
-  with check ((select public.can_read()) and author_id = (select auth.uid()));
+  using (public.can_read(project_id) and author_id = (select auth.uid()))
+  with check (public.can_read(project_id) and author_id = (select auth.uid()));
 
 -- =========================================================================
 -- Chat della squadra
 -- =========================================================================
 
--- Una chat «Generale» sempre presente e chat per argomento, collegabili a un'idea. Si archiviano, non si cancellano.
+-- In ogni progetto una chat «Generale», aperta insieme al progetto, e chat per argomento, collegabili a un'idea dello
+-- stesso progetto. Si archiviano, non si cancellano.
 create table if not exists public.chats (
   id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id),
   title text not null check (char_length(btrim(title)) between 1 and 80),
   idea_id uuid references public.items (id),
   is_general boolean not null default false,
@@ -942,24 +1325,30 @@ create table if not exists public.chats (
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists chats_one_general_idx on public.chats (is_general) where is_general;
+create index if not exists chats_project_idx on public.chats (project_id, created_at);
+create unique index if not exists chats_one_general_idx on public.chats (project_id) where is_general;
 
 create or replace function public.chats_before_write()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  v_idea_project uuid;
 begin
   if tg_op = 'INSERT' then
-    -- Dal sito non si crea un'altra chat generale; dal SQL Editor (senza utente) sì, una volta sola.
-    if auth.uid() is not null then
+    -- Dal sito non si crea un'altra chat generale: la apre il database insieme al progetto, o il SQL Editor (una per progetto).
+    -- E l'id lo sceglie il database, come per gli elementi: la chat dà il nome alla cartella delle sue immagini.
+    if current_user in ('anon', 'authenticated') then
       new.is_general := false;
+      new.id := gen_random_uuid();
     end if;
     new.created_by := auth.uid();
     new.created_at := now();
     new.archived_at := null;
   else
     new.id := old.id;
+    new.project_id := old.project_id;
     new.is_general := old.is_general;
     new.created_by := old.created_by;
     new.created_at := old.created_at;
@@ -969,10 +1358,15 @@ begin
     end if;
   end if;
   new.title := btrim(new.title);
-  if new.idea_id is not null
-     and (tg_op = 'INSERT' or new.idea_id is distinct from old.idea_id)
-     and not exists (select 1 from public.items i where i.id = new.idea_id and i.kind = 'idea') then
-    raise exception 'La chat si può collegare solo a un''idea';
+  -- Come per gli elementi: l'idea si cerca con i permessi di chi scrive e deve stare nello stesso progetto della chat.
+  if new.idea_id is not null and (tg_op = 'INSERT' or new.idea_id is distinct from old.idea_id) then
+    select i.project_id into v_idea_project from public.items i where i.id = new.idea_id and i.kind = 'idea';
+    if not found then
+      raise exception 'chat_idea_not_found' using errcode = 'P0002';
+    end if;
+    if new.project_id is not null and v_idea_project is distinct from new.project_id then
+      raise exception 'cross_project' using errcode = 'P0001';
+    end if;
   end if;
   return new;
 end
@@ -983,12 +1377,27 @@ create trigger chats_before_write
   before insert or update on public.chats
   for each row execute function public.chats_before_write();
 
-insert into public.chats (title, is_general)
-select 'Generale', true
-where not exists (select 1 from public.chats where is_general);
+-- Ogni progetto nasce con la sua chat Generale, anche quando lo crea il SQL Editor.
+create or replace function public.projects_after_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.chats (project_id, title, is_general) values (new.id, 'Generale', true);
+  return null;
+end
+$$;
+
+drop trigger if exists projects_after_insert on public.projects;
+create trigger projects_after_insert
+  after insert on public.projects
+  for each row execute function public.projects_after_insert();
 
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id),
   chat_id uuid not null references public.chats (id) on delete cascade,
   author_id uuid references auth.users (id) on delete set null,
   body text not null check (char_length(btrim(body)) between 1 and 4000),
@@ -1000,6 +1409,7 @@ create table if not exists public.chat_messages (
 -- Risposta a un messaggio specifico, come su WhatsApp.
 alter table public.chat_messages add column if not exists reply_to uuid references public.chat_messages (id) on delete set null;
 
+create index if not exists chat_messages_project_idx on public.chat_messages (project_id, created_at desc);
 create index if not exists chat_messages_chat_idx on public.chat_messages (chat_id, created_at desc);
 
 create or replace function public.chat_messages_before_write()
@@ -1009,26 +1419,29 @@ set search_path = ''
 as $$
 begin
   if tg_op = 'INSERT' then
+    -- Il progetto è quello della chat, cercata con i permessi di chi scrive: in una chat che non vede, null e rifiuto.
+    new.project_id := (select c.project_id from public.chats c where c.id = new.chat_id);
     new.author_id := auth.uid();
     new.created_at := now();
     new.edited_at := null;
     new.deleted_at := null;
     if exists (select 1 from public.chats c where c.id = new.chat_id and c.archived_at is not null) then
-      raise exception 'Questa chat è archiviata';
+      raise exception 'chat_archived' using errcode = 'P0001';
     end if;
     if new.reply_to is not null
        and not exists (select 1 from public.chat_messages m where m.id = new.reply_to and m.chat_id = new.chat_id) then
-      raise exception 'Si può rispondere solo a un messaggio della stessa chat';
+      raise exception 'reply_other_chat' using errcode = 'P0001';
     end if;
     return new;
   end if;
   new.id := old.id;
+  new.project_id := old.project_id;
   new.chat_id := old.chat_id;
   new.reply_to := old.reply_to;
   new.author_id := old.author_id;
   new.created_at := old.created_at;
   if old.deleted_at is not null then
-    raise exception 'Il messaggio è già stato eliminato';
+    raise exception 'message_deleted' using errcode = 'P0001';
   end if;
   -- Un messaggio eliminato perde davvero il testo.
   if new.deleted_at is not null then
@@ -1062,43 +1475,46 @@ alter table public.chat_reads enable row level security;
 drop policy if exists chats_select on public.chats;
 create policy chats_select on public.chats
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id));
 
 drop policy if exists chats_insert on public.chats;
 create policy chats_insert on public.chats
   for insert to authenticated
-  with check ((select public.can_read()));
+  with check (public.can_read(project_id));
 
 drop policy if exists chats_update on public.chats;
 create policy chats_update on public.chats
   for update to authenticated
-  using ((select public.can_read()))
-  with check ((select public.can_read()));
+  using (public.can_read(project_id))
+  with check (public.can_read(project_id));
 
 drop policy if exists chat_messages_select on public.chat_messages;
 create policy chat_messages_select on public.chat_messages
   for select to authenticated
-  using ((select public.can_read()));
+  using (public.can_read(project_id));
 
 drop policy if exists chat_messages_insert on public.chat_messages;
 create policy chat_messages_insert on public.chat_messages
   for insert to authenticated
-  with check ((select public.can_read()));
+  with check (public.can_read(project_id));
 
 drop policy if exists chat_messages_update on public.chat_messages;
 create policy chat_messages_update on public.chat_messages
   for update to authenticated
-  using ((select public.can_read()) and author_id = (select auth.uid()))
-  with check ((select public.can_read()) and author_id = (select auth.uid()));
+  using (public.can_read(project_id) and author_id = (select auth.uid()))
+  with check (public.can_read(project_id) and author_id = (select auth.uid()));
 
 drop policy if exists chat_reads_select on public.chat_reads;
 create policy chat_reads_select on public.chat_reads
   for select to authenticated
-  using ((select public.can_read()) and user_id = (select auth.uid()));
+  using (
+    user_id = (select auth.uid())
+    and exists (select 1 from public.chats c where c.id = chat_id and public.can_read(c.project_id))
+  );
 
--- Per ogni chat: ultimo messaggio e messaggi degli altri non ancora letti da chi chiede.
--- Senza letture registrate si parte da quando la persona è entrata nel team.
-create or replace function public.chat_overview()
+-- Per ogni chat del progetto: ultimo messaggio e messaggi degli altri non ancora letti da chi chiede.
+-- Senza letture registrate si parte da quando la persona è entrata nel progetto.
+create or replace function public.chat_overview(p_project uuid)
 returns table (chat_id uuid, last_message_at timestamptz, unread integer)
 language sql
 stable
@@ -1116,11 +1532,11 @@ as $$
         and m.author_id is distinct from auth.uid()
         and m.created_at > coalesce(
           (select r.last_read_at from public.chat_reads r where r.chat_id = c.id and r.user_id = auth.uid()),
-          (select mb.created_at from public.members mb where mb.user_id = auth.uid())
+          (select mb.created_at from public.members mb where mb.user_id = auth.uid() and mb.project_id = c.project_id)
         )
     )
   from public.chats c
-  where public.can_read()
+  where c.project_id = p_project and public.can_read(p_project)
 $$;
 
 create or replace function public.mark_chat_read(p_chat uuid)
@@ -1132,7 +1548,7 @@ as $$
   insert into public.chat_reads (user_id, chat_id, last_read_at)
   select auth.uid(), c.id, now()
   from public.chats c
-  where c.id = p_chat and public.can_read()
+  where c.id = p_chat and public.can_read(c.project_id)
   on conflict (user_id, chat_id) do update set last_read_at = excluded.last_read_at
 $$;
 
@@ -1140,9 +1556,10 @@ $$;
 -- Menzioni: @[Nome Cognome] o @[tutti] in messaggi, commenti e note
 -- =========================================================================
 
--- Le crea solo il database, dai testi salvati; ognuno vede solo le proprie.
+-- Le crea solo il database, dai testi salvati, nel progetto del testo; ognuno vede solo le proprie.
 create table if not exists public.mentions (
   id bigint generated always as identity primary key,
+  project_id uuid not null references public.projects (id),
   user_id uuid not null references auth.users (id) on delete cascade,
   author_id uuid references auth.users (id) on delete set null,
   source text not null check (source in ('chat', 'comment', 'note')),
@@ -1155,6 +1572,7 @@ create table if not exists public.mentions (
   unique (user_id, source, source_id)
 );
 
+create index if not exists mentions_project_idx on public.mentions (project_id, created_at desc);
 create index if not exists mentions_user_idx on public.mentions (user_id, created_at desc);
 
 alter table public.mentions enable row level security;
@@ -1162,10 +1580,11 @@ alter table public.mentions enable row level security;
 drop policy if exists mentions_select on public.mentions;
 create policy mentions_select on public.mentions
   for select to authenticated
-  using ((select public.can_read()) and user_id = (select auth.uid()));
+  using (user_id = (select auth.uid()) and public.can_read(project_id));
 
--- Chi è menzionato in un testo: i membri il cui nome compare come @[Nome], tutti con @[tutti], mai chi scrive.
-create or replace function public.mentioned_users(p_text text, p_author uuid)
+-- Chi è menzionato in un testo: i membri del progetto del testo il cui nome compare come @[Nome], tutti con @[tutti],
+-- mai chi scrive. Due persone con lo stesso nome in progetti diversi non si confondono.
+create or replace function public.mentioned_users(p_project uuid, p_text text, p_author uuid)
 returns setof uuid
 language sql
 stable
@@ -1173,28 +1592,32 @@ set search_path = ''
 as $$
   select m.user_id
   from public.members m
-  where m.user_id is distinct from p_author
+  left join public.profiles pr on pr.user_id = m.user_id
+  where m.project_id = p_project
+    and m.user_id is distinct from p_author
     and (
       coalesce(p_text, '') ~* '@\[tutti\]'
       or exists (
         select 1 from regexp_matches(coalesce(p_text, ''), '@\[([^]\n]{1,80})\]', 'g') as x(name)
-        where lower(btrim(x.name[1])) = lower(m.display_name)
+        where lower(btrim(x.name[1])) = lower(pr.display_name)
       )
     )
 $$;
 
 -- Una menzione per persona e per testo: modificando si aggiungono solo le persone nuove.
-create or replace function public.record_mentions(p_source text, p_source_id uuid, p_text text, p_author uuid, p_chat uuid, p_item uuid)
+create or replace function public.record_mentions(
+  p_project uuid, p_source text, p_source_id uuid, p_text text, p_author uuid, p_chat uuid, p_item uuid
+)
 returns void
 language sql
 security definer
 set search_path = ''
 as $$
-  insert into public.mentions (user_id, author_id, source, source_id, chat_id, item_id, excerpt)
+  insert into public.mentions (project_id, user_id, author_id, source, source_id, chat_id, item_id, excerpt)
   select
-    u, p_author, p_source, p_source_id, p_chat, p_item,
+    p_project, u, p_author, p_source, p_source_id, p_chat, p_item,
     left(btrim(regexp_replace(regexp_replace(regexp_replace(p_text, '!\[[^]\n]*\]\([^)]*\)', '[immagine]', 'g'), '@\[([^]\n]{1,80})\]', '@\1', 'g'), '\s+', ' ', 'g')), 200)
-  from public.mentioned_users(p_text, p_author) as u
+  from public.mentioned_users(p_project, p_text, p_author) as u
   on conflict (user_id, source, source_id) do nothing
 $$;
 
@@ -1208,7 +1631,7 @@ begin
   if new.deleted_at is not null then
     delete from public.mentions where source = 'chat' and source_id = new.id;
   else
-    perform public.record_mentions('chat', new.id, new.body, new.author_id, new.chat_id, null);
+    perform public.record_mentions(new.project_id, 'chat', new.id, new.body, new.author_id, new.chat_id, null);
   end if;
   return null;
 end
@@ -1229,7 +1652,7 @@ begin
   if new.deleted_at is not null then
     delete from public.mentions where source = 'comment' and source_id = new.id;
   else
-    perform public.record_mentions('comment', new.id, new.body, new.author_id, null, new.item_id);
+    perform public.record_mentions(new.project_id, 'comment', new.id, new.body, new.author_id, null, new.item_id);
   end if;
   return null;
 end
@@ -1248,7 +1671,7 @@ set search_path = ''
 as $$
 begin
   if new.kind = 'note' and new.deleted_at is null then
-    perform public.record_mentions('note', new.id, new.data ->> 'body', new.updated_by, null, new.id);
+    perform public.record_mentions(new.project_id, 'note', new.id, new.data ->> 'body', new.updated_by, null, new.id);
   end if;
   return null;
 end
@@ -1259,7 +1682,9 @@ create trigger notes_mentions
   after insert or update on public.items
   for each row execute function public.notes_mentions();
 
-create or replace function public.mark_mentions_read(p_ids bigint[] default null)
+-- Segna come lette le proprie menzioni di un progetto: tutte, o solo quelle di p_ids. Quelle degli altri progetti restano
+-- da leggere, e la loro email parte comunque.
+create or replace function public.mark_mentions_read(p_project uuid, p_ids bigint[] default null)
 returns void
 language sql
 security definer
@@ -1267,7 +1692,44 @@ set search_path = ''
 as $$
   update public.mentions
   set read_at = now()
-  where user_id = auth.uid() and read_at is null and public.can_read() and (p_ids is null or id = any (p_ids))
+  where user_id = auth.uid() and project_id = p_project and read_at is null and public.can_read(p_project)
+    and (p_ids is null or id = any (p_ids))
+$$;
+
+-- =========================================================================
+-- Immagini: di quale progetto sono
+-- =========================================================================
+
+-- Le immagini restano dove sono: la prima cartella del percorso è un'idea, un questionario, un gruppo di spese o una chat,
+-- e da lì si ricava il progetto. Null per tutto il resto, senza errori: un nome malformato non fa fallire le regole di Storage.
+-- Un id che è sia un elemento sia una chat non è di nessuno. Chi è entrato scopre solo il progetto che può leggere
+-- (alle regole di Storage non serve altro); il SQL Editor li vede tutti.
+create or replace function public.storage_project(p_name text)
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_folder uuid;
+  v_item uuid;
+  v_chat uuid;
+begin
+  if p_name is null or p_name !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/' then
+    return null;
+  end if;
+  v_folder := left(p_name, 36)::uuid;
+  select i.project_id into v_item from public.items i where i.id = v_folder and i.kind in ('idea', 'survey', 'expensegroup');
+  select c.project_id into v_chat from public.chats c where c.id = v_folder;
+  if v_item is not null and v_chat is not null then
+    return null;
+  end if;
+  if auth.uid() is not null and not public.can_read(coalesce(v_item, v_chat)) then
+    return null;
+  end if;
+  return coalesce(v_item, v_chat);
+end
 $$;
 
 -- =========================================================================
@@ -1275,8 +1737,8 @@ $$;
 -- =========================================================================
 
 -- Spazio pubblico per le immagini della schermata iniziale e del grazie: le vede chiunque abbia il link del questionario, senza account.
--- Solo JPEG già ridotti nel browser, caricati e cancellati da chi può modificare; nessuna regola di lettura, così nessuno
--- può elencare i file: si apre solo quello di cui si conosce il percorso.
+-- Solo JPEG già ridotti nel browser, caricati e cancellati da chi può modificare il progetto della cartella; nessuna regola
+-- di lettura, così nessuno può elencare i file: si apre solo quello di cui si conosce il percorso.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('questionari-immagini', 'questionari-immagini', true, 1048576, array['image/jpeg'])
 on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
@@ -1286,18 +1748,18 @@ create policy survey_images_insert on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'questionari-immagini'
-    and (select public.can_write())
     and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+    and public.can_write(public.storage_project(name))
   );
 
 drop policy if exists survey_images_delete on storage.objects;
 create policy survey_images_delete on storage.objects
   for delete to authenticated
-  using (bucket_id = 'questionari-immagini' and (select public.can_write()));
+  using (bucket_id = 'questionari-immagini' and public.can_write(public.storage_project(name)));
 
--- Immagini che nessun questionario usa più (cestino compreso). Senza elenco: quelle caricate da più di 24 ore
--- (le altre possono essere in un questionario non ancora salvato). Il sito poi le cancella con le API di Storage.
-create or replace function public.survey_image_orphans(p_paths text[] default null)
+-- Immagini di un progetto che nessun suo questionario usa più (cestino compreso). Senza elenco: quelle caricate da più
+-- di 24 ore (le altre possono essere in un questionario non ancora salvato). Il sito poi le cancella con le API di Storage.
+create or replace function public.survey_image_orphans(p_project uuid, p_paths text[] default null)
 returns setof text
 language sql
 stable
@@ -1307,11 +1769,13 @@ as $$
   select o.name
   from storage.objects o
   where o.bucket_id = 'questionari-immagini'
-    and public.can_write()
+    and public.can_write(p_project)
     and (case when p_paths is null then o.created_at < now() - interval '24 hours' else o.name = any (p_paths) end)
+    and public.storage_project(o.name) = p_project
     and not exists (
       select 1 from public.items i
-      where i.kind = 'survey' and o.name in (i.data -> 'cover' ->> 'path', i.data -> 'thanks_image' ->> 'path')
+      where i.project_id = p_project and i.kind = 'survey'
+        and o.name in (i.data -> 'cover' ->> 'path', i.data -> 'thanks_image' ->> 'path')
     )
 $$;
 
@@ -1319,8 +1783,8 @@ $$;
 -- Immagini delle note
 -- =========================================================================
 
--- Spazio privato per le immagini di note e chat e per gli scontrini delle spese: solo JPEG già ridotti nel browser, letti e caricati dai membri con 2FA,
--- cancellati da chi può modificare.
+-- Spazio privato per le immagini di note e chat e per gli scontrini delle spese: solo JPEG già ridotti nel browser, letti e
+-- caricati da chi legge il progetto della cartella (con 2FA), cancellati da chi lo può modificare.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('note-immagini', 'note-immagini', false, 1048576, array['image/jpeg'])
 on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
@@ -1328,25 +1792,26 @@ on conflict (id) do update set public = false, file_size_limit = excluded.file_s
 drop policy if exists note_images_select on storage.objects;
 create policy note_images_select on storage.objects
   for select to authenticated
-  using (bucket_id = 'note-immagini' and (select public.can_read()));
+  using (bucket_id = 'note-immagini' and public.can_read(public.storage_project(name)));
 
 drop policy if exists note_images_insert on storage.objects;
 create policy note_images_insert on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'note-immagini'
-    and (select public.can_read())
     and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+    and public.can_read(public.storage_project(name))
   );
 
 drop policy if exists note_images_delete on storage.objects;
 create policy note_images_delete on storage.objects
   for delete to authenticated
-  using (bucket_id = 'note-immagini' and (select public.can_write()));
+  using (bucket_id = 'note-immagini' and public.can_write(public.storage_project(name)));
 
--- Immagini senza puntatore in nessuna nota (cestino compreso), in nessun messaggio e in nessuna spesa. Senza elenco: quelle caricate da più di 24 ore
--- (le altre possono essere in una nota non ancora salvata). Il sito poi le cancella con le API di Storage.
-create or replace function public.note_image_orphans(p_paths text[] default null)
+-- Immagini di un progetto senza puntatore in nessuna sua nota (cestino compreso), in nessun suo messaggio e in nessuna sua
+-- spesa. Senza elenco: quelle caricate da più di 24 ore (le altre possono essere in una nota non ancora salvata).
+-- Il sito poi le cancella con le API di Storage.
+create or replace function public.note_image_orphans(p_project uuid, p_paths text[] default null)
 returns setof text
 language sql
 stable
@@ -1356,19 +1821,21 @@ as $$
   select o.name
   from storage.objects o
   where o.bucket_id = 'note-immagini'
-    and public.can_write()
+    and public.can_write(p_project)
     and (case when p_paths is null then o.created_at < now() - interval '24 hours' else o.name = any (p_paths) end)
+    and public.storage_project(o.name) = p_project
     and not exists (
       select 1 from public.items i
-      where i.kind = 'note' and strpos(coalesce(i.data ->> 'body', ''), '(immagine:' || o.name || ')') > 0
+      where i.project_id = p_project and i.kind = 'note'
+        and strpos(coalesce(i.data ->> 'body', ''), '(immagine:' || o.name || ')') > 0
     )
     and not exists (
       select 1 from public.chat_messages m
-      where m.deleted_at is null and strpos(m.body, '(immagine:' || o.name || ')') > 0
+      where m.project_id = p_project and m.deleted_at is null and strpos(m.body, '(immagine:' || o.name || ')') > 0
     )
     and not exists (
       select 1 from public.items i
-      where i.kind = 'expense' and i.data ->> 'receipt' = o.name
+      where i.project_id = p_project and i.kind = 'expense' and i.data ->> 'receipt' = o.name
     )
 $$;
 
@@ -1390,25 +1857,56 @@ create index if not exists ai_usage_user_idx on public.ai_usage (user_id, create
 
 alter table public.ai_usage enable row level security;
 
+-- L'uso di Claude è della persona, non di un progetto: ognuno vede il proprio, l'amministratore della piattaforma tutto.
 drop policy if exists ai_usage_select on public.ai_usage;
 create policy ai_usage_select on public.ai_usage
   for select to authenticated
-  using ((select public.can_read()) and (user_id = (select auth.uid()) or (select public.is_admin())));
+  using ((select public.has_mfa()) and (user_id = (select auth.uid()) or (select public.is_platform_admin())));
 
 -- =========================================================================
--- Registro di sicurezza: chi entra nel team, chi esce, chi cambia ruolo
+-- Registro di sicurezza: chi entra in un progetto, chi esce, chi cambia ruolo, e la vita dei progetti
 -- =========================================================================
 
+-- project_id null: evento della piattaforma (amministratori della piattaforma aggiunti o tolti), fuori da ogni progetto.
 create table if not exists public.audit_log (
   id bigint generated always as identity primary key,
-  event text not null check (event in ('member_added', 'member_role_changed', 'member_removed')),
+  project_id uuid references public.projects (id),
+  event text not null,
   actor_id uuid,
   target_id uuid,
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
+-- Il vincolo sugli eventi si ricrea a ogni installazione, così un evento nuovo basta rieseguire lo schema.
+alter table public.audit_log drop constraint if exists audit_log_event_check;
+alter table public.audit_log add constraint audit_log_event_check check (
+  event in (
+    'member_added', 'member_role_changed', 'member_removed',
+    'project_created', 'project_renamed', 'project_archived', 'project_unarchived',
+    'platform_admin_added', 'platform_admin_removed'
+  )
+);
+
 create index if not exists audit_log_created_idx on public.audit_log (created_at desc);
+create index if not exists audit_log_project_idx on public.audit_log (project_id, created_at desc);
+
+-- I dettagli di una riga del registro di un progetto. Quello che un amministratore della piattaforma fa in un progetto di
+-- cui non è admin porta "by": "platform_admin": chi legge il registro del progetto vede un amministratore della
+-- piattaforma, e non qualcuno uscito dal team.
+create or replace function public.audit_details(p_project uuid, p_details jsonb default '{}'::jsonb)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when auth.uid() is not null and public.is_platform_admin() and public.my_role(p_project) is distinct from 'admin'
+      then coalesce(p_details, '{}'::jsonb) || jsonb_build_object('by', 'platform_admin')
+    else coalesce(p_details, '{}'::jsonb)
+  end
+$$;
 
 create or replace function public.members_audit()
 returns trigger
@@ -1418,16 +1916,19 @@ set search_path = ''
 as $$
 begin
   if tg_op = 'INSERT' then
-    insert into public.audit_log (event, actor_id, target_id, details)
-    values ('member_added', auth.uid(), new.user_id, jsonb_build_object('role', new.role));
+    insert into public.audit_log (project_id, event, actor_id, target_id, details)
+    values (new.project_id, 'member_added', auth.uid(), new.user_id, public.audit_details(new.project_id, jsonb_build_object('role', new.role)));
   elsif tg_op = 'UPDATE' then
     if new.role is distinct from old.role then
-      insert into public.audit_log (event, actor_id, target_id, details)
-      values ('member_role_changed', auth.uid(), new.user_id, jsonb_build_object('from', old.role, 'to', new.role));
+      insert into public.audit_log (project_id, event, actor_id, target_id, details)
+      values (
+        new.project_id, 'member_role_changed', auth.uid(), new.user_id,
+        public.audit_details(new.project_id, jsonb_build_object('from', old.role, 'to', new.role))
+      );
     end if;
   else
-    insert into public.audit_log (event, actor_id, target_id, details)
-    values ('member_removed', auth.uid(), old.user_id, jsonb_build_object('role', old.role));
+    insert into public.audit_log (project_id, event, actor_id, target_id, details)
+    values (old.project_id, 'member_removed', auth.uid(), old.user_id, public.audit_details(old.project_id, jsonb_build_object('role', old.role)));
   end if;
   return null;
 end
@@ -1440,16 +1941,181 @@ create trigger members_audit
 
 alter table public.audit_log enable row level security;
 
+-- L'admin di un progetto legge il registro di quel progetto; l'amministratore della piattaforma legge tutto.
 drop policy if exists audit_log_select on public.audit_log;
 create policy audit_log_select on public.audit_log
   for select to authenticated
-  using ((select public.is_admin()));
+  using ((select public.is_platform_admin()) or (project_id is not null and public.is_admin(project_id)));
+
+-- =========================================================================
+-- Progetti e amministratori della piattaforma: le sole vie per scriverli dal sito
+-- =========================================================================
+
+-- Dal SQL Editor (senza utente) funzionano sempre, come add_member; dal sito servono la 2FA e il ruolo giusto.
+-- Il nome di un progetto: da 1 a 80 caratteri, senza gli spazi ai bordi.
+create or replace function public.create_project(p_name text)
+returns public.projects
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_name text := btrim(p_name);
+  r public.projects;
+begin
+  if auth.uid() is not null and not public.is_platform_admin() then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  if v_name is null or char_length(v_name) not between 1 and 80 then
+    raise exception 'invalid_project_name' using errcode = '22023';
+  end if;
+  -- Il trigger del progetto apre la chat Generale. Chi lo crea non ne diventa membro: per leggerlo deve aggiungersi.
+  insert into public.projects (name, created_by) values (v_name, auth.uid()) returning * into r;
+  insert into public.audit_log (project_id, event, actor_id, details)
+  values (r.id, 'project_created', auth.uid(), public.audit_details(r.id, jsonb_build_object('name', r.name)));
+  return r;
+end
+$$;
+
+-- Lo rinomina il suo admin o un amministratore della piattaforma; un progetto archiviato non si rinomina.
+create or replace function public.rename_project(p_project uuid, p_name text)
+returns public.projects
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_name text := btrim(p_name);
+  v_old text;
+  r public.projects;
+begin
+  if auth.uid() is not null and not public.can_manage(p_project) then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  select p.name into v_old from public.projects p where p.id = p_project and p.archived_at is null for update;
+  if not found then
+    raise exception 'project_not_found' using errcode = 'P0002';
+  end if;
+  if v_name is null or char_length(v_name) not between 1 and 80 then
+    raise exception 'invalid_project_name' using errcode = '22023';
+  end if;
+  update public.projects set name = v_name where id = p_project returning * into r;
+  insert into public.audit_log (project_id, event, actor_id, details)
+  values (p_project, 'project_renamed', auth.uid(), public.audit_details(p_project, jsonb_build_object('from', v_old, 'to', v_name)));
+  return r;
+end
+$$;
+
+-- Un progetto archiviato non lo legge e non lo scrive più nessuno, i dati restano; lo riattiva solo la piattaforma.
+create or replace function public.archive_project(p_project uuid)
+returns public.projects
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r public.projects;
+begin
+  if auth.uid() is not null and not public.is_platform_admin() then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  select * into r from public.projects p where p.id = p_project for update;
+  if not found then
+    raise exception 'project_not_found' using errcode = 'P0002';
+  end if;
+  if r.archived_at is null then
+    update public.projects set archived_at = now() where id = p_project returning * into r;
+    insert into public.audit_log (project_id, event, actor_id, details)
+    values (p_project, 'project_archived', auth.uid(), public.audit_details(p_project));
+  end if;
+  return r;
+end
+$$;
+
+create or replace function public.unarchive_project(p_project uuid)
+returns public.projects
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r public.projects;
+begin
+  if auth.uid() is not null and not public.is_platform_admin() then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  select * into r from public.projects p where p.id = p_project for update;
+  if not found then
+    raise exception 'project_not_found' using errcode = 'P0002';
+  end if;
+  if r.archived_at is not null then
+    update public.projects set archived_at = null where id = p_project returning * into r;
+    insert into public.audit_log (project_id, event, actor_id, details)
+    values (p_project, 'project_unarchived', auth.uid(), public.audit_details(p_project));
+  end if;
+  return r;
+end
+$$;
+
+-- Rende amministratore della piattaforma una persona già registrata in Authentication > Users.
+create or replace function public.add_platform_admin(p_email text)
+returns public.platform_admins
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid;
+  r public.platform_admins;
+begin
+  if auth.uid() is not null and not public.is_platform_admin() then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  select u.id into v_user_id from auth.users u where lower(u.email) = lower(btrim(p_email)) limit 1;
+  if v_user_id is null then
+    raise exception 'user_not_found' using errcode = 'P0002';
+  end if;
+  insert into public.platform_admins (user_id, created_by) values (v_user_id, auth.uid())
+  on conflict (user_id) do nothing
+  returning * into r;
+  if r.user_id is null then
+    select * into r from public.platform_admins a where a.user_id = v_user_id;
+  else
+    insert into public.audit_log (project_id, event, actor_id, target_id) values (null, 'platform_admin_added', auth.uid(), v_user_id);
+  end if;
+  return r;
+end
+$$;
+
+-- Ne resta sempre almeno uno: l'ultimo non si toglie (ed è per forza chi lo chiede).
+create or replace function public.remove_platform_admin(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is not null and not public.is_platform_admin() then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  -- Tutte le righe bloccate: due amministratori che si tolgono a vicenda non lasciano la piattaforma senza nessuno.
+  perform 1 from public.platform_admins for update;
+  if not exists (select 1 from public.platform_admins a where a.user_id = p_user) then
+    return;
+  end if;
+  if (select count(*) from public.platform_admins) <= 1 then
+    raise exception 'last_platform_admin' using errcode = 'P0001';
+  end if;
+  delete from public.platform_admins where user_id = p_user;
+  insert into public.audit_log (project_id, event, actor_id, target_id) values (null, 'platform_admin_removed', auth.uid(), p_user);
+end
+$$;
 
 -- =========================================================================
 -- Email: menzioni non lette e riepilogo del lunedì (Edge Function notify)
 -- =========================================================================
 
--- Preferenze di ciascuno: senza riga sono accese tutte e due. Si cambiano solo con set_email_prefs.
+-- Preferenze di ciascuno, valide in tutti i progetti: senza riga sono accese tutte e due. Si cambiano solo con set_email_prefs.
 create table if not exists public.email_prefs (
   user_id uuid primary key references auth.users (id) on delete cascade,
   mentions boolean not null default true,
@@ -1462,14 +2128,15 @@ alter table public.email_prefs enable row level security;
 drop policy if exists email_prefs_select on public.email_prefs;
 create policy email_prefs_select on public.email_prefs
   for select to authenticated
-  using ((select public.can_read()) and user_id = (select auth.uid()));
+  using ((select public.has_any_project()) and user_id = (select auth.uid()));
 
--- Un riepilogo per persona e per settimana: la riga si scrive prima dell'invio, così un nuovo tentativo non lo rimanda.
+-- Un riepilogo per persona, progetto e settimana: la riga si scrive prima dell'invio, così un nuovo tentativo non lo rimanda.
 create table if not exists public.email_weekly (
   user_id uuid not null references auth.users (id) on delete cascade,
+  project_id uuid not null references public.projects (id),
   week_start date not null,
   sent_at timestamptz not null default now(),
-  primary key (user_id, week_start)
+  primary key (user_id, project_id, week_start)
 );
 
 alter table public.email_weekly enable row level security;
@@ -1490,6 +2157,7 @@ $$;
 
 create index if not exists mentions_email_pending_idx on public.mentions (created_at) where emailed_at is null;
 
+-- Le sceglie chi è membro con 2FA di almeno un progetto.
 create or replace function public.set_email_prefs(p_mentions boolean default null, p_weekly boolean default null)
 returns public.email_prefs
 language plpgsql
@@ -1499,8 +2167,8 @@ as $$
 declare
   r public.email_prefs;
 begin
-  if not public.can_read() then
-    raise exception 'Serve un account del team con la verifica in due passaggi';
+  if not public.has_any_project() then
+    raise exception 'not_allowed' using errcode = '42501';
   end if;
   insert into public.email_prefs (user_id, mentions, weekly)
   values (auth.uid(), coalesce(p_mentions, true), coalesce(p_weekly, true))
@@ -1514,23 +2182,52 @@ end
 $$;
 
 -- Le funzioni notify_* le chiama solo la Edge Function con la chiave di servizio.
--- Destinatari: membri con email e 2FA attiva, come chi può leggere il sito.
+-- Destinatari: membri con email e 2FA attiva, come chi può leggere il sito, una volta per ogni progetto attivo,
+-- con il nome del progetto (per oggetto e link delle email) e la lingua del profilo (per il testo).
 create or replace function public.notify_recipients()
-returns table (user_id uuid, display_name text, email text, mentions boolean, weekly boolean)
+returns table (
+  project_id uuid,
+  project_name text,
+  user_id uuid,
+  display_name text,
+  email text,
+  language text,
+  mentions boolean,
+  weekly boolean
+)
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select m.user_id, m.display_name, u.email::text, coalesce(p.mentions, true), coalesce(p.weekly, true)
+  select pj.id, pj.name, m.user_id, pr.display_name, u.email::text, pr.language, coalesce(p.mentions, true), coalesce(p.weekly, true)
   from public.members m
+  join public.projects pj on pj.id = m.project_id and pj.archived_at is null
   join auth.users u on u.id = m.user_id
+  left join public.profiles pr on pr.user_id = m.user_id
   left join public.email_prefs p on p.user_id = m.user_id
   where coalesce(u.email, '') <> ''
     and exists (select 1 from auth.mfa_factors f where f.user_id = m.user_id and f.status = 'verified')
-  order by m.created_at
+  order by pj.created_at, pj.id, m.created_at
 $$;
 
+-- Le colonne di prima più progetto, nome del progetto e lingua di chi riceve. Niente email per un progetto archiviato,
+-- né a chi non ne è più membro: resta tra i destinatari per gli altri suoi progetti, ma il testo di questo non lo riceve.
+-- chat_is_general è arrivata dopo: la funzione di prima, senza quella colonna, si ricrea (create or replace non cambia
+-- le colonne di una funzione). Le esecuzioni successive la trovano già così e non toccano nulla.
+do $$
+begin
+  if to_regprocedure('public.notify_pending_mentions(timestamptz)') is not null and not exists (
+    select 1 from pg_proc p
+    where p.oid = to_regprocedure('public.notify_pending_mentions(timestamptz)') and 'chat_is_general' = any (p.proargnames)
+  ) then
+    drop function public.notify_pending_mentions(timestamptz);
+  end if;
+end
+$$;
+
+-- La chat Generale è salvata come 'Generale' in ogni progetto: chat_is_general dice all'email di chiamarla nella lingua
+-- di chi riceve.
 create or replace function public.notify_pending_mentions(p_since timestamptz)
 returns table (
   id bigint,
@@ -1541,22 +2238,29 @@ returns table (
   source_id uuid,
   chat_id uuid,
   chat_title text,
+  chat_is_general boolean,
   item_id uuid,
   item_title text,
   item_kind text,
   excerpt text,
   created_at timestamptz,
-  read_at timestamptz
+  read_at timestamptz,
+  project_id uuid,
+  project_name text,
+  language text
 )
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select mn.id, mn.user_id, mn.author_id, a.display_name, mn.source, mn.source_id, mn.chat_id, c.title,
-         mn.item_id, i.title, i.kind, mn.excerpt, mn.created_at, mn.read_at
+  select mn.id, mn.user_id, mn.author_id, a.display_name, mn.source, mn.source_id, mn.chat_id, c.title, coalesce(c.is_general, false),
+         mn.item_id, i.title, i.kind, mn.excerpt, mn.created_at, mn.read_at, mn.project_id, pj.name, rcpt.language
   from public.mentions mn
-  left join public.members a on a.user_id = mn.author_id
+  join public.projects pj on pj.id = mn.project_id and pj.archived_at is null
+  join public.members mb on mb.project_id = mn.project_id and mb.user_id = mn.user_id
+  left join public.profiles a on a.user_id = mn.author_id
+  left join public.profiles rcpt on rcpt.user_id = mn.user_id
   left join public.chats c on c.id = mn.chat_id
   left join public.items i on i.id = mn.item_id
   where mn.emailed_at is null and mn.read_at is null and mn.created_at > p_since
@@ -1564,6 +2268,7 @@ as $$
 $$;
 
 -- Segna le menzioni prima dell'invio: restituisce solo quelle ancora da gestire e non lette, così nessuna parte due volte.
+-- E solo di chi è ancora membro: chi esce tra la lettura e l'invio non riceve il testo del progetto.
 create or replace function public.notify_claim_mentions(p_ids bigint[])
 returns table (id bigint)
 language sql
@@ -1573,6 +2278,7 @@ as $$
   update public.mentions m
   set emailed_at = now()
   where m.id = any (p_ids) and m.emailed_at is null and m.read_at is null
+    and exists (select 1 from public.members mb where mb.project_id = m.project_id and mb.user_id = m.user_id)
   returning m.id
 $$;
 
@@ -1586,34 +2292,35 @@ as $$
   update public.mentions set emailed_at = null where id = any (p_ids)
 $$;
 
-create or replace function public.notify_claim_weekly(p_user uuid, p_week date)
+create or replace function public.notify_claim_weekly(p_user uuid, p_project uuid, p_week date)
 returns boolean
 language sql
 security definer
 set search_path = ''
 as $$
   with ins as (
-    insert into public.email_weekly (user_id, week_start)
-    values (p_user, p_week)
+    insert into public.email_weekly (user_id, project_id, week_start)
+    values (p_user, p_project, p_week)
     on conflict do nothing
     returning 1
   )
   select exists (select 1 from ins)
 $$;
 
-create or replace function public.notify_release_weekly(p_user uuid, p_week date)
+create or replace function public.notify_release_weekly(p_user uuid, p_project uuid, p_week date)
 returns void
 language sql
 security definer
 set search_path = ''
 as $$
-  delete from public.email_weekly where user_id = p_user and week_start = p_week
+  delete from public.email_weekly where user_id = p_user and project_id = p_project and week_start = p_week
 $$;
 
--- Dati del riepilogo: le scelte (cosa mostrare a chi) le fa la funzione notify.
+-- Dati del riepilogo di un progetto: le scelte (cosa mostrare a chi) le fa la funzione notify.
 -- Dei contatti esterni si manda solo il ruolo, mai il nome (il titolo della scheda).
 -- reached: interviste fatte, esperimenti conclusi e decisioni prese per la prima volta dopo p_since.
-create or replace function public.notify_weekly_data(p_since timestamptz)
+-- unread: per ogni membro del progetto, con la sua lingua, menzioni e messaggi non letti in quel progetto.
+create or replace function public.notify_weekly_data(p_project uuid, p_since timestamptz)
 returns jsonb
 language sql
 stable
@@ -1621,10 +2328,12 @@ security definer
 set search_path = ''
 as $$
   select jsonb_build_object(
+    'project_id', p_project,
+    'project_name', (select pj.name from public.projects pj where pj.id = p_project),
     'ideas', coalesce((
       select jsonb_agg(jsonb_build_object('id', i.id, 'title', i.title, 'owner', i.data ->> 'owner', 'next_step', i.data ->> 'next_step') order by i.created_at)
       from public.items i
-      where i.kind = 'idea' and i.deleted_at is null and i.status not in ('scartata', 'parcheggiata')
+      where i.project_id = p_project and i.kind = 'idea' and i.deleted_at is null and i.status not in ('scartata', 'parcheggiata')
         and coalesce(i.data ->> 'owner', '') <> ''
     ), '[]'::jsonb),
     'contacts', coalesce((
@@ -1633,7 +2342,7 @@ as $$
       ) order by i.data ->> 'next_date')
       from public.items i
       join public.items idea on idea.id = i.idea_id and idea.deleted_at is null
-      where i.kind = 'contact' and i.deleted_at is null and i.status <> 'chiusa'
+      where i.project_id = p_project and i.kind = 'contact' and i.deleted_at is null and i.status <> 'chiusa'
         and coalesce(i.data ->> 'owner', '') <> '' and coalesce(i.data ->> 'next_date', '') <> ''
     ), '[]'::jsonb),
     'experiments', coalesce((
@@ -1643,13 +2352,13 @@ as $$
       ) order by i.created_at)
       from public.items i
       join public.items idea on idea.id = i.idea_id and idea.deleted_at is null
-      where i.kind = 'experiment' and i.deleted_at is null and i.status <> 'concluso'
+      where i.project_id = p_project and i.kind = 'experiment' and i.deleted_at is null and i.status <> 'concluso'
         and coalesce(i.data ->> 'owner', '') <> ''
     ), '[]'::jsonb),
     'new_ideas', coalesce((
       select jsonb_agg(jsonb_build_object('id', i.id, 'title', i.title) order by i.created_at)
       from public.items i
-      where i.kind = 'idea' and i.deleted_at is null and i.created_at >= p_since
+      where i.project_id = p_project and i.kind = 'idea' and i.deleted_at is null and i.created_at >= p_since
     ), '[]'::jsonb),
     'busy_ideas', coalesce((
       select jsonb_agg(jsonb_build_object('id', x.id, 'title', x.title, 'changes', x.n) order by x.n desc, x.title)
@@ -1657,7 +2366,7 @@ as $$
         select idea.id, idea.title, count(*)::integer as n
         from public.revisions r
         join public.items idea on idea.id = case when r.kind = 'idea' then r.item_id else r.idea_id end
-        where r.created_at >= p_since and idea.kind = 'idea' and idea.deleted_at is null
+        where r.project_id = p_project and r.created_at >= p_since and idea.kind = 'idea' and idea.deleted_at is null
         group by idea.id, idea.title
         order by n desc, idea.title
         limit 5
@@ -1673,7 +2382,8 @@ as $$
         ('experiment', array['concluso']),
         ('decision', array['presa', 'rivista'])
       ) as s (kind, statuses) on s.kind = i.kind
-      where i.deleted_at is null
+      where i.project_id = p_project
+        and i.deleted_at is null
         and i.status = any (s.statuses)
         and exists (select 1 from public.revisions r where r.item_id = i.id and r.created_at >= p_since and r.status = any (s.statuses))
         and not exists (select 1 from public.revisions r where r.item_id = i.id and r.created_at < p_since and r.status = any (s.statuses))
@@ -1681,11 +2391,16 @@ as $$
     'unread', coalesce((
       select jsonb_agg(jsonb_build_object(
         'user_id', mb.user_id,
-        'mentions', (select count(*) from public.mentions mn where mn.user_id = mb.user_id and mn.read_at is null),
+        'language', pr.language,
+        'mentions', (
+          select count(*) from public.mentions mn
+          where mn.user_id = mb.user_id and mn.project_id = p_project and mn.read_at is null
+        ),
         'chat', (
           select count(*)
           from public.chat_messages m
-          where m.deleted_at is null
+          where m.project_id = p_project
+            and m.deleted_at is null
             and m.author_id is distinct from mb.user_id
             and m.created_at > coalesce(
               (select r.last_read_at from public.chat_reads r where r.chat_id = m.chat_id and r.user_id = mb.user_id),
@@ -1694,6 +2409,8 @@ as $$
         )
       ))
       from public.members mb
+      left join public.profiles pr on pr.user_id = mb.user_id
+      where mb.project_id = p_project
     ), '[]'::jsonb)
   )
 $$;
@@ -1711,7 +2428,7 @@ declare
   v_id bigint;
 begin
   if p_job is null or p_job not in ('mentions', 'weekly') then
-    raise exception 'Invio sconosciuto: %', p_job;
+    raise exception 'unknown_job' using errcode = '22023';
   end if;
   if to_regclass('vault.decrypted_secrets') is null or to_regnamespace('net') is null then
     return null;
@@ -1732,16 +2449,17 @@ end
 $$;
 
 -- =========================================================================
--- Questionari: link pubblico per chi risponde, risposte e statistiche per il team
+-- Questionari: link pubblico per chi risponde, risposte e statistiche per il progetto
 -- =========================================================================
 
 -- L'unica eccezione al «negato di default»: chi non ha un account usa solo public_survey, submit_survey e survey_event.
--- Le tabelle qui sotto non si leggono né si scrivono direttamente; il team legge le risposte e i conteggi.
+-- Le tabelle qui sotto non si leggono né si scrivono direttamente; il progetto del questionario legge le risposte e i conteggi.
 
 -- Una riga per compilazione (session, generata dalla pagina): si salva schermata per schermata e diventa completa
 -- con l'ultimo invio, dopo il quale non cambia più. Le incomplete restano: chi abbandona lascia comunque le sue risposte.
 create table if not exists public.survey_responses (
   id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id),
   survey_id uuid not null references public.items (id) on delete cascade,
   session uuid not null,
   answers jsonb not null check (jsonb_typeof(answers) = 'object' and octet_length(answers::text) < 20480),
@@ -1757,6 +2475,7 @@ create table if not exists public.survey_responses (
   constraint survey_responses_session_key unique (survey_id, session)
 );
 
+create index if not exists survey_responses_project_idx on public.survey_responses (project_id, created_at);
 create index if not exists survey_responses_survey_idx on public.survey_responses (survey_id, created_at);
 
 -- Secondi passati su ogni domanda, per vedere nei risultati le risposte date troppo in fretta.
@@ -1766,12 +2485,40 @@ alter table public.survey_responses add column if not exists question_seconds js
 -- Visite della pagina e inizi della compilazione, per l'imbuto: nessun dato su chi risponde.
 create table if not exists public.survey_events (
   id bigint generated always as identity primary key,
+  project_id uuid not null references public.projects (id),
   survey_id uuid not null references public.items (id) on delete cascade,
   kind text not null check (kind in ('view', 'start')),
   created_at timestamptz not null default now()
 );
 
+create index if not exists survey_events_project_idx on public.survey_events (project_id, created_at);
 create index if not exists survey_events_survey_idx on public.survey_events (survey_id, kind, created_at);
+
+-- Risposte e visite stanno nel progetto del questionario: lo copia il database, qualunque cosa arrivi, e non cambia più.
+create or replace function public.survey_rows_before_write()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' or new.survey_id is distinct from old.survey_id then
+    new.project_id := (select i.project_id from public.items i where i.id = new.survey_id);
+  else
+    new.project_id := old.project_id;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists survey_responses_before_write on public.survey_responses;
+create trigger survey_responses_before_write
+  before insert or update on public.survey_responses
+  for each row execute function public.survey_rows_before_write();
+
+drop trigger if exists survey_events_before_write on public.survey_events;
+create trigger survey_events_before_write
+  before insert or update on public.survey_events
+  for each row execute function public.survey_rows_before_write();
 
 -- Limiti per chi risponde: un'impronta (hash con sale del giorno) al posto dell'indirizzo, cancellata dopo 24 ore.
 create table if not exists public.survey_limits (
@@ -1810,12 +2557,12 @@ alter table public.survey_salts enable row level security;
 alter table public.survey_counts enable row level security;
 alter table public.survey_event_counts enable row level security;
 
--- Il team legge le risposte dei questionari non archiviati di idee non archiviate; nessuno le scrive direttamente.
+-- Il progetto legge le risposte dei suoi questionari non archiviati di idee non archiviate; nessuno le scrive direttamente.
 drop policy if exists survey_responses_select on public.survey_responses;
 create policy survey_responses_select on public.survey_responses
   for select to authenticated
   using (
-    (select public.can_read())
+    public.can_read(project_id)
     and exists (
       select 1
       from public.items s
@@ -1955,7 +2702,7 @@ begin
 end
 $$;
 
--- Il questionario di un link: non archiviato, di un'idea non archiviata. Senza riga se non c'è.
+-- Il questionario di un link: non archiviato, di un'idea non archiviata, di un progetto non archiviato. Senza riga se non c'è.
 create or replace function public.survey_by_token(p_token text)
 returns setof public.items
 language sql
@@ -1965,6 +2712,7 @@ as $$
   select s.*
   from public.items s
   join public.items idea on idea.id = s.idea_id and idea.deleted_at is null
+  join public.projects p on p.id = s.project_id and p.archived_at is null
   where p_token ~ '^[A-Za-z0-9_-]{22}$'
     and s.kind = 'survey'
     and s.data ->> 'token' = p_token
@@ -2016,6 +2764,8 @@ begin
 end
 $$;
 
+-- Il motivo è un codice in snake_case, mai una frase: la pagina pubblica lo mette in parole nella lingua di chi risponde
+-- (server in assets/js/public/texts.js). Gli errori delle altre funzioni sono codici con il loro SQLSTATE (docs/PROGETTI.md).
 create or replace function public.survey_error(p_reason text, p_question text default null)
 returns jsonb
 language sql
@@ -2115,17 +2865,17 @@ declare
   v_total integer;
 begin
   if jsonb_typeof(p_answers) is distinct from 'object' or jsonb_typeof(v_meta) <> 'object' then
-    return public.survey_error('Risposte non valide.');
+    return public.survey_error('invalid_answers');
   end if;
   if octet_length(p_answers::text) + octet_length(v_meta::text) >= 20480 then
-    return public.survey_error('Le risposte sono troppo lunghe.');
+    return public.survey_error('answers_too_long');
   end if;
 
   select * into s from public.survey_by_token(p_token);
   if s.id is null then
-    return public.survey_error('Questionario non trovato.');
+    return public.survey_error('survey_not_found');
   elsif s.status is distinct from 'aperto' then
-    return public.survey_error('Il questionario è chiuso.');
+    return public.survey_error('survey_closed');
   end if;
 
   -- Un bot che compila il campo nascosto riceve «ok», ma non si salva nulla.
@@ -2135,12 +2885,12 @@ begin
 
   if jsonb_typeof(v_meta -> 'session') is distinct from 'string'
      or (v_meta ->> 'session') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
-    return public.survey_error('Sessione non valida. Ricarica la pagina.');
+    return public.survey_error('invalid_session');
   end if;
   if coalesce(jsonb_typeof(v_meta -> 'final'), 'null') not in ('boolean', 'null')
      or coalesce(jsonb_typeof(v_meta -> 'recontact'), 'null') not in ('boolean', 'null')
      or (coalesce(jsonb_typeof(v_meta -> 'device'), 'null') <> 'null' and coalesce(v_meta ->> 'device', '') not in ('telefono', 'computer')) then
-    return public.survey_error('Risposte non valide.');
+    return public.survey_error('invalid_answers');
   end if;
   v_session := (v_meta ->> 'session')::uuid;
   v_final := coalesce(v_meta -> 'final' = 'true'::jsonb, false);
@@ -2150,9 +2900,9 @@ begin
   select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
   if r.id is not null then
     if r.completed then
-      return public.survey_error('Le risposte sono già state inviate.');
+      return public.survey_error('already_submitted');
     elsif not v_final and r.saves >= 60 then
-      return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+      return public.survey_error('too_many_saves');
     end if;
   end if;
 
@@ -2167,16 +2917,16 @@ begin
       v_qid := left(v_key, -6);
       v_q := v_by_id -> v_qid;
       if v_q is null or not coalesce(v_q -> 'allow_other' = 'true'::jsonb, false) then
-        return public.survey_error('Risposte non valide.');
+        return public.survey_error('invalid_answers');
       end if;
       continue when jsonb_typeof(v_value) = 'null';
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_qid);
+        return public.survey_error('invalid_answers', v_qid);
       end if;
       v_text := public.survey_text(v_value, 100000);
       continue when v_text = '';
       if char_length(v_text) > 300 then
-        return public.survey_error('Una risposta è troppo lunga.', v_qid);
+        return public.survey_error('answer_too_long', v_qid);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_text);
       continue;
@@ -2184,7 +2934,7 @@ begin
 
     v_q := v_by_id -> v_key;
     if v_q is null then
-      return public.survey_error('Risposte non valide.');
+      return public.survey_error('invalid_answers');
     end if;
     continue when jsonb_typeof(v_value) = 'null';
     v_type := v_q ->> 'type';
@@ -2192,19 +2942,19 @@ begin
     -- «Preferisco non rispondere» ha l'id riservato non-rispondo, valido solo dove la domanda lo prevede.
     if v_type = 'scelta' then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       continue when v_value #>> '{}' = '';
       if not (
         exists (select 1 from jsonb_array_elements(v_q -> 'options') o where o ->> 'id' = v_value #>> '{}')
         or (v_value #>> '{}' = 'non-rispondo' and v_q -> 'prefer_not' = 'true'::jsonb)
       ) then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_value);
     elsif v_type = 'scelte' then
       if jsonb_typeof(v_value) <> 'array' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       continue when jsonb_array_length(v_value) = 0;
       if exists (
@@ -2216,21 +2966,21 @@ begin
               )
          )
          or (select count(distinct a) from jsonb_array_elements(v_value) a) <> jsonb_array_length(v_value) then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       if v_value ? 'non-rispondo' and jsonb_array_length(v_value) > 1 then
-        return public.survey_error('Scegli una sola risposta.', v_key);
+        return public.survey_error('one_answer_only', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_value);
     elsif v_type = 'scala' then
       v_n := public.survey_int(v_value, 1, (v_q -> 'scale' ->> 'points')::integer);
       if v_n is null then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_n);
     elsif v_type = 'numero' then
       if public.survey_int(v_value, -1000000000, 1000000000) is null then
-        return public.survey_error('Scrivi un numero intero.', v_key);
+        return public.survey_error('integer_required', v_key);
       end if;
       v_n := public.survey_int(
         v_value,
@@ -2238,27 +2988,27 @@ begin
         coalesce((v_q -> 'number' ->> 'max')::integer, 1000000000)
       );
       if v_n is null then
-        return public.survey_error('Un numero è fuori dall''intervallo ammesso.', v_key);
+        return public.survey_error('number_out_of_range', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_n);
     elsif v_type in ('breve', 'lunga') then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_text := public.survey_text(v_value, 100000);
       continue when v_text = '';
       if char_length(v_text) > (case when v_type = 'breve' then 300 else 3000 end) then
-        return public.survey_error('Una risposta è troppo lunga.', v_key);
+        return public.survey_error('answer_too_long', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_text);
     elsif v_type = 'email' then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Indirizzo email non valido.', v_key);
+        return public.survey_error('invalid_email', v_key);
       end if;
       v_text := lower(public.survey_text(v_value, 100000));
       continue when v_text = '';
       if char_length(v_text) > 254 or v_text !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then
-        return public.survey_error('Indirizzo email non valido.', v_key);
+        return public.survey_error('invalid_email', v_key);
       end if;
       -- L'email va solo nella sua colonna, non tra le risposte.
       v_email := v_text;
@@ -2270,7 +3020,7 @@ begin
     v_qid := v_q ->> 'id';
     if v_clean ? (v_qid || ':altro')
        and ((v_q ->> 'type' = 'scelta' and v_clean ? v_qid) or (v_q ->> 'type' = 'scelte' and v_clean -> v_qid = '["non-rispondo"]'::jsonb)) then
-      return public.survey_error('Scegli una sola risposta.', v_qid);
+      return public.survey_error('one_answer_only', v_qid);
     end if;
     if v_final and v_q -> 'required' = 'true'::jsonb and not (
       case v_q ->> 'type'
@@ -2280,16 +3030,16 @@ begin
         else v_clean ? v_qid
       end
     ) then
-      return public.survey_error('Rispondi a tutte le domande obbligatorie.', v_qid);
+      return public.survey_error('required_missing', v_qid);
     end if;
   end loop;
 
   v_recontact := coalesce(v_meta -> 'recontact' = 'true'::jsonb, false);
   if v_final then
     if v_clean = '{}'::jsonb and v_email is null then
-      return public.survey_error('Rispondi ad almeno una domanda.');
+      return public.survey_error('no_answers');
     elsif v_recontact and v_email is null then
-      return public.survey_error('Per farti ricontattare serve un indirizzo email.');
+      return public.survey_error('recontact_needs_email');
     end if;
   else
     -- A metà compilazione l'email può arrivare dopo: il consenso conta solo insieme a un indirizzo.
@@ -2323,9 +3073,9 @@ begin
     select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
     if r.id is not null then
       if r.completed then
-        return public.survey_error('Le risposte sono già state inviate.');
+        return public.survey_error('already_submitted');
       elsif not v_final and r.saves >= 60 then
-        return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+        return public.survey_error('too_many_saves');
       end if;
     end if;
   end if;
@@ -2338,12 +3088,12 @@ begin
       select count(*) from public.survey_limits l
       where l.survey_id = s.id and l.client = v_client and l.kind = 'session' and l.created_at > now() - interval '1 hour'
     ) >= 50 then
-      return public.survey_error('Hai già compilato questo questionario più volte. Riprova più tardi.');
+      return public.survey_error('too_many_submissions');
     end if;
     if (select count(*) from (
           select 1 from public.survey_responses x where x.survey_id = s.id and x.created_at > now() - interval '1 minute' limit 600
         ) y) >= 600 then
-      return public.survey_error('Troppe risposte in questo momento. Riprova tra qualche minuto.');
+      return public.survey_error('survey_busy');
     end if;
     -- Il totale sta in un contatore, rifatto con un conteggio solo quando manca: contarle tutte a ogni compilazione costerebbe troppo.
     select c.responses into v_total from public.survey_counts c where c.survey_id = s.id;
@@ -2353,7 +3103,7 @@ begin
       on conflict (survey_id) do update set responses = excluded.responses;
     end if;
     if v_total >= 60000 then
-      return public.survey_error('Il questionario non accetta altre risposte.');
+      return public.survey_error('survey_full');
     end if;
     insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed, question_seconds)
     values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final, v_times);
@@ -2433,7 +3183,8 @@ begin
 end
 $$;
 
--- Imbuto per il team: visite, inizi, compilazioni interrotte (partial) e complete. Solo numeri; null se il questionario non è visibile.
+-- Imbuto per il progetto: visite, inizi, compilazioni interrotte (partial) e complete. Solo numeri; null se il questionario
+-- non è visibile a chi chiede.
 create or replace function public.survey_funnel(p_survey uuid)
 returns jsonb
 language sql
@@ -2449,10 +3200,11 @@ as $$
   )
   from public.items s
   join public.items idea on idea.id = s.idea_id and idea.deleted_at is null
-  where s.id = p_survey and s.kind = 'survey' and s.deleted_at is null and public.can_read()
+  where s.id = p_survey and s.kind = 'survey' and s.deleted_at is null and public.can_read(s.project_id)
 $$;
 
 -- Cancella per sempre alcune risposte (p_ids) o tutte; con tutte si azzerano anche visite, inizi e limiti del questionario.
+-- Solo admin e membri del progetto del questionario; un questionario che non c'è o è nel cestino non ha nulla da cancellare.
 create or replace function public.delete_survey_responses(p_survey uuid, p_ids uuid[] default null)
 returns integer
 language plpgsql
@@ -2461,9 +3213,14 @@ set search_path = ''
 as $$
 declare
   v_count integer;
+  v_project uuid;
 begin
-  if not public.can_write() then
-    raise exception 'Solo admin e membri possono cancellare le risposte';
+  select s.project_id into v_project from public.items s where s.id = p_survey and s.kind = 'survey';
+  if v_project is null then
+    return 0;
+  end if;
+  if not public.can_write(v_project) then
+    raise exception 'not_allowed' using errcode = '42501';
   end if;
   if not exists (
     select 1
@@ -2497,11 +3254,15 @@ $$;
 -- Permessi
 -- =========================================================================
 
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.member_activity, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from anon;
-revoke all on public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from authenticated;
+revoke all on public.projects, public.platform_admins, public.profiles, public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.member_activity, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from anon;
+revoke all on public.projects, public.platform_admins, public.profiles, public.members, public.items, public.revisions, public.comments, public.ai_usage, public.audit_log, public.chats, public.chat_messages, public.chat_reads, public.mentions, public.email_prefs, public.email_weekly, public.survey_responses, public.survey_events, public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from authenticated;
 revoke all on all sequences in schema public from anon;
 -- Il sale e le impronte dei limiti non li legge neanche la chiave di servizio: con il sale l'impronta di un indirizzo si ricostruisce.
 revoke all on public.survey_limits, public.survey_salts, public.survey_counts, public.survey_event_counts from service_role;
+-- Progetti e amministratori della piattaforma si scrivono solo con le funzioni; nessuno entra in un progetto scrivendo members.
+grant select on public.projects to authenticated;
+grant select on public.platform_admins to authenticated;
+grant select, update on public.profiles to authenticated;
 grant select on public.survey_responses to authenticated;
 grant select on public.email_prefs to authenticated;
 grant select on public.audit_log to authenticated;
@@ -2520,14 +3281,20 @@ revoke execute on function public.items_before_write() from public, anon, authen
 revoke execute on function public.items_after_write() from public, anon, authenticated;
 revoke execute on function public.comments_before_write() from public, anon, authenticated;
 revoke execute on function public.members_before_update() from public, anon, authenticated;
+revoke execute on function public.members_before_delete() from public, anon, authenticated;
+revoke execute on function public.members_one_project_per_statement() from public, anon, authenticated;
 revoke execute on function public.members_audit() from public, anon, authenticated;
+revoke execute on function public.audit_details(uuid, jsonb) from public, anon, authenticated;
+revoke execute on function public.profiles_before_update() from public, anon, authenticated;
+revoke execute on function public.projects_after_insert() from public, anon, authenticated;
 revoke execute on function public.chats_before_write() from public, anon, authenticated;
 revoke execute on function public.chat_messages_before_write() from public, anon, authenticated;
 revoke execute on function public.chat_messages_mentions() from public, anon, authenticated;
 revoke execute on function public.comments_mentions() from public, anon, authenticated;
 revoke execute on function public.notes_mentions() from public, anon, authenticated;
-revoke execute on function public.record_mentions(text, uuid, text, uuid, uuid, uuid) from public, anon, authenticated;
-revoke execute on function public.mentioned_users(text, uuid) from public, anon, authenticated;
+revoke execute on function public.survey_rows_before_write() from public, anon, authenticated;
+revoke execute on function public.record_mentions(uuid, text, uuid, text, uuid, uuid, uuid) from public, anon, authenticated;
+revoke execute on function public.mentioned_users(uuid, text, uuid) from public, anon, authenticated;
 
 -- Questionari: le funzioni di supporto non sono chiamabili via API; quelle del link pubblico sono le sole aperte ad anon.
 revoke execute on function public.survey_text(jsonb, integer) from public, anon, authenticated;
@@ -2548,63 +3315,90 @@ revoke execute on function public.notify_recipients() from public, anon, authent
 revoke execute on function public.notify_pending_mentions(timestamptz) from public, anon, authenticated;
 revoke execute on function public.notify_claim_mentions(bigint[]) from public, anon, authenticated;
 revoke execute on function public.notify_release_mentions(bigint[]) from public, anon, authenticated;
-revoke execute on function public.notify_claim_weekly(uuid, date) from public, anon, authenticated;
-revoke execute on function public.notify_release_weekly(uuid, date) from public, anon, authenticated;
-revoke execute on function public.notify_weekly_data(timestamptz) from public, anon, authenticated;
+revoke execute on function public.notify_claim_weekly(uuid, uuid, date) from public, anon, authenticated;
+revoke execute on function public.notify_release_weekly(uuid, uuid, date) from public, anon, authenticated;
+revoke execute on function public.notify_weekly_data(uuid, timestamptz) from public, anon, authenticated;
 revoke execute on function public.notify_call(text) from public, anon, authenticated, service_role;
 grant execute on function public.notify_recipients() to service_role;
 grant execute on function public.notify_pending_mentions(timestamptz) to service_role;
 grant execute on function public.notify_claim_mentions(bigint[]) to service_role;
 grant execute on function public.notify_release_mentions(bigint[]) to service_role;
-grant execute on function public.notify_claim_weekly(uuid, date) to service_role;
-grant execute on function public.notify_release_weekly(uuid, date) to service_role;
-grant execute on function public.notify_weekly_data(timestamptz) to service_role;
+grant execute on function public.notify_claim_weekly(uuid, uuid, date) to service_role;
+grant execute on function public.notify_release_weekly(uuid, uuid, date) to service_role;
+grant execute on function public.notify_weekly_data(uuid, timestamptz) to service_role;
 
-revoke execute on function public.my_role() from public, anon;
 revoke execute on function public.has_mfa() from public, anon;
-revoke execute on function public.can_read() from public, anon;
-revoke execute on function public.can_write() from public, anon;
-revoke execute on function public.is_admin() from public, anon;
-revoke execute on function public.add_member(text, text, text) from public, anon;
-revoke execute on function public.members_overview() from public, anon;
+revoke execute on function public.is_platform_admin() from public, anon;
+revoke execute on function public.my_role(uuid) from public, anon;
+revoke execute on function public.can_read(uuid) from public, anon;
+revoke execute on function public.can_write(uuid) from public, anon;
+revoke execute on function public.is_admin(uuid) from public, anon;
+revoke execute on function public.can_manage(uuid) from public, anon;
+revoke execute on function public.shares_project(uuid) from public, anon;
+revoke execute on function public.has_any_project() from public, anon;
+revoke execute on function public.storage_project(text) from public, anon;
+revoke execute on function public.my_projects() from public, anon;
+revoke execute on function public.all_projects() from public, anon;
+revoke execute on function public.create_project(text) from public, anon;
+revoke execute on function public.rename_project(uuid, text) from public, anon;
+revoke execute on function public.archive_project(uuid) from public, anon;
+revoke execute on function public.unarchive_project(uuid) from public, anon;
+revoke execute on function public.add_platform_admin(text) from public, anon;
+revoke execute on function public.remove_platform_admin(uuid) from public, anon;
+revoke execute on function public.add_member(uuid, text, text, text) from public, anon;
+revoke execute on function public.members_overview(uuid) from public, anon;
 revoke execute on function public.touch_activity() from public, anon;
-revoke execute on function public.create_item(text, text, text, jsonb, uuid, text) from public, anon;
+revoke execute on function public.create_item(uuid, text, text, text, jsonb, uuid, text) from public, anon;
 revoke execute on function public.item_write_result(uuid, integer) from public, anon;
 revoke execute on function public.save_item(uuid, integer, text, text, jsonb, uuid, text) from public, anon;
 revoke execute on function public.delete_item(uuid, integer, text) from public, anon;
 revoke execute on function public.restore_item(uuid, text) from public, anon;
 revoke execute on function public.revert_item(uuid, integer, integer, text) from public, anon;
-revoke execute on function public.note_image_orphans(text[]) from public, anon;
-revoke execute on function public.survey_image_orphans(text[]) from public, anon;
-revoke execute on function public.chat_overview() from public, anon;
+revoke execute on function public.note_image_orphans(uuid, text[]) from public, anon;
+revoke execute on function public.survey_image_orphans(uuid, text[]) from public, anon;
+revoke execute on function public.chat_overview(uuid) from public, anon;
 revoke execute on function public.mark_chat_read(uuid) from public, anon;
-revoke execute on function public.mark_mentions_read(bigint[]) from public, anon;
+revoke execute on function public.mark_mentions_read(uuid, bigint[]) from public, anon;
 revoke execute on function public.set_email_prefs(boolean, boolean) from public, anon;
 revoke execute on function public.survey_funnel(uuid) from public, anon;
 revoke execute on function public.availability_busy_ok(jsonb) from public, anon;
 revoke execute on function public.delete_survey_responses(uuid, uuid[]) from public, anon;
 
-grant execute on function public.my_role() to authenticated;
+-- Le regole di accesso chiamano queste funzioni con i permessi di chi legge: servono ad authenticated.
 grant execute on function public.has_mfa() to authenticated;
-grant execute on function public.can_read() to authenticated;
+grant execute on function public.is_platform_admin() to authenticated;
+grant execute on function public.my_role(uuid) to authenticated;
+grant execute on function public.can_read(uuid) to authenticated;
+grant execute on function public.can_write(uuid) to authenticated;
+grant execute on function public.is_admin(uuid) to authenticated;
+grant execute on function public.can_manage(uuid) to authenticated;
+grant execute on function public.shares_project(uuid) to authenticated;
+grant execute on function public.has_any_project() to authenticated;
+grant execute on function public.storage_project(text) to authenticated;
 -- Serve a items_before_write, che gira con i permessi di chi scrive.
 grant execute on function public.availability_busy_ok(jsonb) to authenticated;
-grant execute on function public.can_write() to authenticated;
-grant execute on function public.is_admin() to authenticated;
-grant execute on function public.add_member(text, text, text) to authenticated;
-grant execute on function public.members_overview() to authenticated;
+grant execute on function public.my_projects() to authenticated;
+grant execute on function public.all_projects() to authenticated;
+grant execute on function public.create_project(text) to authenticated;
+grant execute on function public.rename_project(uuid, text) to authenticated;
+grant execute on function public.archive_project(uuid) to authenticated;
+grant execute on function public.unarchive_project(uuid) to authenticated;
+grant execute on function public.add_platform_admin(text) to authenticated;
+grant execute on function public.remove_platform_admin(uuid) to authenticated;
+grant execute on function public.add_member(uuid, text, text, text) to authenticated;
+grant execute on function public.members_overview(uuid) to authenticated;
 grant execute on function public.touch_activity() to authenticated;
-grant execute on function public.create_item(text, text, text, jsonb, uuid, text) to authenticated;
+grant execute on function public.create_item(uuid, text, text, text, jsonb, uuid, text) to authenticated;
 grant execute on function public.item_write_result(uuid, integer) to authenticated;
 grant execute on function public.save_item(uuid, integer, text, text, jsonb, uuid, text) to authenticated;
 grant execute on function public.delete_item(uuid, integer, text) to authenticated;
 grant execute on function public.restore_item(uuid, text) to authenticated;
 grant execute on function public.revert_item(uuid, integer, integer, text) to authenticated;
-grant execute on function public.note_image_orphans(text[]) to authenticated;
-grant execute on function public.survey_image_orphans(text[]) to authenticated;
-grant execute on function public.chat_overview() to authenticated;
+grant execute on function public.note_image_orphans(uuid, text[]) to authenticated;
+grant execute on function public.survey_image_orphans(uuid, text[]) to authenticated;
+grant execute on function public.chat_overview(uuid) to authenticated;
 grant execute on function public.mark_chat_read(uuid) to authenticated;
-grant execute on function public.mark_mentions_read(bigint[]) to authenticated;
+grant execute on function public.mark_mentions_read(uuid, bigint[]) to authenticated;
 grant execute on function public.set_email_prefs(boolean, boolean) to authenticated;
 grant execute on function public.survey_funnel(uuid) to authenticated;
 grant execute on function public.delete_survey_responses(uuid, uuid[]) to authenticated;
@@ -2613,17 +3407,28 @@ grant execute on function public.delete_survey_responses(uuid, uuid[]) to authen
 -- Realtime: aggiornamenti dal vivo e presenza
 -- =========================================================================
 
+-- Gli aggiornamenti dal vivo passano dalle regole di accesso: ognuno riceve solo quelli dei suoi progetti.
+-- Le cancellazioni no: Realtime le manda a chiunque segua la tabella, con la chiave della riga. Per questo members
+-- (chiave progetto e persona: chi è uscito da quale progetto) e profiles non si pubblicano, e chi li aveva li toglie.
 do $$
 declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages', 'mentions'] loop
+    foreach t in array array['items', 'revisions', 'comments', 'projects', 'chats', 'chat_messages', 'mentions'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
       ) then
         execute format('alter publication supabase_realtime add table public.%I', t);
+      end if;
+    end loop;
+    foreach t in array array['members', 'profiles'] loop
+      if exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
+      ) then
+        execute format('alter publication supabase_realtime drop table public.%I', t);
       end if;
     end loop;
   end if;
@@ -2641,12 +3446,13 @@ begin
     join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
   loop
-    raise exception 'La tabella public.% non ha la Row Level Security attiva', t;
+    raise exception 'rls_disabled' using errcode = 'P0001', detail = 'public.' || t;
   end loop;
 end
 $$;
 
--- Canale privato "board" per vedere chi è online: solo membri con 2FA.
+-- Presenza online: un canale privato board:<id del progetto> per progetto, aperto a chi legge quel progetto.
+-- Il vecchio canale "board" e ogni altro nome sono chiusi; il case evita che un id malformato fallisca la conversione.
 do $$
 begin
   if to_regclass('realtime.messages') is not null then
@@ -2654,17 +3460,43 @@ begin
     execute $p$
       create policy board_presence_select on realtime.messages
         for select to authenticated
-        using ((select public.can_read()) and realtime.topic() = 'board')
+        using ((select public.can_read(case
+          when realtime.topic() ~ '^board:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then substr(realtime.topic(), 7)::uuid
+        end)))
     $p$;
     execute 'drop policy if exists board_presence_insert on realtime.messages';
     execute $p$
       create policy board_presence_insert on realtime.messages
         for insert to authenticated
-        with check ((select public.can_read()) and realtime.topic() = 'board')
+        with check ((select public.can_read(case
+          when realtime.topic() ~ '^board:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then substr(realtime.topic(), 7)::uuid
+        end)))
     $p$;
   end if;
 end
 $$;
+
+-- =========================================================================
+-- Funzioni a squadra unica: tolte
+-- =========================================================================
+
+-- Non sapevano nulla dei progetti e create or replace non le toglie. Si tolgono qui, dopo le regole di accesso che le usavano.
+drop function if exists public.my_role();
+drop function if exists public.can_read();
+drop function if exists public.can_write();
+drop function if exists public.is_admin();
+drop function if exists public.add_member(text, text, text);
+drop function if exists public.members_overview();
+drop function if exists public.chat_overview();
+drop function if exists public.create_item(text, text, text, jsonb, uuid, text);
+drop function if exists public.note_image_orphans(text[]);
+drop function if exists public.survey_image_orphans(text[]);
+drop function if exists public.record_mentions(text, uuid, text, uuid, uuid, uuid);
+drop function if exists public.mentioned_users(text, uuid);
+drop function if exists public.notify_claim_weekly(uuid, date);
+drop function if exists public.notify_release_weekly(uuid, date);
+drop function if exists public.notify_weekly_data(timestamptz);
+drop function if exists public.mark_mentions_read(bigint[]);
 
 -- =========================================================================
 -- Email programmate: pg_cron chiama la funzione notify con pg_net

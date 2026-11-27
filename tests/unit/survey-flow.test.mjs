@@ -23,6 +23,7 @@ import {
   progressFor,
   addScreenTime,
   readStored,
+  reasonText,
   seenKey,
   seenRecently,
   sentKey,
@@ -315,7 +316,9 @@ test('a stored session resumes only when well formed, with the screen kept withi
 
 test('q.html is a separate page with a strict policy that loads only the public survey modules', () => {
   const html = readFileSync(new URL('q.html', ROOT), 'utf8');
-  assert.match(html, /<html lang="it">/);
+  // English is the default: the page switches to Italian on an Italian device as soon as it starts.
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /<p class="survey-boot" role="status">Loading… <span lang="it">Caricamento…<\/span><\/p>/);
   assert.match(html, /name="viewport" content="width=device-width, initial-scale=1"/);
   assert.match(html, /name="robots" content="noindex, nofollow"/);
   assert.match(html, /name="referrer" content="no-referrer"/);
@@ -348,9 +351,12 @@ test('the browser test page runs under the same policy as q.html, plus only the 
 test('the public page never imports the app, the store, the router or anything that needs a login', () => {
   const importsOf = (file) =>
     [...readFileSync(new URL(`assets/js/public/${file}`, ROOT), 'utf8').matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
-  assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js']);
-  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js']);
-  assert.deepEqual(importsOf('survey-time.js'), []);
+  // texts.js holds the page's texts in Italian and English and chooses the respondent's language: it is part of the page.
+  assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js', './texts.js']);
+  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js', './texts.js']);
+  // The minutes label is a text: survey-time.js reads it from texts.js, the page's own text module, which imports nothing.
+  assert.deepEqual(importsOf('survey-time.js'), ['./texts.js']);
+  assert.deepEqual(importsOf('texts.js'), []);
   assert.deepEqual(importsOf('survey-colors.js'), []);
 });
 
@@ -433,6 +439,21 @@ test('a device that opened the link counts as one visit for 30 days', () => {
   assert.equal(seenRecently(String(now - 29 * day), now), true);
   assert.equal(seenRecently(String(now - 31 * day), now), false, 'dopo 30 giorni è una nuova visita');
   for (const bad of [null, '', 'ieri', '0', String(now + day)]) assert.equal(seenRecently(bad, now), false, String(bad));
+});
+
+test('on an Italian device the codes of the database are shown in Italian', () => {
+  for (const [code, italian] of [
+    ['required_missing', 'Rispondi a tutte le domande obbligatorie.'],
+    ['already_submitted', 'Le risposte sono già state inviate.'],
+    ['invalid_answers', 'Risposte non valide.'],
+    ['survey_full', 'Il questionario non accetta altre risposte.'],
+  ]) assert.equal(reasonText(code), italian, code);
+});
+
+test('on an Italian device an unknown code, an old sentence or a name of Object give no text: the page shows its own', () => {
+  for (const reason of ['codice_nuovo', 'Required_missing', ' required_missing', 'Rispondi a tutte le domande obbligatorie.', 'constructor', 'toString', '__proto__', '', null, undefined, 7, {}]) {
+    assert.equal(reasonText(reason), null, String(reason));
+  }
 });
 
 test('the time on a screen goes to its questions by words, adds up when coming back, and travels with the answers', () => {

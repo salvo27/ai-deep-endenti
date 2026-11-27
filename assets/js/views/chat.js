@@ -4,7 +4,7 @@ import { api } from '../lib/api.js';
 import { dayKey, dayLabel, fmtDateTime } from '../lib/format.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { isUuid } from '../lib/validate.js';
-import { chatList, chatState, createChat, lastMessageAt, markChatRead, setActiveChat, unreadOf } from '../chat.js';
+import { chatList, chatState, chatTitle, createChat, lastMessageAt, markChatRead, setActiveChat, unreadOf } from '../chat.js';
 import { imagePointer, noteExcerpt, noteImageNode, removeUnusedImages, uploadNoteImage } from '../notes.js';
 import { emit, getItem, ideas, memberName, on, state } from '../store.js';
 import { navigate } from '../router.js';
@@ -12,12 +12,17 @@ import { avatar, button, emptyState, itemLink, timeAgo } from './components.js';
 import { mentionChip, mentionsMe } from './mention-chip.js';
 import { attachMentions } from './mention-input.js';
 import { markReadWhere } from '../mentions.js';
+import { ofOpenProject } from '../notifications.js';
+import { locale, tx } from '../i18n/index.js';
+
+const t = tx.chat;
+const actions = tx.common.actions;
 
 const PAGE = 50;
 const MAX_MESSAGE = 4000;
 
 function newChatDialog() {
-  const title = h('input', { type: 'text', class: 'input', maxlength: 80, placeholder: 'Per esempio: Nutrizione' });
+  const title = h('input', { type: 'text', class: 'input', maxlength: 80, placeholder: t.create.namePlaceholder });
   const idea = h(
     'select',
     {
@@ -27,22 +32,22 @@ function newChatDialog() {
         if (chosen && !title.value.trim()) title.value = chosen.title.slice(0, 80);
       },
     },
-    h('option', { value: '' }, 'Nessuna: argomento libero'),
+    h('option', { value: '' }, t.create.noIdea),
     ideas().map((i) => h('option', { value: i.id }, i.title)),
   );
   openModal({
-    title: 'Nuova chat',
+    title: t.create.title,
     body: h(
       'div',
       { class: 'stack' },
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Nome'), title),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Idea collegata'), idea),
-      h('p', { class: 'muted small' }, 'Le chat si possono archiviare, non cancellare.'),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.create.name), title),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.create.idea), idea),
+      h('p', { class: 'muted small' }, t.create.archiveNote),
     ),
     actions: [
-      { label: 'Annulla', value: false },
+      { label: actions.cancel, value: false },
       {
-        label: 'Crea',
+        label: t.create.create,
         kind: 'primary',
         onClick: async () => {
           const name = title.value.trim();
@@ -88,9 +93,9 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
   const quoted = new Map();
   const replyBar = h('div', { class: 'chat-reply-bar', hidden: true });
 
-  const listHost = h('nav', { class: 'chat-list', 'aria-label': 'Elenco delle chat' });
+  const listHost = h('nav', { class: 'chat-list', 'aria-label': t.list.label });
   const panel = h('section', { class: 'chat-panel' });
-  const messagesHost = h('div', { class: 'chat-messages', role: 'log', 'aria-live': 'polite', 'aria-label': 'Messaggi' });
+  const messagesHost = h('div', { class: 'chat-messages', role: 'log', 'aria-live': 'polite', 'aria-label': t.messages.label });
   mount(outlet, h('div', { class: ['chat-layout', chatId && 'has-active'] }, listHost, panel));
 
   const chat = () => (chatId ? chatState.chats.get(chatId) : null);
@@ -110,20 +115,20 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
         h(
           'span',
           { class: 'chat-entry-main' },
-          h('strong', null, c.title),
-          h('span', { class: 'muted small' }, lastMessageAt(c.id) ? timeAgo(lastMessageAt(c.id)) : c.is_general ? 'Tutta la squadra' : 'Nessun messaggio'),
+          h('strong', null, chatTitle(c)),
+          h('span', { class: 'muted small' }, lastMessageAt(c.id) ? timeAgo(lastMessageAt(c.id)) : c.is_general ? t.list.wholeTeam : t.list.noMessages),
         ),
         unreadOf(c.id) ? h('span', { class: 'nav-badge' }, String(unreadOf(c.id))) : null,
       );
     mount(
       listHost,
-      h('div', { class: 'chat-list-head' }, h('h1', null, 'Chat'), button('Nuova', { iconName: 'plus', onClick: newChatDialog })),
-      chatState.loaded ? h('div', { class: 'chat-entries' }, active.map(entry)) : h('p', { class: 'muted small' }, 'Caricamento…'),
+      h('div', { class: 'chat-list-head' }, h('h1', null, t.list.title), button(t.list.newChat, { iconName: 'plus', onClick: newChatDialog })),
+      chatState.loaded ? h('div', { class: 'chat-entries' }, active.map(entry)) : h('p', { class: 'muted small' }, tx.common.states.loading),
       archived.length
         ? h(
             'div',
             { class: 'chat-archived' },
-            h('button', { type: 'button', class: 'link-btn small', onClick: () => { showArchived = !showArchived; renderList(); } }, `${showArchived ? 'Nascondi' : 'Mostra'} le archiviate (${archived.length})`),
+            h('button', { type: 'button', class: 'link-btn small', onClick: () => { showArchived = !showArchived; renderList(); } }, (showArchived ? t.list.hideArchived : t.list.showArchived)(archived.length)),
             showArchived ? h('div', { class: 'chat-entries' }, archived.map(entry)) : null,
           )
         : null,
@@ -180,7 +185,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       original ? 'button' : 'div',
       { class: 'chat-quote', type: original ? 'button' : undefined, ...extra },
       original ? h('strong', null, memberName(original.author_id)) : null,
-      h('span', null, !original ? 'Messaggio precedente' : original.deleted_at ? 'Messaggio eliminato' : noteExcerpt(original.body, 140) || 'Immagine'),
+      h('span', null, !original ? t.quote.missing : original.deleted_at ? t.messages.deleted : noteExcerpt(original.body, 140) || t.quote.image),
     );
 
   function setReply(m) {
@@ -193,18 +198,18 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
     replyBar.hidden = false;
     mount(
       replyBar,
-      h('span', { class: 'muted small' }, 'Rispondi a'),
+      h('span', { class: 'muted small' }, t.quote.replyingTo),
       quoteOf(m),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Annulla la risposta', onClick: () => setReply(null) }, icon('close', 14)),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.quote.cancelReply, onClick: () => setReply(null) }, icon('close', 14)),
     );
     panel.querySelector('textarea.chat-input')?.focus();
   }
 
   function messageRow(m) {
     const mine = m.author_id === state.user?.id;
-    const time = h('time', { datetime: m.created_at, title: fmtDateTime(m.created_at) }, new Date(m.created_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
+    const time = h('time', { datetime: m.created_at, title: fmtDateTime(m.created_at) }, new Date(m.created_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
     let body;
-    if (m.deleted_at) body = h('p', { class: 'muted small' }, 'Messaggio eliminato');
+    if (m.deleted_at) body = h('p', { class: 'muted small' }, t.messages.deleted);
     else if (editingId === m.id) {
       const input = attachMentions(autoGrow(h('textarea', { class: 'input', rows: 2, maxlength: MAX_MESSAGE, value: m.body })));
       body = h(
@@ -214,7 +219,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
         h(
           'div',
           { class: 'row' },
-          button('Salva', {
+          button(actions.save, {
             kind: 'primary',
             onClick: async () => {
               const text = input.value.trim();
@@ -229,7 +234,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
               }
             },
           }),
-          button('Annulla', { onClick: () => { editingId = null; renderMessages(); } }),
+          button(actions.cancel, { onClick: () => { editingId = null; renderMessages(); } }),
         ),
       );
       setTimeout(() => input.focus(), 0);
@@ -246,24 +251,24 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
           { class: 'chat-message-head' },
           h('strong', null, memberName(m.author_id)),
           time,
-          m.edited_at && !m.deleted_at ? h('span', { class: 'muted small' }, 'modificato') : null,
-          m.pending ? h('span', { class: 'muted small chat-pending' }, 'Invio…') : null,
+          m.edited_at && !m.deleted_at ? h('span', { class: 'muted small' }, t.messages.edited) : null,
+          m.pending ? h('span', { class: 'muted small chat-pending' }, t.messages.sending) : null,
           m.failed
             ? h(
                 'span',
                 { class: 'chat-failed small' },
-                'Non inviato · ',
-                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); deliver(m); } }, 'Riprova'),
+                `${t.messages.notSent} · `,
+                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); deliver(m); } }, actions.retry),
                 ' · ',
-                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); renderMessages(); } }, 'Scarta'),
+                h('button', { type: 'button', class: 'link-btn small', onClick: () => { messages = messages.filter((x) => x.id !== m.id); renderMessages(); } }, t.messages.discard),
               )
             : null,
           !m.deleted_at && !m.pending && !m.failed && editingId !== m.id && !chat()?.archived_at
             ? h(
                 'span',
                 { class: 'chat-message-actions' },
-                h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Rispondi al messaggio', title: 'Rispondi', onClick: () => setReply(m) }, icon('back', 14)),
-                mine ? h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Modifica il messaggio', onClick: () => { editingId = m.id; renderMessages(); } }, icon('edit', 14)) : null,
+                h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.messages.replyLabel, title: t.messages.reply, onClick: () => setReply(m) }, icon('back', 14)),
+                mine ? h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.messages.editLabel, onClick: () => { editingId = m.id; renderMessages(); } }, icon('edit', 14)) : null,
                 !mine
                   ? null
                   : h(
@@ -271,9 +276,9 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
                   {
                     type: 'button',
                     class: 'icon-btn',
-                    'aria-label': 'Elimina il messaggio',
+                    'aria-label': t.messages.deleteLabel,
                     onClick: async () => {
-                      if (!(await confirmDialog('Eliminare il messaggio? Il testo verrà cancellato.', { okLabel: 'Elimina', danger: true }))) return;
+                      if (!(await confirmDialog(t.messages.deleteConfirm, { okLabel: actions.delete, danger: true }))) return;
                       try {
                         upsert(await api.deleteMessage(m.id));
                         removeUnusedImages(m.body, '').catch(() => {});
@@ -295,7 +300,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
 
   function renderMessages() {
     const rows = [];
-    if (hasMore) rows.push(h('div', { class: 'chat-more' }, button('Messaggi precedenti', { onClick: loadOlder })));
+    if (hasMore) rows.push(h('div', { class: 'chat-more' }, button(t.messages.earlier, { onClick: loadOlder })));
     let lastDay = null;
     for (const m of messages) {
       const day = dayKey(m.created_at);
@@ -305,8 +310,8 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       }
       rows.push(messageRow(m));
     }
-    if (loaded && !messages.length) rows.push(emptyState(chat()?.is_general ? 'Nessun messaggio ancora: scrivete qui alla squadra.' : 'Nessun messaggio ancora in questa chat.'));
-    if (!loaded) rows.push(h('p', { class: 'muted small' }, 'Caricamento dei messaggi…'));
+    if (loaded && !messages.length) rows.push(emptyState(chat()?.is_general ? t.messages.emptyGeneral : t.messages.empty));
+    if (!loaded) rows.push(h('p', { class: 'muted small' }, t.messages.loading));
     mount(messagesHost, rows);
     fetchQuotes();
   }
@@ -340,14 +345,14 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
   }
 
   function composer(c) {
-    if (c.archived_at) return h('p', { class: 'banner' }, 'Chat archiviata: si può leggere, ma non scrivere. ', h('button', { type: 'button', class: 'link-btn', onClick: () => updateChat(c, { archived_at: null }) }, 'Riattivala'));
+    if (c.archived_at) return h('p', { class: 'banner' }, `${t.panel.archived} `, h('button', { type: 'button', class: 'link-btn', onClick: () => updateChat(c, { archived_at: null }) }, t.panel.reactivate));
     const input = attachMentions(autoGrow(
       h('textarea', {
         class: 'input chat-input',
         rows: 1,
         maxlength: MAX_MESSAGE,
-        placeholder: 'Scrivi un messaggio; @ per taggare. Invio per mandarlo, Maiusc+Invio per andare a capo.',
-        'aria-label': 'Messaggio',
+        placeholder: t.composer.placeholder,
+        'aria-label': t.composer.label,
         onKeydown: (e) => {
           if (e.target.mentionOpen) return;
           if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -358,7 +363,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
         },
       }),
     ), { above: true });
-    const sendButton = button('Invia', { kind: 'primary', onClick: () => send() });
+    const sendButton = button(actions.send, { kind: 'primary', onClick: () => send() });
     function send() {
       const text = input.value.trim();
       if (!text) return;
@@ -394,7 +399,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       h(
         'div',
         { class: 'chat-composer' },
-        h('label', { class: 'btn btn-ghost btn-icon', title: 'Aggiungi un\'immagine', 'aria-label': 'Aggiungi un\'immagine' }, icon('image', 16), fileInput),
+        h('label', { class: 'btn btn-ghost btn-icon', title: t.composer.addImage, 'aria-label': t.composer.addImage }, icon('image', 16), fileInput),
         input,
         sendButton,
       ),
@@ -404,11 +409,11 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
   function renderPanel() {
     const c = chat();
     if (!chatId) {
-      mount(panel, emptyState('Scegli una chat dall\'elenco, o creane una nuova per un argomento o un\'idea.'));
+      mount(panel, emptyState(t.panel.choose));
       return;
     }
     if (!c) {
-      mount(panel, chatState.loaded ? emptyState('Chat non trovata.') : h('p', { class: 'muted' }, 'Caricamento…'));
+      mount(panel, chatState.loaded ? emptyState(t.panel.notFound) : h('p', { class: 'muted' }, tx.common.states.loading));
       return;
     }
     const idea = c.idea_id ? getItem(c.idea_id) : null;
@@ -417,31 +422,31 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       h(
         'header',
         { class: 'chat-head' },
-        h('a', { class: 'back-link chat-back', href: '#/chat' }, icon('back', 16), h('span', null, 'Tutte le chat')),
+        h('a', { class: 'back-link chat-back', href: '#/chat' }, icon('back', 16), h('span', null, t.panel.allChats)),
         h(
           'div',
           { class: 'chat-head-main' },
-          h('h2', null, c.title, c.archived_at ? h('span', { class: 'badge badge-soft' }, 'archiviata') : null),
-          idea ? h('span', { class: 'muted small' }, 'Idea: ', itemLink(idea)) : c.is_general ? h('span', { class: 'muted small' }, 'La chat di tutta la squadra') : null,
+          h('h2', null, chatTitle(c), c.archived_at ? h('span', { class: 'badge badge-soft' }, t.panel.archivedBadge) : null),
+          idea ? h('span', { class: 'muted small' }, `${t.panel.linkedIdea} `, itemLink(idea)) : c.is_general ? h('span', { class: 'muted small' }, t.panel.generalSubtitle) : null,
         ),
         c.is_general
           ? null
           : h(
               'div',
               { class: 'row' },
-              button('Rinomina', {
+              button(actions.rename, {
                 iconName: 'edit',
                 onClick: async () => {
-                  const title = await promptDialog({ title: 'Rinomina la chat', label: 'Nome', value: c.title, maxLength: 80, okLabel: 'Salva' });
+                  const title = await promptDialog({ title: t.panel.renameTitle, label: t.panel.renameLabel, value: c.title, maxLength: 80, okLabel: actions.save });
                   if (title?.trim()) updateChat(c, { title: title.trim() });
                 },
               }),
               c.archived_at
                 ? null
-                : button('Archivia', {
+                : button(actions.archive, {
                     iconName: 'trash',
                     onClick: async () => {
-                      if (await confirmDialog('Archiviare la chat? Resterà leggibile tra le archiviate, ma non ci si potrà più scrivere.', { okLabel: 'Archivia' })) {
+                      if (await confirmDialog(t.panel.archiveConfirm, { okLabel: actions.archive })) {
                         updateChat(c, { archived_at: new Date().toISOString() });
                       }
                     },
@@ -481,19 +486,29 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
     if (isUuid(target)) jumpTo(target);
   }
 
+  // Only a chat of the open project is read and marked read. A link to a chat of another project (pasted in a note,
+  // an old bookmark) stays "not found" and leaves that chat unread; before the list arrives nobody knows yet.
+  let opened = false;
+  const openIfOfProject = () => {
+    if (opened || !chat()) return;
+    opened = true;
+    loadMessages();
+  };
+
   renderList();
   renderPanel();
   setActiveChat(chatId);
-  if (chatId) loadMessages();
+  openIfOfProject();
 
   let lastChat = JSON.stringify(chat());
   const onVisible = () => {
-    if (document.visibilityState === 'visible' && chatId) markChatRead(chatId);
+    if (document.visibilityState === 'visible' && opened) markChatRead(chatId);
   };
   document.addEventListener('visibilitychange', onVisible);
   const offs = [
     on('chats', () => {
       renderList();
+      openIfOfProject();
       const now = JSON.stringify(chat());
       if (now !== lastChat) {
         lastChat = now;
@@ -503,7 +518,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       }
     }),
     on('chat-message', ({ row }) => {
-      if (row.chat_id !== chatId) return;
+      if (row.chat_id !== chatId || !ofOpenProject(row) || !opened) return;
       upsert(row);
       if (document.visibilityState === 'visible') {
         markChatRead(chatId);

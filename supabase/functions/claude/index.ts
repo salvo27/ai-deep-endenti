@@ -18,13 +18,18 @@ async function verifyCaller(authorization: string | null) {
   if (!authorization?.startsWith('Bearer ')) return null;
   const { data, error } = await admin.auth.getUser(authorization.slice(7));
   if (error || !data?.user) return null;
+  return { userId: data.user.id };
+}
+
+// can_read controlla, sul token di chi chiama, che sia membro del progetto, con la 2FA (aal2), e che il progetto non sia archiviato.
+async function canRead(authorization: string | null, project: string) {
+  if (!authorization?.startsWith('Bearer ')) return false;
   const asUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  // can_read controlla membro del team e 2FA (aal2) sul token di chi chiama.
-  const { data: member, error: rpcError } = await asUser.rpc('can_read');
-  return { userId: data.user.id, member: !rpcError && member === true };
+  const { data, error } = await asUser.rpc('can_read', { p_project: project });
+  return !error && data === true;
 }
 
 async function countUsageToday(userId: string) {
@@ -63,12 +68,9 @@ async function callClaude({ system, user }: { system: string; user: string }) {
       messages: [{ role: 'user', content: user }],
     });
   } catch (error) {
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new HttpError(503, 'Claude è molto richiesto in questo momento. Riprova tra un minuto.');
-    }
-    if (error instanceof Anthropic.APIConnectionTimeoutError) {
-      throw new HttpError(504, 'Claude ci sta mettendo troppo. Riprova con meno testo.');
-    }
+    // Il testo lo sceglie il gestore, nella lingua della richiesta.
+    if (error instanceof Anthropic.RateLimitError) throw new HttpError(503, 'busy');
+    if (error instanceof Anthropic.APIConnectionTimeoutError) throw new HttpError(504, 'timeout');
     throw error;
   }
 }
@@ -78,6 +80,7 @@ Deno.serve(
     allowedOrigins: Deno.env.get('ALLOWED_ORIGINS') ?? '',
     dailyLimit: Number(Deno.env.get('AI_DAILY_LIMIT') ?? 40),
     verifyCaller,
+    canRead,
     countUsageToday,
     recordUsage,
     finishUsage,

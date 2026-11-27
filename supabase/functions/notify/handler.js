@@ -1,4 +1,5 @@
-import { APP_NAME, WEEKLY_SUBJECT, greeting, isIsoDate, mentionsEmail, oneLine, weeklyEmail, weeklySections } from './templates.js';
+import { APP_NAME, greeting, isIsoDate, mentionsEmail, oneLine, weeklyEmail, weeklySections, weeklySubject } from './templates.js';
+import { DEFAULT_LANGUAGE, TEXTS, errorText, isLanguage, languageOf } from './texts.js';
 
 export const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 export const MIN_SECRET_LENGTH = 32;
@@ -9,11 +10,13 @@ export const WEEK_MS = 7 * 24 * 3600 * 1000;
 // Come STRONG_COMMITMENTS in assets/js/schema.js (un test controlla che restino uguali).
 export const STRONG_COMMITMENTS = new Set(['pilota', 'pagamento']);
 
+// Da pg_cron, su tutti i progetti attivi.
 const JOBS = new Set(['mentions', 'weekly']);
-// Dal sito, solo per l'admin: anteprima del riepilogo (la sua versione) e invio subito a tutti.
+// Dal sito, solo per l'admin di un progetto e solo per quel progetto: anteprima del riepilogo (la sua versione) e invio subito.
 const ADMIN_JOBS = new Set(['weekly-preview', 'weekly-now']);
-export const MANUAL_INTRO = 'ecco il riepilogo della settimana.';
+const SITE_FIELDS = new Set(['job', 'project', 'language']);
 const MAX_BODY_BYTES = 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 const ROME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -31,6 +34,9 @@ export class SendError extends Error {
 function json(status, body, extra = {}) {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...extra } });
 }
+
+// Un errore: il testo nella lingua di chi chiede, il codice accanto.
+const failure = (status, code, language = DEFAULT_LANGUAGE, extra = {}) => json(status, { error: errorText(language, code), code }, extra);
 
 export function parseOrigins(value) {
   return String(value || '')
@@ -78,16 +84,32 @@ export async function sameSecret(given, expected) {
   return diff === 0;
 }
 
-async function readJob(req, jobs = JOBS) {
+// Il corpo della richiesta come oggetto, o null se è troppo grande o non è un oggetto JSON. Si legge anche prima di sapere
+// chi chiama (serve la lingua degli errori): una dimensione dichiarata oltre il limite non si legge nemmeno.
+async function readBody(req) {
+  if (Number(req.headers.get('content-length') || 0) > MAX_BODY_BYTES) return null;
   const raw = await req.text();
   if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) return null;
   try {
     const body = JSON.parse(raw);
-    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'job')) return null;
-    return jobs.has(body.job) ? body.job : null;
+    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
   } catch {
     return null;
   }
+}
+
+// pg_cron manda solo { job }: lavora su tutti i progetti, un progetto nel corpo non è ammesso.
+function cronJob(body) {
+  if (!body || Object.keys(body).some((k) => k !== 'job')) return null;
+  return JOBS.has(body.job) ? body.job : null;
+}
+
+// Il sito manda { job, project, language? }: la lingua decide solo il testo degli errori.
+function siteRequest(body) {
+  if (!body || Object.keys(body).some((k) => !SITE_FIELDS.has(k)) || !ADMIN_JOBS.has(body.job)) return { error: 'invalid_request' };
+  if (body.language != null && !isLanguage(body.language)) return { error: 'invalid_request' };
+  if (typeof body.project !== 'string' || !UUID.test(body.project)) return { error: 'invalid_project' };
+  return { job: body.job, project: body.project.toLowerCase() };
 }
 
 export async function sendWithBrevo(fetchFn, brevo, to, message) {
@@ -195,29 +217,35 @@ async function deliver(ctx, person, message, release) {
   }
 }
 
+// Una riga di notify_recipients è una persona in un progetto attivo: le email sono per persona e progetto.
+const personKey = (userId, projectId) => `${userId}|${projectId}`;
+const projectOf = (row, data = {}) => ({ id: row.project_id, name: row.project_name ?? data.project_name });
+
 async function runMentions(ctx) {
   const { deps, now, siteUrl } = ctx;
   const since = new Date(now.getTime() - MENTION_WINDOW_MS).toISOString();
   const [people, rows] = await Promise.all([deps.recipients(), deps.pendingMentions(since)]);
-  const byUser = new Map((people || []).map((p) => [p.user_id, p]));
+  const byKey = new Map((people || []).map((p) => [personKey(p.user_id, p.project_id), p]));
   const groups = new Map();
   for (const row of rows || []) {
     if (row.read_at) continue;
-    if (!groups.has(row.user_id)) groups.set(row.user_id, []);
-    groups.get(row.user_id).push(row);
+    const key = personKey(row.user_id, row.project_id);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
   }
 
   const result = { sent: 0, mentions: 0, skipped: 0, waiting: 0, failed: 0, statuses: ctx.statuses };
-  for (const [userId, list] of groups) {
-    // Si scrive solo se almeno una menzione aspetta da 10 minuti; allora partono tutte quelle non lette.
+  for (const [key, list] of groups) {
+    // Si scrive solo se almeno una menzione aspetta da 10 minuti; allora partono tutte quelle non lette del progetto.
     if (!list.some((m) => now.getTime() - Date.parse(m.created_at) >= MENTION_DELAY_MS)) {
       result.waiting += 1;
       continue;
     }
-    const person = byUser.get(userId);
+    // Senza la sua riga tra i destinatari (email spente, senza email o 2FA, fuori dal progetto, progetto archiviato)
+    // le menzioni si segnano comunque, così non partono più tardi.
+    const person = byKey.get(key);
     const ids = list.map((m) => m.id);
     if (!person?.mentions) {
-      // Email spente (o senza email e 2FA): le menzioni si segnano comunque, così non partono quando si riaccendono.
       await deps.claimMentions(ids);
       result.skipped += 1;
       continue;
@@ -225,7 +253,7 @@ async function runMentions(ctx) {
     const claimed = new Set(await deps.claimMentions(ids));
     const mentions = list.filter((m) => claimed.has(m.id));
     if (!mentions.length) continue;
-    const message = mentionsEmail({ name: person.display_name, mentions, siteUrl });
+    const message = mentionsEmail({ name: person.display_name, mentions, siteUrl, project: projectOf(person), language: languageOf(person.language) });
     const outcome = await deliver(ctx, person, message, () => deps.releaseMentions(mentions.map((m) => m.id)));
     if (outcome === 'sent') {
       result.sent += 1;
@@ -238,66 +266,91 @@ async function runMentions(ctx) {
   return result;
 }
 
-async function loadWeek(ctx) {
-  const { deps, now } = ctx;
+function weekOf(now) {
   const today = romeDate(now);
   const weekStart = mondayOf(today);
-  const weekEnd = addDays(weekStart, 6);
-  const since = new Date(now.getTime() - WEEK_MS).toISOString();
-  const [people, data] = await Promise.all([deps.recipients(), deps.weeklyData(since)]);
-  const team = teamSummary(data || {});
-  const reportFor = (userId) => ({ todo: personalTodo(data || {}, userId, { today, weekEnd }), team, unread: unreadFor(data || {}, userId) });
-  return { people: people || [], today, weekStart, reportFor };
+  return { today, weekStart, weekEnd: addDays(weekStart, 6), since: new Date(now.getTime() - WEEK_MS).toISOString() };
 }
 
-// key: il giorno con cui si segna l'invio a ogni persona. Il lunedì automatico usa il lunedì della settimana,
+// Le persone di ogni progetto, nell'ordine in cui arrivano; only: un progetto solo.
+function byProject(people, only = null) {
+  const groups = new Map();
+  for (const person of people || []) {
+    if (only && person.project_id !== only) continue;
+    if (!groups.has(person.project_id)) groups.set(person.project_id, []);
+    groups.get(person.project_id).push(person);
+  }
+  return groups;
+}
+
+async function loadProject(ctx, projectId, week) {
+  const data = (await ctx.deps.weeklyData(projectId, week.since)) || {};
+  const team = teamSummary(data);
+  return { data, reportFor: (userId) => ({ todo: personalTodo(data, userId, week), team, unread: unreadFor(data, userId) }) };
+}
+
+// key: il giorno con cui si segna l'invio a ogni persona in ogni progetto. Il lunedì automatico usa il lunedì della settimana,
 // l'invio a mano dal sito il giorno stesso: un secondo clic nello stesso giorno non manda nulla, il lunedì dopo sì.
-async function runWeekly(ctx, { manual = false } = {}) {
+// Si scrive solo ai progetti tra i destinatari, cioè a quelli attivi; project: solo quello, per l'invio dal sito.
+async function runWeekly(ctx, { manual = false, project = null } = {}) {
   const { deps, siteUrl } = ctx;
-  const { people, today, weekStart, reportFor } = await loadWeek(ctx);
-  const key = manual ? today : weekStart;
+  const week = weekOf(ctx.now);
+  const key = manual ? week.today : week.weekStart;
   const result = { sent: 0, empty: 0, optedOut: 0, already: 0, failed: 0, statuses: ctx.statuses };
-  for (const person of people) {
-    if (!person.weekly) {
-      result.optedOut += 1;
-      continue;
-    }
-    const report = reportFor(person.user_id);
-    if (isEmptyReport(report)) {
-      result.empty += 1;
-      continue;
-    }
-    const message = weeklyEmail({ name: person.display_name, report, siteUrl, intro: manual ? MANUAL_INTRO : undefined });
-    if (!(await deps.claimWeekly(person.user_id, key))) {
-      result.already += 1;
-      continue;
-    }
-    const outcome = await deliver(ctx, person, message, () => deps.releaseWeekly(person.user_id, key));
-    if (outcome === 'sent') {
-      result.sent += 1;
-    } else {
-      result.failed += 1;
-      if (outcome === 'stop') break;
+  for (const [projectId, members] of byProject(await deps.recipients(), project)) {
+    const wanted = members.filter((p) => p.weekly);
+    result.optedOut += members.length - wanted.length;
+    // Un progetto in cui nessuno vuole il riepilogo non si legge nemmeno.
+    if (!wanted.length) continue;
+    const { data, reportFor } = await loadProject(ctx, projectId, week);
+    for (const person of wanted) {
+      const report = reportFor(person.user_id);
+      if (isEmptyReport(report)) {
+        result.empty += 1;
+        continue;
+      }
+      const message = weeklyEmail({ name: person.display_name, report, siteUrl, project: projectOf(person, data), language: languageOf(person.language), manual });
+      if (!(await deps.claimWeekly(person.user_id, projectId, key))) {
+        result.already += 1;
+        continue;
+      }
+      const outcome = await deliver(ctx, person, message, () => deps.releaseWeekly(person.user_id, projectId, key));
+      if (outcome === 'sent') {
+        result.sent += 1;
+      } else {
+        result.failed += 1;
+        if (outcome === 'stop') return result;
+      }
     }
   }
   return result;
 }
 
-// L'anteprima è la versione di chi la chiede, in pezzi di testo e link: il sito la mostra senza HTML.
-// I conteggi dicono quante persone la riceverebbero adesso.
-async function previewWeekly(ctx, userId) {
-  const { people, reportFor } = await loadWeek(ctx);
+// L'anteprima è la versione di chi la chiede per quel progetto, in pezzi di testo e link: il sito la mostra senza HTML.
+// È nella lingua in cui riceverebbe l'email. I conteggi dicono quante persone del progetto la riceverebbero adesso.
+async function previewWeekly(ctx, userId, projectId) {
+  const week = weekOf(ctx.now);
+  const members = byProject(await ctx.deps.recipients(), projectId).get(projectId) || [];
+  const { data, reportFor } = await loadProject(ctx, projectId, week);
   const counts = { recipients: 0, empty: 0, optedOut: 0 };
-  for (const person of people) {
+  for (const person of members) {
     if (!person.weekly) counts.optedOut += 1;
     else if (isEmptyReport(reportFor(person.user_id))) counts.empty += 1;
     else counts.recipients += 1;
   }
   const report = reportFor(userId);
-  const me = people.find((p) => p.user_id === userId);
+  const me = members.find((p) => p.user_id === userId);
+  const language = languageOf(me ? me.language : (data.unread || []).find((u) => u.user_id === userId)?.language);
+  const project = me ? projectOf(me, data) : { id: projectId, name: data.project_name };
   const preview = isEmptyReport(report)
     ? null
-    : { subject: WEEKLY_SUBJECT, hello: greeting(me?.display_name), intro: MANUAL_INTRO, sections: weeklySections(report, ctx.siteUrl) };
+    : {
+      language,
+      subject: weeklySubject(project, language),
+      hello: greeting(me?.display_name, language),
+      intro: TEXTS[language].weekly.manualIntro,
+      sections: weeklySections(report, ctx.siteUrl, project, language),
+    };
   return { ...counts, preview };
 }
 
@@ -316,19 +369,25 @@ export function createHandler(deps) {
     send: (person, message) => sendWithBrevo(deps.fetch, config.brevo, person, message),
   });
 
-  // Dal sito: solo dalle origini ammesse, con il token di un admin con la verifica in due passaggi.
+  // Dal sito: solo dalle origini ammesse, con il token di un admin del progetto, con la verifica in due passaggi.
+  // Prima chi è, poi la richiesta, poi se è admin del progetto che la richiesta nomina.
   async function fromSite(req) {
     const allowed = parseOrigins(getEnv('ALLOWED_ORIGINS'));
     const origin = req.headers.get('origin');
     const cors = corsHeaders(origin, allowed);
     if (req.method === 'OPTIONS') return new Response(null, { status: origin && allowed.includes(origin) ? 204 : 403, headers: cors });
-    if (!origin || !allowed.includes(origin)) return json(403, { error: 'Origine non autorizzata.' }, cors);
-    if (req.method !== 'POST') return json(405, { error: 'Metodo non consentito.' }, cors);
-    const caller = await Promise.resolve(deps.verifyAdmin?.(req.headers.get('authorization'))).catch(() => null);
-    if (!caller?.userId) return json(401, { error: 'Accesso richiesto.' }, cors);
-    if (!caller.admin) return json(403, { error: 'Solo l\'admin, con la verifica in due passaggi, può farlo.' }, cors);
-    const job = await readJob(req, ADMIN_JOBS);
-    if (!job) return json(400, { error: 'Richiesta non valida.' }, cors);
+    if (!origin || !allowed.includes(origin)) return failure(403, 'origin_not_allowed', DEFAULT_LANGUAGE, cors);
+    if (req.method !== 'POST') return failure(405, 'method_not_allowed', DEFAULT_LANGUAGE, cors);
+    const body = await readBody(req);
+    const language = isLanguage(body?.language) ? body.language : DEFAULT_LANGUAGE;
+    const authorization = req.headers.get('authorization');
+    const caller = await Promise.resolve(deps.verifyCaller?.(authorization)).catch(() => null);
+    if (!caller?.userId) return failure(401, 'sign_in_required', language, cors);
+    const request = siteRequest(body);
+    if (request.error) return failure(400, request.error, language, cors);
+    const admin = await Promise.resolve(deps.isAdmin?.(authorization, request.project)).catch(() => false);
+    if (admin !== true) return failure(403, 'admin_only', language, cors);
+    const { job, project } = request;
     const config = readConfig(getEnv);
     if (job === 'weekly-now' && config.missing.length) {
       log('notify_not_configured', { job, missing: config.missing });
@@ -336,30 +395,30 @@ export function createHandler(deps) {
     }
     try {
       const ctx = context(job, config);
-      const result = job === 'weekly-preview' ? await previewWeekly(ctx, caller.userId) : await runWeekly(ctx, { manual: true });
+      const result = job === 'weekly-preview' ? await previewWeekly(ctx, caller.userId, project) : await runWeekly(ctx, { manual: true, project });
       if (job === 'weekly-now') log('notify_done', { job, sent: result.sent, empty: result.empty, optedOut: result.optedOut, already: result.already, failed: result.failed, statuses: result.statuses });
       return json(200, { job, configured: !config.missing.length, ...result }, cors);
     } catch (error) {
       log('notify_failed', { job, kind: error?.name || 'Error' });
-      return json(500, { error: 'Riepilogo non riuscito. Riprova tra poco.' }, cors);
+      return failure(500, 'summary_failed', language, cors);
     }
   }
 
   return async function handle(req) {
     // I job di pg_cron mandano il segreto condiviso; tutto il resto arriva dal sito.
     if (!req.headers.has('x-notify-secret')) return fromSite(req);
-    if (req.method !== 'POST') return json(405, { error: 'Metodo non consentito.' });
+    if (req.method !== 'POST') return failure(405, 'method_not_allowed');
     const config = readConfig(getEnv);
     if (!config.secret) {
       log('notify_no_secret', {});
-      return json(503, { error: 'Funzione non configurata.' });
+      return failure(503, 'not_configured');
     }
     if (!(await sameSecret(req.headers.get('x-notify-secret') || '', config.secret))) {
       log('notify_rejected', { status: 401 });
-      return json(401, { error: 'Non autorizzato.' });
+      return failure(401, 'unauthorized');
     }
-    const job = await readJob(req);
-    if (!job) return json(400, { error: 'Richiesta non valida.' });
+    const job = cronJob(await readBody(req));
+    if (!job) return failure(400, 'invalid_request');
 
     // Senza Brevo non si fa nulla e non si segna nulla: una riga di log e una risposta normale.
     if (config.missing.length) {
@@ -374,7 +433,7 @@ export function createHandler(deps) {
       return json(200, { job, configured: true, ...result });
     } catch (error) {
       log('notify_failed', { job, kind: error?.name || 'Error' });
-      return json(500, { error: 'Invio non riuscito.' });
+      return failure(500, 'send_failed');
     }
   };
 }

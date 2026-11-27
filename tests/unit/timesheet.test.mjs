@@ -41,7 +41,7 @@ import { diffSnapshots, merge3 } from '../../assets/js/lib/diff.js';
 import { api } from '../../assets/js/lib/api.js';
 import * as store from '../../assets/js/store.js';
 import { notifications, refreshNotifications, startNotifications, stopNotifications, timesheetReminder } from '../../assets/js/notifications.js';
-import { ADVISOR, ME, OTHER, item, members, revision } from '../setup/fixtures.mjs';
+import { ADVISOR, ME, OTHER, PROJECT, item, members, revision } from '../setup/fixtures.mjs';
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
 const SHEET = (n) => `cccccccc-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -62,6 +62,8 @@ const weeksOf = (...list) => new Map(list.map((raw) => [raw.week, sanitizeTimesh
 function signIn(userId) {
   store.resetStore();
   store.state.user = userId ? { id: userId } : null;
+  // The site always has a project open: the bell reads only that one.
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
 }
 

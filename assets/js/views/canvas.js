@@ -1,5 +1,6 @@
 import { h, autoGrow } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
+import { tx } from '../i18n/index.js';
 import { CANVAS_BLOCKS } from '../schema.js';
 
 const AREAS = ['prob', 'sol', 'met', 'uvp', 'adv', 'chan', 'seg', 'cost', 'rev'];
@@ -28,7 +29,7 @@ export function canvasView(canvas) {
               null,
               block.label,
               block.main && data.validated?.[block.key]
-                ? h('span', { class: 'validated', title: 'Validato con dati' }, icon('check', 14), 'validato')
+                ? h('span', { class: 'validated', title: tx.analysis.canvas.validatedHint }, icon('check', 14), tx.analysis.canvas.validated)
                 : null,
             ),
             data[block.key] ? h('div', { class: 'text-block' }, data[block.key]) : h('p', { class: 'muted small' }, block.help || '-'),
@@ -82,7 +83,7 @@ export function canvasEditor(working, onChange) {
                         onChange();
                       },
                     }),
-                    'validato',
+                    tx.analysis.canvas.validated,
                   )
                 : null,
             ),

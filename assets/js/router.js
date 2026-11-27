@@ -1,3 +1,5 @@
+import { tx } from './i18n/index.js';
+
 const routes = [];
 let outlet = null;
 let current = { path: null, key: null, cleanup: null };
@@ -61,6 +63,17 @@ export function setLeaveGuard(fn) {
   leaveGuard = fn;
 }
 
+/**
+ * Asks the open page whether it can be left (unsaved changes), as every navigation does: true when it can, and its
+ * question is then spent. For what leaves the page without changing the address (a change of project).
+ */
+export async function canLeave() {
+  if (!leaveGuard) return true;
+  const ok = await leaveGuard();
+  if (ok) leaveGuard = null;
+  return ok;
+}
+
 export function onRouteChange(fn) {
   changeListeners.add(fn);
   return () => changeListeners.delete(fn);
@@ -69,6 +82,15 @@ export function onRouteChange(fn) {
 export function currentPath() {
   return current.path;
 }
+
+/** The address of the open page after #, with its query (for example /storico?tipo=idea). */
+export function currentKey() {
+  return current.key;
+}
+
+// Looks at every address before it is shown (app.js: the project in a link, the pages there are without a project).
+// It gives the address to show, or null when it takes over and nothing is to be shown.
+let intercept = null;
 
 // Ogni voce della cronologia del sito ricorda la sua posizione: così «Indietro» sa se c'è una pagina del sito a cui tornare.
 let navIndex = 0;
@@ -93,6 +115,10 @@ export function goBack(fallback) {
 }
 
 export async function render(hash = location.hash) {
+  if (intercept) {
+    hash = intercept(hash);
+    if (hash === null) return;
+  }
   let { path, query } = parseHash(hash);
   let found = match(path);
   if (found?.route.redirect) {
@@ -122,9 +148,9 @@ export async function render(hash = location.hash) {
     const cleanup = await view?.(outlet, found?.params || {}, query);
     current.cleanup = typeof cleanup === 'function' ? cleanup : null;
   } catch (error) {
-    console.error('Errore nella pagina', error?.name);
+    console.error('Page failed', error?.name);
     outlet.replaceChildren();
-    outlet.append(Object.assign(document.createElement('p'), { className: 'error-box', textContent: error?.message || 'Pagina non disponibile.' }));
+    outlet.append(Object.assign(document.createElement('p'), { className: 'error-box', textContent: error?.message || tx.errors.pageUnavailable }));
   }
   for (const fn of changeListeners) fn(path);
 }
@@ -144,9 +170,10 @@ function onReplaceClick(event) {
 
 let listening = false;
 
-export function startRouter(target, { fallback } = {}) {
+export function startRouter(target, { fallback, onAddress } = {}) {
   outlet = target;
   notFound = fallback || null;
+  intercept = typeof onAddress === 'function' ? onAddress : null;
   if (!listening) {
     listening = true;
     window.addEventListener('hashchange', () => render());
@@ -178,4 +205,5 @@ export function stopRouter() {
   current.cleanup?.();
   current = { path: null, key: null, cleanup: null };
   leaveGuard = null;
+  intercept = null;
 }

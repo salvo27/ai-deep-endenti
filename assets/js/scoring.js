@@ -1,6 +1,7 @@
 // Calcolo della classifica: media dei voti per criterio, pesata con i pesi dei criteri.
 
 import { isHeldConversation, STRONG_COMMITMENTS } from './schema.js';
+import { language } from './i18n/index.js';
 
 export const DISAGREEMENT_SPREAD = 2;
 
@@ -57,10 +58,10 @@ export function ranking(ideas, criteria, scoreItems) {
   return ideas
     .map((idea) => ({ idea, ...ideaScore(idea.id, criteria, scoreItems) }))
     .sort((a, b) => {
-      if (a.score === null && b.score === null) return a.idea.title.localeCompare(b.idea.title, 'it');
+      if (a.score === null && b.score === null) return a.idea.title.localeCompare(b.idea.title, language);
       if (a.score === null) return 1;
       if (b.score === null) return -1;
-      return b.score - a.score || a.idea.title.localeCompare(b.idea.title, 'it');
+      return b.score - a.score || a.idea.title.localeCompare(b.idea.title, language);
     });
 }
 
