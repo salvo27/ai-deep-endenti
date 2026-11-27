@@ -1,7 +1,12 @@
-// i18n: da tradurre
 // Spese condivise: importi in unità minime della valuta (centesimi), funzioni pure tranne il cambio, chiesto alla BCE.
+import { language, locale, tx } from './i18n/index.js';
 import { csvCell } from './lib/format.js';
 import { cleanLine, cleanText, isIsoDate, isUuid } from './lib/validate.js';
+
+const t = tx.expenses;
+// Le chiavi salvate nel database restano uguali in ogni lingua: si traducono solo i nomi mostrati.
+const labelled = (keys, labels) => keys.map((key) => [key, labels[key]]);
+export const SPESA = 'spesa'; // i18n-ignore: chiave salvata del tipo di movimento
 
 export const EXPENSE_LIMITS = Object.freeze({
   people: 50,
@@ -13,55 +18,21 @@ export const EXPENSE_LIMITS = Object.freeze({
   weight: 100,
 });
 
-export const CURRENCIES = [
-  ['EUR', 'Euro'],
-  ['USD', 'Dollaro statunitense'],
-  ['GBP', 'Sterlina britannica'],
-  ['CHF', 'Franco svizzero'],
-  ['JPY', 'Yen giapponese'],
-  ['CAD', 'Dollaro canadese'],
-  ['AUD', 'Dollaro australiano'],
-  ['SEK', 'Corona svedese'],
-  ['NOK', 'Corona norvegese'],
-  ['DKK', 'Corona danese'],
-  ['PLN', 'Zloty polacco'],
-  ['CZK', 'Corona ceca'],
-  ['HUF', 'Fiorino ungherese'],
-  ['RON', 'Leu rumeno'],
-  ['TRY', 'Lira turca'],
-  ['CNY', 'Renminbi cinese'],
-  ['INR', 'Rupia indiana'],
-  ['BRL', 'Real brasiliano'],
-];
+export const CURRENCIES = labelled(
+  ['EUR', 'USD', 'GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'TRY', 'CNY', 'INR', 'BRL'],
+  t.currencies,
+);
 const CURRENCY_CODES = new Set(CURRENCIES.map(([code]) => code));
 export const isCurrency = (code) => CURRENCY_CODES.has(code);
 
-export const MOVEMENT_TYPES = [
-  ['spesa', 'Spesa'],
-  ['rimborso', 'Rimborso'],
-  ['entrata', 'Entrata'],
-];
+export const MOVEMENT_TYPES = labelled([SPESA, 'rimborso', 'entrata'], t.types);
 
-export const SPLIT_MODES = [
-  ['parti', 'In parti uguali'],
-  ['quote', 'Per quote'],
-  ['importi', 'Per importi'],
-];
+export const SPLIT_MODES = labelled(['parti', 'quote', 'importi'], t.splitModes);
 
-export const EXPENSE_CATEGORIES = [
-  ['software', 'Software e servizi online'],
-  ['viaggi', 'Viaggi e trasporti'],
-  ['alloggio', 'Alloggio'],
-  ['pasti', 'Pasti e bar'],
-  ['eventi', 'Eventi e fiere'],
-  ['materiali', 'Materiali e attrezzatura'],
-  ['consulenze', 'Burocrazia e consulenze'],
-  ['marketing', 'Marketing e pubblicità'],
-  ['altro', 'Altro'],
-];
+export const EXPENSE_CATEGORIES = labelled(['software', 'viaggi', 'alloggio', 'pasti', 'eventi', 'materiali', 'consulenze', 'marketing', 'altro'], t.categories);
 
-export const categoryLabel = (key) => EXPENSE_CATEGORIES.find(([k]) => k === key)?.[1] || 'Altro';
-export const typeLabel = (key) => MOVEMENT_TYPES.find(([k]) => k === key)?.[1] || 'Spesa';
+export const categoryLabel = (key) => EXPENSE_CATEGORIES.find(([k]) => k === key)?.[1] || t.categories.altro;
+export const typeLabel = (key) => MOVEMENT_TYPES.find(([k]) => k === key)?.[1] || t.types[SPESA];
 
 const PERSON_ID_RE = /^[a-z0-9-]{1,40}$/;
 export const isPersonId = (value) => typeof value === 'string' && PERSON_ID_RE.test(value);
@@ -74,7 +45,7 @@ export function currencyDigits(code) {
   if (!digitsCache.has(code)) {
     let digits = 2;
     try {
-      digits = new Intl.NumberFormat('it-IT', { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits;
+      digits = new Intl.NumberFormat(locale, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits;
     } catch {
       // codice sconosciuto: due decimali
     }
@@ -86,27 +57,35 @@ export function currencyDigits(code) {
 export function fmtAmount(minor, currency = 'EUR') {
   if (!Number.isFinite(minor)) return '';
   const digits = currencyDigits(currency);
-  return new Intl.NumberFormat('it-IT', { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(minor / 10 ** digits);
+  return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(minor / 10 ** digits);
 }
 
-// L'importo come si scrive in un campo: «12,50».
+// L'importo come si scrive in un campo, nella lingua in uso: «12,50» in italiano, «12.50» in inglese.
 export function amountText(minor, currency = 'EUR') {
   if (!Number.isFinite(minor)) return '';
   const digits = currencyDigits(currency);
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false }).format(minor / 10 ** digits);
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false }).format(minor / 10 ** digits);
 }
 
-// Da «1.234,50», «12.5» o «12,5» alle unità minime; null se non è un importo valido.
-export function parseAmount(text, currency = 'EUR') {
-  const s = String(text ?? '').replace(/[\s '€$£¥]/g, '');
+// Il cambio come si scrive nella lingua in uso, con al massimo i sei decimali che si salvano.
+export function rateText(rate) {
+  return Number.isFinite(rate) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 6, useGrouping: false }).format(rate) : '';
+}
+
+// Le migliaia di ogni lingua: col punto in italiano, con la virgola in inglese. Un gruppo di migliaia non comincia
+// mai con lo zero: «0.500» non sono cinquecento euro.
+const THOUSANDS = { it: /^[1-9]\d{0,2}(\.\d{3})+$/, en: /^[1-9]\d{0,2}(,\d{3})+$/ };
+
+// Alle unità minime, come lo scrive chi usa il sito: «1.234,50» o «12,5» in italiano, «1,234.50» o «12.5» in inglese.
+// L'ultimo separatore apre i decimali, tranne quando separa le migliaia nel modo della lingua. null se non è un importo.
+export function parseAmount(text, currency = 'EUR', lang = language) {
+  // \u0027 è l'apostrofo delle migliaia svizzere (1'234.50): scritto così non sembra l'inizio di un testo.
+  const s = String(text ?? '').replace(/[\s\u0027€$£¥]/g, '');
   if (!/^\d[\d.,]*$/.test(s)) return null;
-  const comma = s.lastIndexOf(',');
-  const dot = s.lastIndexOf('.');
+  const at = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
   let whole = s;
   let frac = '';
-  // Un gruppo di migliaia non comincia mai con lo zero: «0.500» non sono cinquecento euro.
-  if (comma >= 0 || (dot >= 0 && !/^[1-9]\d{0,2}(\.\d{3})+$/.test(s))) {
-    const at = Math.max(comma, dot);
+  if (at >= 0 && !(THOUSANDS[lang] || THOUSANDS.en).test(s)) {
     whole = s.slice(0, at);
     frac = s.slice(at + 1);
   }
@@ -149,7 +128,7 @@ const positiveInt = (value, max) => (Number.isSafeInteger(value) && value > 0 &&
 export function sanitizeExpense(raw = {}) {
   const data = {};
   if (isUuid(raw.group)) data.group = raw.group;
-  data.type = MOVEMENT_TYPES.some(([t]) => t === raw.type) ? raw.type : 'spesa';
+  data.type = MOVEMENT_TYPES.some(([key]) => key === raw.type) ? raw.type : SPESA;
   const amount = positiveInt(raw.amount, EXPENSE_LIMITS.amount);
   if (amount) data.amount = amount;
   data.currency = isCurrency(raw.currency) ? raw.currency : 'EUR';
@@ -166,7 +145,7 @@ export function sanitizeExpense(raw = {}) {
     if (n) shares[id] = n;
   }
   data.split = { mode: data.type === 'rimborso' ? 'parti' : mode, shares };
-  if (data.type === 'spesa') data.category = EXPENSE_CATEGORIES.some(([c]) => c === raw.category) ? raw.category : 'altro';
+  if (data.type === SPESA) data.category = EXPENSE_CATEGORIES.some(([c]) => c === raw.category) ? raw.category : 'altro';
   const note = cleanText(raw.note, EXPENSE_LIMITS.note);
   if (note) data.note = note;
   if (typeof raw.receipt === 'string' && RECEIPT_PATH_RE.test(raw.receipt)) data.receipt = raw.receipt;
@@ -188,9 +167,10 @@ export function ibanValid(text) {
 
 // Banca dal codice ABI di un IBAN italiano, senza servizi esterni. Solo codici confermati da due fonti
 // (la libreria MIT iban-bank-identifier e altri riscontri; PostePay dai documenti di trasparenza di Poste).
+// I nomi delle banche restano quelli che sono in ogni lingua; la carta Postepay si descrive.
 const ITALIAN_BANKS = {
   '01005': 'BNL',
-  '01030': 'Monte dei Paschi di Siena',
+  '01030': 'Monte dei Paschi di Siena', // i18n-ignore: nome della banca
   '02008': 'UniCredit',
   '03015': 'Fineco',
   '03032': 'Credem',
@@ -200,36 +180,19 @@ const ITALIAN_BANKS = {
   '05034': 'Banco BPM',
   '05387': 'BPER Banca',
   '05856': 'Volksbank',
-  '06230': 'Crédit Agricole Italia',
+  '06230': 'Crédit Agricole Italia', // i18n-ignore: nome della banca
   '07601': 'BancoPosta',
-  '36081': 'Postepay, carta con IBAN',
-};
-
-const IBAN_COUNTRIES = {
-  AT: 'austriaco',
-  BE: 'belga',
-  CH: 'svizzero',
-  DE: 'tedesco',
-  ES: 'spagnolo',
-  FR: 'francese',
-  GB: 'britannico',
-  IE: 'irlandese',
-  LT: 'lituano',
-  LU: 'lussemburghese',
-  MT: 'maltese',
-  NL: 'olandese',
-  PT: 'portoghese',
-  SM: 'sammarinese',
+  '36081': t.iban.postepay,
 };
 
 export function ibanBank(text) {
   const iban = compact(text);
   if (!ibanValid(iban)) return null;
   const country = iban.slice(0, 2);
-  if (country !== 'IT') return `IBAN ${IBAN_COUNTRIES[country] || `del paese ${country}`}`;
+  if (country !== 'IT') return Object.hasOwn(t.iban.countries, country) ? t.iban.countries[country] : t.iban.otherCountry(country);
   const abi = iban.slice(5, 10);
-  if (ITALIAN_BANKS[abi]) return ITALIAN_BANKS[abi];
-  return abi.startsWith('08') ? 'Credito Cooperativo (BCC)' : `codice ABI ${abi}`;
+  if (Object.hasOwn(ITALIAN_BANKS, abi)) return ITALIAN_BANKS[abi];
+  return abi.startsWith('08') ? 'Credito Cooperativo (BCC)' : t.iban.abiCode(abi);
 }
 
 export function payInfo(text) {
@@ -242,33 +205,34 @@ export function payInfo(text) {
 }
 
 export const groupPeople = (group) => group?.data?.people || [];
-export const personName = (group, id) => groupPeople(group).find((p) => p.id === id)?.name || 'Persona tolta dal gruppo';
+export const personName = (group, id) => groupPeople(group).find((p) => p.id === id)?.name || t.removedPerson;
 export const personOfMember = (group, userId) => (userId ? groupPeople(group).find((p) => p.member === userId) || null : null);
 
 export const involves = (movement, personId) =>
   movement.data.paid_by === personId || Object.hasOwn(movement.data.split?.shares || {}, personId);
 
 export function expenseProblem(data, group) {
-  if (!group) return 'Il gruppo di spese non esiste più.';
-  if (!data.amount) return 'Scrivi un importo maggiore di zero.';
-  if (!data.date) return 'Scegli la data.';
-  const ids = new Set(groupPeople(group).map((p) => p.id));
+  const p = t.problems;
+  if (!group) return p.noGroup;
+  if (!data.amount) return p.noAmount;
+  if (!data.date) return p.noDate;
+  const ids = new Set(groupPeople(group).map((person) => person.id));
   if (!ids.has(data.paid_by)) {
-    if (data.type === 'entrata') return 'Scegli chi ha ricevuto i soldi.';
-    return data.type === 'rimborso' ? 'Scegli chi ha dato i soldi.' : 'Scegli chi ha pagato.';
+    if (data.type === 'entrata') return p.noReceiver;
+    return data.type === 'rimborso' ? p.noGiver : p.noPayer;
   }
   const chosen = Object.keys(data.split?.shares || {});
-  if (chosen.some((id) => !ids.has(id))) return 'Nella divisione c\'è una persona che non è più nel gruppo.';
+  if (chosen.some((id) => !ids.has(id))) return p.personGone;
   if (data.type === 'rimborso') {
-    if (chosen.length !== 1) return 'Scegli chi ha ricevuto il rimborso.';
-    if (chosen[0] === data.paid_by) return 'Chi dà e chi riceve devono essere persone diverse.';
+    if (chosen.length !== 1) return p.noRefundReceiver;
+    if (chosen[0] === data.paid_by) return p.samePerson;
     return null;
   }
-  if (!chosen.length) return 'Scegli tra chi dividere.';
+  if (!chosen.length) return p.noSplit;
   if (data.split.mode === 'importi') {
     const diff = data.amount - chosen.reduce((sum, id) => sum + data.split.shares[id], 0);
-    if (diff > 0) return `Mancano ${fmtAmount(diff, data.currency)} da dividere.`;
-    if (diff < 0) return `Le parti superano il totale di ${fmtAmount(-diff, data.currency)}.`;
+    if (diff > 0) return p.missing(fmtAmount(diff, data.currency));
+    if (diff < 0) return p.over(fmtAmount(-diff, data.currency));
   }
   return null;
 }
@@ -327,7 +291,7 @@ export function groupBalances(group, movements) {
   };
   for (const m of movements) {
     const { total, shares } = inGroupCurrency(m.data, currency);
-    if (m.data.type === 'spesa') {
+    if (m.data.type === SPESA) {
       row(m.data.paid_by).paid += total;
       for (const [id, value] of shares) row(id).cost += value;
     } else if (m.data.type === 'entrata') {
@@ -363,14 +327,15 @@ export function settleUp(balances) {
   return transfers;
 }
 
-const MONTHS = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+// Il nome breve del mese nella lingua in uso: «gen» in italiano, «Jan» in inglese.
+const monthFormat = new Intl.DateTimeFormat(locale, { month: 'short' });
 
 export function groupStats(group, movements, { me = null, now = new Date() } = {}) {
   const currency = group.data.currency;
   const months = [];
   for (let i = 11; i >= 0; i -= 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: MONTHS[d.getMonth()], total: 0 });
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: monthFormat.format(d), total: 0 });
   }
   const byMonth = new Map(months.map((m) => [m.key, m]));
   const byCategory = new Map();
@@ -380,7 +345,7 @@ export function groupStats(group, movements, { me = null, now = new Date() } = {
   let count = 0;
   for (const m of movements) {
     const { total: value, shares } = inGroupCurrency(m.data, currency);
-    if (m.data.type === 'spesa') {
+    if (m.data.type === SPESA) {
       count += 1;
       total += value;
       byCategory.set(m.data.category || 'altro', (byCategory.get(m.data.category || 'altro') || 0) + value);
@@ -394,7 +359,7 @@ export function groupStats(group, movements, { me = null, now = new Date() } = {
   }
   const categories = [...byCategory]
     .map(([key, value]) => ({ key, label: categoryLabel(key), total: value }))
-    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, locale));
   const people = groupPeople(group).length;
   return { total, income, mine, count, perPerson: people ? Math.round(total / people) : 0, categories, months };
 }
@@ -408,7 +373,8 @@ export function sortMovements(movements) {
 export function movementsCsv(group, movements, { separator = ';' } = {}) {
   const currency = group.data.currency;
   const name = (id) => personName(group, id);
-  const headers = ['Data', 'Tipo', 'Descrizione', 'Categoria', 'Importo', 'Valuta', 'Cambio', `Importo in ${currency}`, 'Pagato da', 'Diviso tra', 'Nota'];
+  const c = t.csv;
+  const headers = [c.date, c.type, c.description, c.category, c.amount, c.currency, c.rate, c.amountIn(currency), c.paidBy, c.splitBetween, c.note];
   const rows = sortMovements(movements)
     .reverse()
     .map((m) => {
@@ -422,10 +388,10 @@ export function movementsCsv(group, movements, { separator = ';' } = {}) {
         d.date || '',
         typeLabel(d.type),
         m.title,
-        d.type === 'spesa' ? categoryLabel(d.category) : '',
+        d.type === SPESA ? categoryLabel(d.category) : '',
         amountText(d.amount, d.currency),
         d.currency,
-        d.currency === currency ? '' : String(d.rate).replace('.', ','),
+        d.currency === currency ? '' : rateText(d.rate),
         amountText(total, currency),
         name(d.paid_by),
         split,
@@ -440,12 +406,12 @@ export const RATE_SOURCE = 'https://api.frankfurter.dev/v1';
 
 export async function fetchRate(from, to, date, { fetchImpl = globalThis.fetch, today = new Date().toISOString().slice(0, 10) } = {}) {
   if (from === to) return 1;
-  if (!isCurrency(from) || !isCurrency(to)) throw new Error('Valuta non supportata.');
+  if (!isCurrency(from) || !isCurrency(to)) throw new Error(t.rates.unsupported);
   const day = isIsoDate(date) && date < today ? date : 'latest';
   const res = await fetchImpl(`${RATE_SOURCE}/${day}?base=${from}&symbols=${to}`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
-  if (!res?.ok) throw new Error('Cambio non disponibile.');
+  if (!res?.ok) throw new Error(t.rates.unavailable);
   const body = await res.json();
   const rate = Number(body?.rates?.[to]);
-  if (!(rate > 0 && rate < 1e6)) throw new Error('Cambio non disponibile.');
+  if (!(rate > 0 && rate < 1e6)) throw new Error(t.rates.unavailable);
   return roundRate(rate);
 }
