@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { en } from '../../assets/js/i18n/en/index.js';
 import { it as italiano } from '../../assets/js/i18n/it/index.js';
 import {
@@ -16,6 +17,21 @@ import {
 import { applyDocumentLanguage, language, locale, saveLanguageChoice, storedChoice, textsFor, tx } from '../../assets/js/i18n/index.js';
 
 const ALL = { it: italiano, en };
+
+// Before main.js sets the language, and without JavaScript, the page says what it says in English, the default, and in
+// Italian: screen readers and translators read the right language, and an Italian visitor is not left without words.
+describe('pagina del sito prima dell avvio', () => {
+  const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+
+  it('dichiara l inglese, la lingua predefinita', () => {
+    assert.match(html, /<html lang="en">/);
+  });
+
+  it('il caricamento e il messaggio senza JavaScript sono in inglese e in italiano', () => {
+    assert.match(html, /<span>Loading… <span lang="it">Caricamento…<\/span><\/span>/);
+    assert.match(html, /<noscript><p>This site needs JavaScript\.<\/p><p lang="it">Questo sito ha bisogno di JavaScript\.<\/p><\/noscript>/);
+  });
+});
 
 /** Every entry of a set of texts, with its path. */
 function entries(texts, path = '') {

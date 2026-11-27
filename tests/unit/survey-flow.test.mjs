@@ -316,7 +316,9 @@ test('a stored session resumes only when well formed, with the screen kept withi
 
 test('q.html is a separate page with a strict policy that loads only the public survey modules', () => {
   const html = readFileSync(new URL('q.html', ROOT), 'utf8');
-  assert.match(html, /<html lang="it">/);
+  // English is the default: the page switches to Italian on an Italian device as soon as it starts.
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /<p class="survey-boot" role="status">Loading… <span lang="it">Caricamento…<\/span><\/p>/);
   assert.match(html, /name="viewport" content="width=device-width, initial-scale=1"/);
   assert.match(html, /name="robots" content="noindex, nofollow"/);
   assert.match(html, /name="referrer" content="no-referrer"/);

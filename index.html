@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -181,9 +181,11 @@
     <!-- fine moduli -->
   </head>
   <body>
+    <!-- main.js chooses the language as soon as it starts (assets/js/i18n): what is written here is only seen before
+         that, or without JavaScript, so it is in English, the default, and in Italian. -->
     <div id="app" class="root">
-      <div class="boot" role="status"><span class="boot-spinner" aria-hidden="true"></span><span>Caricamento…</span></div>
-      <noscript>Questo sito ha bisogno di JavaScript.</noscript>
+      <div class="boot" role="status"><span class="boot-spinner" aria-hidden="true"></span><span>Loading… <span lang="it">Caricamento…</span></span></div>
+      <noscript><p>This site needs JavaScript.</p><p lang="it">Questo sito ha bisogno di JavaScript.</p></noscript>
     </div>
   </body>
 </html>
