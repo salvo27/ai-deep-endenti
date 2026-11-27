@@ -20,7 +20,7 @@ export const generator = {
   editAxis: (label) => `Modifica ${label}`,
   removeAxis: (label) => `Togli ${label}`,
   cellLabel: (row, col) => `${row} per ${col}`,
-  ideasCount: (n) => `${n} idee`,
+  ideasCount: (n) => (n === 1 ? '1 idea' : `${n} idee`),
   cell: {
     notes: 'Spunti',
     placeholder: 'Spunti, clienti possibili, paper collegati',
