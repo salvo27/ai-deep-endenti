@@ -143,8 +143,8 @@ const PHASES = {
   decisione: {
     steps: {
       decisione: { concept: 'pivot', href: newItem('decision'), auto: (ctx) => ctx.decisions.some((d) => d.status !== 'proposta' && d.data.rationale) },
-      stato: { concept: 'scaling-prematuro', auto: (ctx) => ['scelta', 'parcheggiata', 'scartata'].includes(ctx.idea.status) },
-      lezioni: { concept: 'validazione', href: tab(TABS.experiments), auto: (ctx) => ctx.experiments.some((e) => e.data.learnings) },
+      stato: { concept: 'scaling-prematuro', auto: (ctx) => ['scelta', 'parcheggiata', 'scartata'].includes(ctx.idea.status) }, // i18n-ignore: stored values
+      lezioni: { concept: 'validazione', href: tab(TABS.experiments), auto: (ctx) => ctx.experiments.some((e) => e.data.learnings) }, // i18n-ignore: the key of the concept
     },
   },
   azienda: {

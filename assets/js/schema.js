@@ -39,7 +39,7 @@ export const TECH_SUGGESTIONS = [
 
 export const COMMITMENT = choices(T.commitment, ['nessuno', 'interesse', 'demo', 'pilota', 'pagamento']); // i18n-ignore
 
-export const STRONG_COMMITMENTS = new Set(['pilota', 'pagamento']);
+export const STRONG_COMMITMENTS = new Set(['pilota', 'pagamento']); // i18n-ignore: stored values
 
 export const INTERVIEW_SOURCES = choices(T.interviewSources, ['colloquio', 'ricerca']); // i18n-ignore
 
@@ -207,13 +207,13 @@ export const KINDS = {
     icon: 'experiment',
     titleLabel: K.experiment.titleLabel,
     needsIdea: true,
-    statuses: choices(K.experiment.statuses, ['pianificato', 'in_corso', 'concluso']),
+    statuses: choices(K.experiment.statuses, ['pianificato', 'in_corso', 'concluso']), // i18n-ignore: stored values
     fields: [
       experimentField('customer', 'textarea', { rows: 2 }),
       experimentField('problem', 'textarea', { rows: 2 }),
       experimentField('solution', 'textarea', { rows: 2 }),
       experimentField('assumption', 'textarea', { rows: 2, wide: true }),
-      experimentField('assumption_type', 'select', { values: ['problema', 'cliente', 'soluzione', 'prezzo', 'canale', 'tecnica', 'normativa'] }),
+      experimentField('assumption_type', 'select', { values: ['problema', 'cliente', 'soluzione', 'prezzo', 'canale', 'tecnica', 'normativa'] }), // i18n-ignore: stored values
       experimentField('method', 'select', { options: choices(METHODS, ['interviste', 'demo', 'landing', 'prevendita', 'dati', 'concierge', 'altro']) }), // i18n-ignore
       experimentField('method_details'),
       experimentField('success_criterion', 'textarea', { rows: 2, wide: true }),
@@ -232,7 +232,7 @@ export const KINDS = {
     titleLabel: T.title,
     statuses: choices(K.interview.statuses, ['da_fare', 'fatta', 'analizzata']), // i18n-ignore
     fields: [
-      interviewField('source', 'select', { options: INTERVIEW_SOURCES, default: 'colloquio' }),
+      interviewField('source', 'select', { options: INTERVIEW_SOURCES, default: 'colloquio' }), // i18n-ignore: stored value
       interviewField('date', 'date'),
       interviewField('interviewer', 'member'),
       interviewField('role', 'text'),
@@ -327,9 +327,9 @@ export const KINDS = {
       personaField('role', 'text', { wide: true }),
       personaField('role_type', 'select', { concept: 'cliente-utente', values: ['paga', 'usa', 'paga_usa', 'influenza'] }), // i18n-ignore
       personaField('segment', 'text'),
-      personaField('early_adopter', 'select', { concept: 'early-adopter', values: ['si', 'forse', 'no'] }),
+      personaField('early_adopter', 'select', { concept: 'early-adopter', values: ['si', 'forse', 'no'] }), // i18n-ignore: stored values
       personaField('age_range', 'text'),
-      personaField('gender', 'select', { values: ['donna', 'uomo', 'qualsiasi'] }),
+      personaField('gender', 'select', { values: ['donna', 'uomo', 'qualsiasi'] }), // i18n-ignore: stored values
       personaField('location', 'text'),
       personaField('income', 'text'),
       personaField('education', 'text'),

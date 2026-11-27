@@ -35,7 +35,7 @@ export const CONCEPTS = [
   c('sindrome-impostore', 2, [], { minor: true }),
 
   // 3. Validazione
-  c('validazione', 3, [EXPLORING, VALIDATING]),
+  c('validazione', 3, [EXPLORING, VALIDATING]), // i18n-ignore: the key, not a text
   c('customer-development', 3, [EXPLORING, VALIDATING, CHOSEN], { term: 'Customer Development' }),
   c('fuori-dall-ufficio', 3, [EXPLORING]),
   c('cliente-utente', 3, [NEW, EXPLORING]), // i18n-ignore: the key, not a text

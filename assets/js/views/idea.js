@@ -70,7 +70,7 @@ const GROUPS = [
   [S.overview, [S.overview]],
   [S.roadmap, [S.roadmap]],
   ['analisi', [S.canvas, S.customers, S.market, S.deeptech]],
-  ['validazione', [S.experiments, S.interviews, S.surveys]],
+  ['validazione', [S.experiments, S.interviews, S.surveys]], // i18n-ignore: the address of the tab
   [S.notes, [S.notes]],
   ['discussione', [S.comments, S.votes, S.history]],
 ].map(([key, sections]) => [key, key === S.roadmap ? 'Roadmap' : tx.idea.groups[key], sections]);

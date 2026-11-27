@@ -25,7 +25,15 @@ const UI_WORDS = [
   'ruoli', 'accesso', 'utente', 'utenti', 'sì', 'grazie', 'benvenuto', 'esempio', 'esempi', 'vedi', 'leggi',
 ];
 
-const WORDS = new Set([...FUNCTION_WORDS, ...UI_WORDS]);
+// Values the site stores in Italian (statuses, choices, the name of the general chat) that English never uses: a page
+// that shows one as it is forgot to put it into words.
+const STORED_WORDS = [
+  'esplorazione', 'validazione', 'parcheggiata', 'scartata', 'pianificato', 'contattare', 'colloquio', 'pilota', 'pagamento',
+  'esperto', 'investitore', 'ateneo', 'normativa', 'prodotto', 'servizio', 'licenza', 'indipendente', 'forse', 'uomo',
+  'qualsiasi', 'pasti', 'viaggi', 'eventi', 'clienti', 'impegno', 'panoramica', 'dettagli', 'generale',
+];
+
+const WORDS = new Set([...FUNCTION_WORDS, ...UI_WORDS, ...STORED_WORDS]);
 const ACCENTED = /[àèéìòùÀÈÉÌÒÙ]/;
 
 /** The Italian words found in a text, in order of appearance and without repeats. */

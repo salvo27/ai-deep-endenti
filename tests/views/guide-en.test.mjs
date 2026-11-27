@@ -88,6 +88,11 @@ describe('guida in inglese', () => {
     assert.ok(outlet.querySelector('#concetto-trl.is-focus'));
   });
 
+  it('il titolo del libro resta in italiano, segnato come italiano per i lettori di schermo', () => {
+    const outlet = visit('concetti');
+    assert.deepEqual([...outlet.querySelectorAll('.page-subtitle [lang]')].map((el) => [el.getAttribute('lang'), el.textContent]), [['it', 'Il manuale dello startupper']]);
+  });
+
   it('i testi della guida non lasciano parole italiane, a parte le fasi della roadmap che vengono da un altra area', () => {
     store.applyItem(item({ id: IDEA, kind: 'idea', title: 'Solar sensors', status: 'nuova' }));
     const outlet = visit();

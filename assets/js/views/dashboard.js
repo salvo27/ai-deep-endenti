@@ -21,7 +21,7 @@ import { dueLabel, myContactTodos, unownedContacts } from './contacts.js';
 
 // Addresses of the site: their Italian words are part of the URL, not text the reader sees.
 const PATHS = { ideas: '#/idee', experiments: '#/esperimenti', conversations: '#/interviste?tipo=colloquio', scoring: '#/valutazione', generator: '#/generatore', create: '#/nuovo/idea', unowned: '#/contatti?filtro=senza', history: '#/storico' }; // i18n-ignore
-const INACTIVE = ['scartata', 'parcheggiata'];
+const INACTIVE = ['scartata', 'parcheggiata']; // i18n-ignore: stored values
 
 export function dashboardData(now = new Date()) {
   const allIdeas = ideas();

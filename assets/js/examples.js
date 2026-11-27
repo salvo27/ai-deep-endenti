@@ -45,7 +45,7 @@ export function buildExamples(t) {
   const uberContact4 = example('contact', 'da_contattare', t.uberContact4, { purpose: 'norme', owner: TECH }, uber); // i18n-ignore
 
   // In esplorazione: Airbnb nella primavera del 2008.
-  const airbnb = example('idea', 'esplorazione', t.airbnb, { owner: FOUNDER });
+  const airbnb = example('idea', 'esplorazione', t.airbnb, { owner: FOUNDER }); // i18n-ignore: stored value
   const airbnbCanvas = example('canvas', null, { title: 'Lean Canvas v1', ...t.airbnbCanvas }, {}, airbnb);
   const airbnbExp1 = example('experiment', 'concluso', t.airbnbExp1, {
     assumption_type: 'prezzo',
@@ -62,7 +62,7 @@ export function buildExamples(t) {
     start_date: '2008-02-25',
     end_date: '2008-03-20',
   }, airbnb);
-  const airbnbExp3 = example('experiment', 'pianificato', t.airbnbExp3, {
+  const airbnbExp3 = example('experiment', 'pianificato', t.airbnbExp3, { // i18n-ignore: stored value
     assumption_type: 'soluzione',
     method: 'concierge',
     owner: TECH,
@@ -74,7 +74,7 @@ export function buildExamples(t) {
     interviewer: FOUNDER,
     experiment_id: airbnbExp1.id,
     problem_intensity: 4,
-    commitment: 'pagamento',
+    commitment: 'pagamento', // i18n-ignore: stored value
   }, airbnb);
   const airbnbInt2 = example('interview', 'fatta', t.airbnbInt2, { // i18n-ignore
     date: '2008-03-03',
@@ -134,7 +134,7 @@ export function buildExamples(t) {
   }, airbnb);
 
   // In validazione: Dropbox tra il 2007 e il 2008.
-  const dropbox = example('idea', 'validazione', t.dropbox, { owner: FOUNDER });
+  const dropbox = example('idea', 'validazione', t.dropbox, { owner: FOUNDER }); // i18n-ignore: stored value
   const dropboxCanvas = example('canvas', null, { title: 'Lean Canvas v2', ...t.dropboxCanvas }, { validated: { problem: true, channels: true, segments: true } }, dropbox);
   const dropboxExp1 = example('experiment', 'concluso', t.dropboxExp1, {
     assumption_type: 'problema',
@@ -205,12 +205,12 @@ export function buildExamples(t) {
     end_date: '2008-06-30',
     decision: 'proseguire',
   }, spotify);
-  const spotifyInt1 = example('interview', 'analizzata', t.spotifyInt1, { date: '2007-02-08', interviewer: FOUNDER, problem_intensity: 4, commitment: 'pilota' }, spotify);
-  const spotifyInt2 = example('interview', 'analizzata', t.spotifyInt2, { date: '2008-01-22', interviewer: FOUNDER, problem_intensity: 5, commitment: 'pagamento' }, spotify);
+  const spotifyInt1 = example('interview', 'analizzata', t.spotifyInt1, { date: '2007-02-08', interviewer: FOUNDER, problem_intensity: 4, commitment: 'pilota' }, spotify); // i18n-ignore: stored values
+  const spotifyInt2 = example('interview', 'analizzata', t.spotifyInt2, { date: '2008-01-22', interviewer: FOUNDER, problem_intensity: 5, commitment: 'pagamento' }, spotify); // i18n-ignore: stored values
   const spotifyDecision = example('decision', 'presa', t.spotifyDecision, { date: '2008-07-15', decided_by: TEAM, ideas: [spotify.id], review_date: '2009-01-31' });
 
   // Parcheggiata: Netflix e lo streaming nel 2000.
-  const netflix = example('idea', 'parcheggiata', t.netflix, { owner: TECH });
+  const netflix = example('idea', 'parcheggiata', t.netflix, { owner: TECH }); // i18n-ignore: stored value
   const netflixCanvas = example('canvas', null, { title: 'Lean Canvas', ...t.netflixCanvas }, { validated: { problem: true } }, netflix);
   const netflixExp1 = example('experiment', 'concluso', t.netflixExp1, {
     assumption_type: 'tecnica',
@@ -230,7 +230,7 @@ export function buildExamples(t) {
   const netflixDecision = example('decision', 'presa', t.netflixDecision, { date: '2000-05-10', decided_by: TEAM, ideas: [netflix.id], review_date: '2001-06-30' });
 
   // Scartata: Odeo, la piattaforma di podcast da cui è nato Twitter.
-  const odeo = example('idea', 'scartata', t.odeo, { owner: FOUNDER });
+  const odeo = example('idea', 'scartata', t.odeo, { owner: FOUNDER }); // i18n-ignore: stored value
   const odeoCanvas = example('canvas', null, { title: 'Lean Canvas', ...t.odeoCanvas }, {}, odeo);
   const odeoExp1 = example('experiment', 'concluso', t.odeoExp1, {
     assumption_type: 'soluzione',

@@ -29,7 +29,7 @@ export const MOVEMENT_TYPES = labelled([SPESA, 'rimborso', 'entrata'], t.types);
 
 export const SPLIT_MODES = labelled(['parti', 'quote', 'importi'], t.splitModes);
 
-export const EXPENSE_CATEGORIES = labelled(['software', 'viaggi', 'alloggio', 'pasti', 'eventi', 'materiali', 'consulenze', 'marketing', 'altro'], t.categories);
+export const EXPENSE_CATEGORIES = labelled(['software', 'viaggi', 'alloggio', 'pasti', 'eventi', 'materiali', 'consulenze', 'marketing', 'altro'], t.categories); // i18n-ignore: stored values
 
 export const categoryLabel = (key) => EXPENSE_CATEGORIES.find(([k]) => k === key)?.[1] || t.categories.altro;
 export const typeLabel = (key) => MOVEMENT_TYPES.find(([k]) => k === key)?.[1] || t.types[SPESA];

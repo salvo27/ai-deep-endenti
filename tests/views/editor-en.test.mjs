@@ -303,6 +303,18 @@ describe('modifiche in conflitto in inglese', () => {
     assert.equal((await pending).cancelled, true);
   });
 
+  it('uno stato in conflitto si legge a parole, non come è salvato', async () => {
+    const idea = store.getItem(IDS.idea2);
+    const theirs = item({ ...idea, version: 2, updated_by: OTHER, status: 'validazione' });
+    api.saveItem = async () => ({ status: 'conflict', item: theirs });
+    const pending = merge.saveWithMerge(idea, snap(idea), { ...snap(idea), status: 'esplorazione' }, '');
+    await flush();
+    const options = [...dialog().querySelectorAll('.conflict-option')].map((o) => [text(o.querySelector('.conflict-option-label')), text(o.lastChild)]);
+    assert.deepEqual(options, [['Your version', 'Exploring'], ['Bruno’s version', 'Validating']]);
+    byText(dialog(), 'button', 'Cancel').click();
+    await pending;
+  });
+
   for (const [author, expected] of [
     [OTHER, 'Your changes were merged with Bruno’s.'],
     [ME, 'Your changes were merged with the ones saved from another device.'],

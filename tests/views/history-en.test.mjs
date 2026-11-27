@@ -102,6 +102,23 @@ describe('modifiche di un campo in inglese', () => {
     });
   }
 
+  for (const [name, path, before, after, expected] of [
+    ['uno stato', 'status', 'pianificato', 'in_corso', 'Planned → Running'],
+    ['una scelta', 'data.method', 'landing', 'interviste', 'Landing page → Interviews'],
+    ['una persona', 'data.owner', OTHER, ME, 'Bruno → Anna'],
+    ['una scelta aggiunta', 'data.decision', undefined, 'proseguire', 'Continue'],
+  ]) {
+    it(`${name} cambiato si legge a parole, prima e dopo, non come è salvato`, () => {
+      const view = history.changeView('experiment', { path, type: before === undefined ? 'added' : 'changed', before, after, kind: 'inline' });
+      assert.equal(text(view.querySelector('.diff-inline')), expected);
+    });
+  }
+
+  it('un testo libero cambiato si confronta parola per parola', () => {
+    const view = history.changeView('experiment', { path: 'data.assumption', type: 'changed', before: 'Doctors pay', after: 'Nurses pay', kind: 'inline' });
+    assert.deepEqual([...view.querySelectorAll('.diff-inline del, .diff-inline ins')].map((el) => [el.tagName, text(el)]), [['DEL', 'Doctors'], ['INS', 'Nurses']]);
+  });
+
   it('una foto si confronta guardandola, e senza foto lo dice', () => {
     const view = history.changeView('persona', { path: 'data.photo', type: 'added', before: undefined, after: 'data:image/png;base64,AAAA', kind: 'inline' });
     assert.equal(text(view.querySelector('.photo-old')), '');

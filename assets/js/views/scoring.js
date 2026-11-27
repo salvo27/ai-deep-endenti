@@ -583,7 +583,7 @@ export function scoringView(outlet, params, query) {
   const view = query.get('vista');
   const mode = photoId ? 'photo' : view === 'miei' ? 'mine' : view === 'fotografie' ? 'photos' : 'team';
   const includeAll = query.get('tutte') === '1'; // i18n-ignore: parametro dell'indirizzo
-  const keep = (idea) => includeAll || idea.status !== 'scartata';
+  const keep = (idea) => includeAll || idea.status !== 'scartata'; // i18n-ignore: stored value
   let working = null;
   let dirty = false;
   const message = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: t.mine.notePlaceholder });
