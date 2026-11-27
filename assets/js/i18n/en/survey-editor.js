@@ -136,7 +136,7 @@ export const surveyEditor = {
     min: 'Minimum (optional)',
     max: 'Maximum (optional)',
     emailHelp: 'The email goes in a separate column and respondents can ask to be contacted again. From the Responses tab you add it to Contacts with one click.',
-    sectionHelp: 'A title that splits the questions. With one section per screen, each section is a page.',
+    sectionHelp: 'A title that splits the questions. When the layout shows one section at a time, each section is a page.',
     sectionTitle: 'Section title',
     questionText: 'Question text',
     explanation: 'Explanation (optional)',

@@ -538,7 +538,7 @@ describe('scheda Domande in inglese', () => {
     assert.deepEqual(labels(section), ['Section title', 'Explanation (optional)', 'Type']);
     typeInto(section.querySelector('input[type="text"]'), '');
     assert.equal(text(section.querySelector('.sq-label')), 'Untitled');
-    assert.match(text(section), /A title that splits the questions\. With one section per screen, each section is a page\./);
+    assert.match(text(section), /A title that splits the questions\. When the layout shows one section at a time, each section is a page\./);
     typeInto(section.querySelector('input[type="text"]'), 'About you');
     section.querySelector('[data-action="toggle"]').click();
     await flush();
