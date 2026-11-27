@@ -84,15 +84,15 @@ export function startIdleLogout(minutes = CONFIG.idleLogoutMinutes, signOut = ()
 }
 
 // Ultima attività salvata a ogni gesto, al massimo ogni pochi minuti. Niente timer: una pagina aperta senza nessuno davanti non conta.
-export function startActivityPing(minutes = CONFIG.activityPingMinutes, touch = () => api.touchActivity()) {
-  let last = 0;
+export function startActivityPing(minutes = CONFIG.activityPingMinutes, touch = () => api.touchActivity(), now = Date.now) {
+  let last = -Infinity;
   const ping = () => {
-    if (document.visibilityState === 'hidden' || Date.now() - last < minutes * 60 * 1000) return;
-    last = Date.now();
+    if (document.visibilityState === 'hidden' || now() - last < minutes * 60 * 1000) return;
+    last = now();
     Promise.resolve()
       .then(touch)
       .catch(() => {
-        last = 0;
+        last = -Infinity;
       });
   };
   const events = ['pointerdown', 'keydown', 'scroll', 'visibilitychange'];
