@@ -1,4 +1,3 @@
-// i18n: da tradurre
 import { h, mount, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
@@ -12,6 +11,7 @@ import {
   addDays,
   bestSlots,
   dayName,
+  dayShort,
   dropPastWeeks,
   hourSpan,
   joinNames,
@@ -23,20 +23,23 @@ import {
   teamGrid,
   thisMonday,
   weekLabel,
-  withDay,
 } from '../availability.js';
 import { availabilityOf, createItem, memberName, on, readLocal, state, syncItems, writeLocal } from '../store.js';
 import { setLeaveGuard } from '../router.js';
+import { tx } from '../i18n/index.js';
 import { saveWithMerge } from './merge.js';
 import { avatar, errorBox, tabs } from './components.js';
 
-const CHOICE_KEY = 'disponibilita-chi';
-const TITLE = 'Impegni';
+const t = tx.availability;
+const CHOICE_KEY = 'disponibilita-chi'; // i18n-ignore: chiave salvata sul dispositivo
+// Il titolo lo fissa il database e resta questo in ogni lingua.
+const TITLE = 'Impegni'; // i18n-ignore
+const TEAM_HREF = '#/squadra/disponibilita'; // i18n-ignore: indirizzo
+const MINE_HREF = '#/squadra/disponibilita?vista=miei'; // i18n-ignore: indirizzo
 const MOVES = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 // Se il pulsante premuto sparisce o si disattiva dopo il ridisegno, il focus va al vicino.
 const FOCUS_FALLBACK = { 'week-prev': ['week-next', 'week-title'], 'week-next': ['week-prev', 'week-title'], 'back-base': ['scope-week'], save: ['scope-base', 'scope-week'] };
-const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 // Chi deve esserci: admin e membri di default, gli advisor solo se scelti. Si ricorda su questo dispositivo.
 function loadChoice() {
@@ -55,10 +58,10 @@ function personData(userId) {
 
 function stateText(data, monday, item) {
   const status = personState(data, monday);
-  if (status === 'missing') return 'non ha ancora segnato i suoi impegni';
-  if (status === 'expired') return `orario tipo scaduto ${withDay('il', data.until, fmtDate(data.until))}`;
-  if (status === 'partial') return `conta fino ${withDay('al', data.until, fmtDate(data.until))}`;
-  return `aggiornato ${fmtRelative(item.updated_at)}`;
+  if (status === 'missing') return t.team.neverMarked;
+  if (status === 'expired') return t.team.expiredOn(data.until, fmtDate(data.until));
+  if (status === 'partial') return t.team.countsUntil(data.until, fmtDate(data.until));
+  return t.team.updated(fmtRelative(item.updated_at));
 }
 
 function level(cell) {
@@ -76,9 +79,9 @@ function dayHeaders(monday, withDates) {
     h(
       'tr',
       null,
-      h('th', { scope: 'col', class: 'av-corner' }, 'Ora'),
+      h('th', { scope: 'col', class: 'av-corner' }, t.hour),
       DAYS.map(([key, label], i) =>
-        h('th', { scope: 'col', abbr: label }, h('span', { class: 'av-day' }, key), withDates ? h('span', { class: 'av-date' }, shortDate(addDays(monday, i))) : null),
+        h('th', { scope: 'col', abbr: label }, h('span', { class: 'av-day' }, dayShort(key)), withDates ? h('span', { class: 'av-date' }, shortDate(addDays(monday, i))) : null),
       ),
     ),
   );
@@ -128,7 +131,7 @@ export function availabilityView(outlet, query, chrome) {
     'button',
     { type: 'button', class: 'btn btn-primary', disabled: true, dataset: { focus: 'save' } },
     icon('commit', 16),
-    h('span', null, 'Salva i miei impegni'),
+    h('span', null, t.mine.save),
   );
 
   const refreshNow = () => {
@@ -156,15 +159,15 @@ export function availabilityView(outlet, query, chrome) {
     // La prima volta si può salvare anche senza impegni: vuol dire «sempre libero».
     saveButton.disabled = saving || (!changed && Boolean(base));
     if (untilInput) untilInput.disabled = saving;
-    setLeaveGuard(changed ? () => confirmDialog('Hai impegni non salvati. Uscire comunque?', { title: 'Impegni non salvati', okLabel: 'Esci', danger: true }) : null);
+    setLeaveGuard(changed ? () => confirmDialog(t.mine.leaveQuestion, { title: t.mine.leaveTitle, okLabel: t.mine.leave, danger: true }) : null);
     const item = availabilityOf(state.user?.id);
     const text = saving
-      ? 'Salvataggio in corso'
+      ? t.mine.saving
       : changed
-        ? 'Modifiche non salvate'
+        ? t.mine.unsaved
         : item
-          ? `Salvato ${fmtRelative(item.updated_at)}`
-          : 'Finché non salvi, non conti negli orari migliori';
+          ? t.mine.savedWhen(fmtRelative(item.updated_at))
+          : t.mine.notYetSaved;
     if (statusHost.textContent !== text) mount(statusHost, text);
   };
 
@@ -179,31 +182,33 @@ export function availabilityView(outlet, query, chrome) {
     mount(
       untilWarn,
       working.until && working.until < today
-        ? h('p', { class: 'av-warn small' }, `Il tuo orario tipo è scaduto ${withDay('il', working.until, fmtDate(working.until))}: controllalo e cambia la data.`)
+        ? h('p', { class: 'av-warn small' }, t.mine.baseExpired(working.until, fmtDate(working.until)))
         : null,
     );
   };
 
   const updateWeekNote = () => {
     if (scope !== 'week') return mount(weekNote);
-    const which = weekIndex() === 0 ? 'per questa settimana' : weekLabel(monday);
+    const thisWeek = weekIndex() === 0;
     if (weekEntry()) {
       return mount(
         weekNote,
-        h('p', { class: 'small' }, `${weekIndex() === 0 ? 'Questa settimana' : capital(weekLabel(monday))} hai un orario diverso dall'orario tipo.`),
-        h('button', { type: 'button', class: 'btn btn-ghost btn-small', dataset: { focus: 'back-base' }, onClick: backToBase }, 'Torna all\'orario tipo'),
+        h('p', { class: 'small' }, thisWeek ? t.mine.differentThisWeek : t.mine.differentWeek(weekLabel(monday))),
+        h('button', { type: 'button', class: 'btn btn-ghost btn-small', dataset: { focus: 'back-base' }, onClick: backToBase }, t.mine.backToBase),
       );
     }
     if (personWeek(working, monday).some((day) => !day.known)) {
-      const until = working.until < dayKey(new Date())
-        ? `è scaduto ${withDay('il', working.until, fmtDate(working.until))}`
-        : `vale fino ${withDay('al', working.until, fmtDate(working.until))}`;
+      const date = fmtDate(working.until);
       return mount(
         weekNote,
-        h('p', { class: 'av-warn small' }, `Il tuo orario tipo ${until}: nei giorni a righe non conti. Se cambi qualcosa qui, vale tutta la settimana come la vedi.`),
+        h(
+          'p',
+          { class: 'av-warn small' },
+          working.until < dayKey(new Date()) ? t.mine.weekBaseExpired(working.until, date) : t.mine.weekBaseUntil(working.until, date),
+        ),
       );
     }
-    return mount(weekNote, h('p', { class: 'muted small' }, `Per ora vale l'orario tipo: quello che cambi qui vale solo ${which}.`));
+    return mount(weekNote, h('p', { class: 'muted small' }, thisWeek ? t.mine.onlyThisWeek : t.mine.onlyWeek(weekLabel(monday))));
   };
 
   function backToBase() {
@@ -265,7 +270,7 @@ export function availabilityView(outlet, query, chrome) {
     const days = shownWeek();
     const table = h(
       'table',
-      { class: 'av-grid av-edit', 'aria-label': scope === 'base' ? 'Il mio orario tipo' : `I miei impegni ${weekLabel(monday)}` },
+      { class: 'av-grid av-edit', 'aria-label': scope === 'base' ? t.mine.baseGrid : t.mine.weekGrid(weekLabel(monday)) },
       dayHeaders(monday, scope === 'week'),
       h(
         'tbody',
@@ -277,7 +282,7 @@ export function availabilityView(outlet, query, chrome) {
             h('th', { scope: 'row', class: 'av-hour' }, `${hour}-${hour + 1}`),
             DAYS.map(([, label], i) => {
               const taken = days[i].busy.has(hour);
-              const base = `${label} ${hourSpan(hour)}, impegnato`;
+              const base = t.mine.cellBusy(label, hourSpan(hour));
               return h(
                 'td',
                 null,
@@ -285,7 +290,7 @@ export function availabilityView(outlet, query, chrome) {
                   type: 'button',
                   class: ['av-cell', taken && 'av-taken', !days[i].known && 'av-unknown'],
                   'aria-pressed': String(taken),
-                  'aria-label': days[i].known ? base : `${base}, orario tipo scaduto`,
+                  'aria-label': days[i].known ? base : t.mine.cellExpired(base),
                   dataset: { day: String(i), hour: String(hour), focus: `cell-${i}-${hour}`, label: base },
                 }),
               );
@@ -335,15 +340,15 @@ export function availabilityView(outlet, query, chrome) {
       picked = null;
       render();
     };
-    const name = index === 0 ? 'Questa settimana' : index === 1 ? 'La prossima settimana' : `Tra ${index} settimane`;
+    const name = index === 0 ? t.nav.thisWeek : index === 1 ? t.nav.nextWeek : t.nav.inWeeks(index);
     return h(
       'div',
       { class: 'av-week' },
-      h('button', { type: 'button', class: 'btn btn-ghost btn-small', disabled: index <= 0, 'aria-label': 'Settimana precedente', dataset: { focus: 'week-prev' }, onClick: () => go(-1) }, '←'),
+      h('button', { type: 'button', class: 'btn btn-ghost btn-small', disabled: index <= 0, 'aria-label': t.nav.previous, dataset: { focus: 'week-prev' }, onClick: () => go(-1) }, '←'),
       h('div', { class: 'av-week-title', 'aria-live': 'polite', tabindex: '-1', dataset: { focus: 'week-title' } }, h('strong', null, name), h('span', { class: 'muted small' }, weekLabel(monday))),
       h(
         'button',
-        { type: 'button', class: 'btn btn-ghost btn-small', disabled: index >= WEEKS_AHEAD - 1, 'aria-label': 'Settimana successiva', dataset: { focus: 'week-next' }, onClick: () => go(1) },
+        { type: 'button', class: 'btn btn-ghost btn-small', disabled: index >= WEEKS_AHEAD - 1, 'aria-label': t.nav.next, dataset: { focus: 'week-next' }, onClick: () => go(1) },
         '→',
       ),
     );
@@ -388,16 +393,16 @@ export function availabilityView(outlet, query, chrome) {
       h(
         'p',
         { class: 'muted' },
-        'Tocca o trascina sulle ore in cui sei impegnato: lezioni, lavoro, allenamenti. Non serve dire cosa fai.',
-        h('span', { class: 'av-touch-hint' }, ' Per scorrere la pagina, trascina sulla colonna delle ore.'),
+        t.mine.intro,
+        h('span', { class: 'av-touch-hint' }, ` ${t.mine.touchHint}`),
       ),
-      h('div', { class: 'av-scope', role: 'group', 'aria-label': 'Cosa modifichi' }, scopeButton('base', 'Orario tipo'), scopeButton('week', 'Una settimana precisa')),
+      h('div', { class: 'av-scope', role: 'group', 'aria-label': t.mine.scopeLabel }, scopeButton('base', t.mine.base), scopeButton('week', t.mine.week)),
       scope === 'base'
         ? h(
             'div',
             { class: 'av-until' },
-            h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Valido fino al'), untilInput),
-            h('p', { class: 'muted small' }, 'Per esempio la fine del semestre. Dopo questa data non conti più finché non la sposti. Lascia vuoto se non scade.'),
+            h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.mine.until), untilInput),
+            h('p', { class: 'muted small' }, t.mine.untilHelp),
             untilWarn,
           )
         : h('div', { class: 'stack' }, weekNav(), weekNote),
@@ -409,26 +414,26 @@ export function availabilityView(outlet, query, chrome) {
 
   const cellText = (cell) => {
     const counted = cell.free.length + cell.busy.length;
-    const when = `${dayName(cell.day)} ${shortDate(cell.date)} ${hourSpan(cell.hour)}`;
-    const what = counted ? `${cell.free.length} liberi su ${counted}` : 'nessuno ha segnato i suoi impegni';
-    return `${when}: ${what}${cell.past ? ', già passato' : ''}`;
+    const when = t.team.cellWhen(dayName(cell.day), shortDate(cell.date), hourSpan(cell.hour));
+    const what = counted ? t.team.freeOf(cell.free.length, counted) : t.team.nobodyMarked;
+    return cell.past ? t.team.pastCell(when, what) : t.team.cell(when, what);
   };
 
   const detailOf = (cell) => {
     const line = (label, ids) => (ids.length ? h('p', { class: 'small' }, h('strong', null, `${label}: `), joinNames(ids.map(memberName))) : null);
     return [
-      h('p', null, h('strong', null, slotLabel(cell.date, cell.hour, cell.hour + 1)), cell.past ? h('span', { class: 'muted' }, ', già passato') : null),
-      line('Liberi', cell.free),
-      line('Impegnati', cell.busy),
-      line('Non si sa', cell.unknown),
+      h('p', null, h('strong', null, slotLabel(cell.date, cell.hour, cell.hour + 1)), cell.past ? h('span', { class: 'muted' }, `, ${t.team.past}`) : null),
+      line(t.team.free, cell.free),
+      line(t.team.busyPeople, cell.busy),
+      line(t.team.unknown, cell.unknown),
     ];
   };
 
   const bestText = (block) => {
     const parts = [];
-    if (block.busy.length) parts.push(`${block.busy.length === 1 ? 'manca' : 'mancano'} ${joinNames(block.busy.map(memberName))}`);
-    if (block.unknown.length) parts.push(`non si sa per ${joinNames(block.unknown.map(memberName))}`);
-    return parts.length ? parts.join(', ') : 'tutti liberi';
+    if (block.busy.length) parts.push(t.team.busy(block.busy.length, joinNames(block.busy.map(memberName))));
+    if (block.unknown.length) parts.push(t.team.unknownFor(joinNames(block.unknown.map(memberName))));
+    return parts.length ? parts.join(', ') : t.team.allFree;
   };
 
   const teamBody = () => {
@@ -441,7 +446,7 @@ export function availabilityView(outlet, query, chrome) {
     const anyKnown = grid.some((column) => column.some((cell) => cell.free.length + cell.busy.length > 0));
     const detail = h('div', { class: 'av-detail', 'aria-live': 'polite' });
     const showDetail = () =>
-      mount(detail, picked ? detailOf(grid[picked.day][picked.hour - HOURS[0]]) : h('p', { class: 'muted small' }, 'Tocca un\'ora per vedere chi è libero.'));
+      mount(detail, picked ? detailOf(grid[picked.day][picked.hour - HOURS[0]]) : h('p', { class: 'muted small' }, t.team.tapHour));
 
     const toggle = (member) => {
       const id = member.user_id;
@@ -456,7 +461,7 @@ export function availabilityView(outlet, query, chrome) {
 
     const peopleList = h(
       'ul',
-      { class: 'av-people', 'aria-label': 'Chi deve esserci' },
+      { class: 'av-people', 'aria-label': t.team.whoTitle },
       members.map((member) => {
         const data = personData(member.user_id);
         const status = personState(data, monday);
@@ -468,23 +473,29 @@ export function availabilityView(outlet, query, chrome) {
             'button',
             { type: 'button', class: ['av-person', active && 'is-on'], 'aria-pressed': String(active), dataset: { focus: `person-${member.user_id}` }, onClick: () => toggle(member) },
             h('span', { class: 'av-person-avatar', 'aria-hidden': 'true' }, avatar(member.user_id, 24)),
-            h('span', { class: 'av-person-name' }, member.display_name || memberName(member.user_id), member.role === 'advisor' ? h('span', { class: 'muted small' }, ' · advisor') : null),
-            h('span', { class: ['av-person-mark', 'small'] }, active ? 'conta' : 'non conta'),
+            h(
+              'span',
+              { class: 'av-person-name' },
+              member.display_name || memberName(member.user_id),
+              member.role === 'advisor' ? h('span', { class: 'muted small' }, ` · ${tx.common.roles.advisor.toLowerCase()}`) : null,
+            ),
+            h('span', { class: ['av-person-mark', 'small'] }, active ? t.team.counts : t.team.notCounts),
             h('span', { class: ['av-person-state', 'small', status !== 'ok' && 'av-warn'] }, stateText(data, monday, availabilityOf(member.user_id))),
           ),
         );
       }),
     );
 
+    const thisWeek = weekIndex() === 0;
     const emptyBest = !chosen.length
-      ? 'Scegli almeno una persona qui sotto.'
+      ? t.team.chooseSomeone
       : !anyKnown
-        ? `Nessuna delle persone scelte ha segnato i suoi impegni per ${weekIndex() === 0 ? 'questa settimana' : 'la settimana scelta'}.`
-        : `Nessun orario libero in comune ${weekIndex() === 0 ? 'in questa settimana' : weekLabel(monday)}.`;
+        ? thisWeek ? t.team.noneMarkedThisWeek : t.team.noneMarkedWeek
+        : thisWeek ? t.team.noCommonThisWeek : t.team.noCommonWeek(weekLabel(monday));
     const bestCard = h(
       'section',
       { class: 'card av-best-card', 'aria-labelledby': 'av-best-title' },
-      h('h2', { id: 'av-best-title' }, 'Orari migliori'),
+      h('h2', { id: 'av-best-title' }, t.team.bestTitle),
       best.length
         ? h(
             'ol',
@@ -500,13 +511,13 @@ export function availabilityView(outlet, query, chrome) {
           )
         : h('p', { class: 'muted' }, emptyBest),
       notCounted.length
-        ? h('p', { class: 'muted small' }, `Non contano: ${notCounted.map((person) => `${memberName(person.id)} (${reasonOf(person.data)})`).join(', ')}.`)
+        ? h('p', { class: 'muted small' }, t.team.notCounting(notCounted.map((person) => `${memberName(person.id)} (${reasonOf(person.data)})`).join(', ')))
         : null,
     );
 
     const table = h(
       'table',
-      { class: 'av-grid av-team', 'aria-label': `Persone libere ${weekLabel(monday)}` },
+      { class: 'av-grid av-team', 'aria-label': t.team.gridLabel(weekLabel(monday)) },
       dayHeaders(monday, true),
       h(
         'tbody',
@@ -557,8 +568,9 @@ export function availabilityView(outlet, query, chrome) {
       h(
         'p',
         { class: 'muted' },
-        'Ognuno segna quando è impegnato e il sito trova gli orari in cui siete liberi. Chi non ha segnato i suoi impegni non conta. ',
-        h('a', { href: '#/squadra/disponibilita?vista=miei', dataset: { replace: '' } }, 'Segna i tuoi impegni'),
+        t.team.intro,
+        ' ',
+        h('a', { href: MINE_HREF, dataset: { replace: '' } }, t.team.markYours),
       ),
       weekNav(),
       bestCard,
@@ -566,25 +578,25 @@ export function availabilityView(outlet, query, chrome) {
       h(
         'div',
         { class: 'av-legend small muted' },
-        h('span', null, 'Nelle caselle: quanti sono liberi su quanti hanno segnato i loro impegni.'),
+        h('span', null, t.team.legend),
         h(
           'span',
           { class: 'av-legend-scale', 'aria-hidden': 'true' },
-          'Nessuno libero',
+          t.team.nobodyFree,
           ['l1', 'l2', 'l3', 'l4'].map((key) => h('span', { class: ['av-swatch', `av-${key}`] })),
-          'Tutti liberi',
+          t.team.everyoneFree,
         ),
       ),
       detail,
-      h('h2', null, 'Chi deve esserci'),
-      h('p', { class: 'muted small' }, 'Tocca una persona per toglierla o aggiungerla al calcolo. La scelta resta su questo dispositivo.'),
+      h('h2', null, t.team.whoTitle),
+      h('p', { class: 'muted small' }, t.team.whoHelp),
       peopleList,
     ];
   };
 
   function reasonOf(data) {
-    if (!data) return 'non ha segnato i suoi impegni';
-    return personState(data, monday) === 'expired' ? 'orario tipo scaduto' : `conta fino ${withDay('al', data.until, shortDate(data.until))}`;
+    if (!data) return t.team.notMarked;
+    return personState(data, monday) === 'expired' ? t.team.expired : t.team.countsUntil(data.until, shortDate(data.until));
   }
 
   function render() {
@@ -599,12 +611,12 @@ export function availabilityView(outlet, query, chrome) {
         { class: 'tab-body stack' },
         tabs(
           [
-            ['team', 'Orari della squadra'],
-            ['miei', 'I miei impegni'],
+            ['team', t.views.team],
+            ['miei', t.views.mine],
           ],
           mode === 'mine' ? 'miei' : 'team',
-          (key) => (key === 'miei' ? '#/squadra/disponibilita?vista=miei' : '#/squadra/disponibilita'),
-          { ariaLabel: 'Vista', className: 'subtabs' },
+          (key) => (key === 'miei' ? MINE_HREF : TEAM_HREF),
+          { ariaLabel: t.views.label, className: 'subtabs' },
         ),
         mode === 'mine' ? mineBody() : teamBody(),
       ),
@@ -645,16 +657,16 @@ export function availabilityView(outlet, query, chrome) {
         // Si salva sopra la versione da cui è partita la copia. Se l'elemento è nato altrove nel frattempo,
         // la versione 0 fa rispondere «conflitto» e saveWithMerge unisce con quella salvata.
         const target = startItem?.id === mine.id ? startItem : { ...mine, version: 0 };
-        const result = await saveWithMerge(target, base, { ...base, title: TITLE, data }, 'Impegni aggiornati');
+        const result = await saveWithMerge(target, base, { ...base, title: TITLE, data }, t.mine.updateMessage);
         if (result.cancelled) return;
       } else {
-        await createItem('availability', { title: TITLE, data }, 'Primi impegni');
+        await createItem('availability', { title: TITLE, data }, t.mine.firstMessage);
       }
       if (!alive) return;
       // Le ore segnate durante il salvataggio restano da salvare.
       if (deepEqual(sanitizeAvailability(dropPastWeeks(working, thisMonday())), data)) startWorking();
       else startItem = availabilityOf(state.user?.id);
-      toast('Impegni salvati.', { type: 'success' });
+      toast(t.mine.saved, { type: 'success' });
       render();
     } catch (error) {
       // Creati nel frattempo da un altro dispositivo, senza che il tempo reale lo abbia detto: si ricarica e si unisce.

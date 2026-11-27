@@ -1,29 +1,28 @@
-// i18n: da tradurre
 import { dayKey } from './lib/format.js';
 import { isIsoDate } from './lib/validate.js';
+import { locale, tx } from './i18n/index.js';
+
+// L'apostrofo dell'articolo davanti al giorno («dall'8») è una regola dell'italiano e sta nei testi italiani:
+// si riesporta per i moduli che scrivono ancora frasi italiane attorno a una data.
+export { withDay } from './i18n/it/availability.js';
 
 // Disponibilità: ognuno segna solo quando è impegnato, gli orari liberi in comune si calcolano.
 // Un'ora è un intero 0-23 e vale da quell'ora alla successiva; le settimane si indicano con il loro lunedì.
 
-export const DAYS = [
-  ['lun', 'lunedì'],
-  ['mar', 'martedì'],
-  ['mer', 'mercoledì'],
-  ['gio', 'giovedì'],
-  ['ven', 'venerdì'],
-  ['sab', 'sabato'],
-  ['dom', 'domenica'],
-];
-export const DAY_KEYS = DAYS.map(([key]) => key);
+// Le chiavi dei giorni sono quelle salvate e non cambiano con la lingua: i nomi vengono dai testi.
+export const DAY_KEYS = ['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'];
+export const DAYS = DAY_KEYS.map((key) => [key, tx.availability.days[key]]);
 export const FIRST_HOUR = 8;
 export const LAST_HOUR = 22;
 export const HOURS = Array.from({ length: LAST_HOUR - FIRST_HOUR }, (_, i) => FIRST_HOUR + i);
 export const WEEKS_AHEAD = 12;
 export const MAX_WEEKS = 26;
 
-const dayMonth = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const nameList = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' });
 
-export const dayName = (key) => DAYS.find(([k]) => k === key)?.[1] || key;
+export const dayName = (key) => (DAY_KEYS.includes(key) ? tx.availability.days[key] : key);
+export const dayShort = (key) => (DAY_KEYS.includes(key) ? tx.availability.daysShort[key] : key);
 
 export function addDays(key, days) {
   const date = new Date(`${key}T00:00:00Z`);
@@ -37,24 +36,17 @@ export const isMonday = (key) => isIsoDate(key) && weekdayIndex(key) === 0;
 export const thisMonday = (now = new Date()) => mondayOf(dayKey(now));
 export const shortDate = (key) => (isIsoDate(key) ? dayMonth.format(new Date(`${key}T00:00:00Z`)) : String(key));
 
-// Davanti a 1, 8 e 11 l'articolo si apostrofa: «dall'8», «fino all'11», «l'1».
-const ELIDED = { il: "l'", dal: "dall'", al: "all'", del: "dell'" };
-
-export function withDay(word, key, text) {
-  return [1, 8, 11].includes(Number(String(key).slice(8, 10))) ? `${ELIDED[word]}${text}` : `${word} ${text}`;
-}
-
 export function weekLabel(monday) {
   const sunday = addDays(monday, 6);
-  return `${withDay('dal', monday, shortDate(monday))} ${withDay('al', sunday, shortDate(sunday))}`;
+  return tx.availability.week(monday, shortDate(monday), sunday, shortDate(sunday));
 }
 
 export function slotLabel(date, start, end) {
-  return `${dayName(DAY_KEYS[weekdayIndex(date)])} ${shortDate(date)}, ${start}-${end}`;
+  return tx.availability.slot(dayName(DAY_KEYS[weekdayIndex(date)]), shortDate(date), start, end);
 }
 
 // Per i lettori di schermo: «9-10» si leggerebbe male.
-export const hourSpan = (hour) => `dalle ${hour} alle ${hour + 1}`;
+export const hourSpan = (hour) => tx.availability.hourSpan(hour);
 
 // [9, 10, 11, 15] diventa "9-12, 15-16".
 export function hoursText(hours) {
@@ -68,10 +60,8 @@ export function hoursText(hours) {
   return ranges.map(([a, b]) => `${a}-${b}`).join(', ');
 }
 
-export function joinNames(names) {
-  if (names.length <= 1) return names.join('');
-  return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`;
-}
+// «Anna, Bruno e Chiara», "Anna, Bruno and Chiara": la congiunzione è quella della lingua in uso.
+export const joinNames = (names) => nameList.format(names.map(String));
 
 export function sanitizeHours(raw) {
   if (!Array.isArray(raw)) return [];
