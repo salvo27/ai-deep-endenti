@@ -1,7 +1,6 @@
-// i18n: da tradurre
 import { runAuthGate } from './auth.js';
 import { startApp } from './app.js';
-import { applyDocumentLanguage } from './i18n/index.js';
+import { applyDocumentLanguage, tx } from './i18n/index.js';
 
 const root = document.getElementById('app');
 
@@ -13,6 +12,6 @@ async function boot() {
 }
 
 boot().catch((error) => {
-  console.error('Avvio non riuscito', error?.name);
-  root.textContent = 'Non è stato possibile avviare il sito. Ricarica la pagina.';
+  console.error('Startup failed', error?.name);
+  root.textContent = tx.errors.startup;
 });

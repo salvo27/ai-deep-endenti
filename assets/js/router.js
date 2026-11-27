@@ -1,4 +1,5 @@
-// i18n: da tradurre
+import { tx } from './i18n/index.js';
+
 const routes = [];
 let outlet = null;
 let current = { path: null, key: null, cleanup: null };
@@ -123,9 +124,9 @@ export async function render(hash = location.hash) {
     const cleanup = await view?.(outlet, found?.params || {}, query);
     current.cleanup = typeof cleanup === 'function' ? cleanup : null;
   } catch (error) {
-    console.error('Errore nella pagina', error?.name);
+    console.error('Page failed', error?.name);
     outlet.replaceChildren();
-    outlet.append(Object.assign(document.createElement('p'), { className: 'error-box', textContent: error?.message || 'Pagina non disponibile.' }));
+    outlet.append(Object.assign(document.createElement('p'), { className: 'error-box', textContent: error?.message || tx.errors.pageUnavailable }));
   }
   for (const fn of changeListeners) fn(path);
 }

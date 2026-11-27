@@ -201,7 +201,7 @@ test('startApp refuses accounts that are not in the team', async () => {
   api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
   api.myRole = async () => null;
   assert.equal(await app.startApp(root), false);
-  assert.match(text(root), /Account non abilitato/);
+  assert.match(text(root), /Non fai parte di nessun progetto/);
 });
 
 test('startApp builds the shell, starts realtime and the router for a member', async () => {

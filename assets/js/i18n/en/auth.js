@@ -1,2 +1,72 @@
 // Same entries as ../it/auth.js, which is the reference: tests/unit/i18n.test.mjs checks it.
-export const auth = {};
+export const auth = {
+  email: 'Email',
+  password: 'Password',
+  showPassword: 'Show password',
+  hidePassword: 'Hide password',
+  codeLabel: 'Six-digit code',
+  sixDigits: 'The code has six digits.',
+  signOut: 'Sign out',
+  login: {
+    title: 'Sign in',
+    subtitle: 'Accounts are created by the team administrator.',
+    submit: 'Sign in',
+    forgot: 'Forgot your password?',
+    missing: 'Enter your email and password.',
+  },
+  reset: {
+    title: 'Reset your password',
+    submit: 'Send the link',
+    back: 'Back to sign-in',
+    invalidEmail: 'Enter a valid email address.',
+    sent: 'If the address belongs to an account, you will receive an email with the link. After the link you will still need the code from your authenticator app.',
+  },
+  verify: {
+    title: 'Two-step verification',
+    subtitle: 'Open your authenticator app and enter the code.',
+    device: 'Device',
+    code: 'Code from your authenticator app',
+    submit: 'Verify',
+  },
+  enroll: {
+    title: 'Turn on two-step verification',
+    subtitle: 'It is required for everyone: it protects the team\'s ideas even if someone finds out your password.',
+    steps: [
+      'Install an authenticator app: Google Authenticator, Microsoft Authenticator, 1Password or similar.',
+      'Scan the QR code, or type in the key below.',
+      'Enter the six-digit code shown in the app.',
+    ],
+    qrAlt: 'QR code to scan with your authenticator app',
+    code: 'Code',
+    submit: 'Turn on',
+    cancel: 'Cancel',
+    done: 'Two-step verification is on.',
+  },
+  newPassword: {
+    title: 'Choose a new password',
+    password: 'New password',
+    confirm: 'Repeat the password',
+    hint: 'At least 12 characters, with lowercase and uppercase letters and a number.',
+    submit: 'Save the new password',
+    done: 'Password updated.',
+  },
+  passwordRules: {
+    tooShort: 'The password must be at least 12 characters long.',
+    tooLong: 'The password can be at most 128 characters long.',
+    mix: 'Use lowercase and uppercase letters and at least one number.',
+    mismatch: 'The two passwords do not match.',
+  },
+  notMember: {
+    noneTitle: 'You are not in any project',
+    noneText: 'Your account exists, but nobody has added you to a project yet. Ask an administrator to add you.',
+    removedTitle: 'You are no longer in this project',
+    removedText: 'An admin removed you from the project, or the project was archived. Reload the page to open another of your projects.',
+    reload: 'Reload',
+  },
+  error: {
+    title: 'Something went wrong',
+    fallback: 'Try again shortly.',
+    retry: 'Try again',
+  },
+  idleSignedOut: 'You were signed out after a period of inactivity.',
+};
