@@ -25,7 +25,7 @@ const KIND = {
   numero: (q) => numberText(q.number),
   breve: () => 'Risposta breve',
   lunga: () => 'Risposta lunga',
-  email: () => 'Email, facoltativa per ricontattare',
+  email: (q) => (q.required ? 'Email, per ricontattare' : 'Email, facoltativa per ricontattare'),
 };
 
 function answers(q) {
