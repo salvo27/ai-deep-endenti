@@ -58,9 +58,11 @@ async function open(page, hash) {
   return errors;
 }
 
+// Gira anche nei progetti in inglese (@ogni-lingua): l'anteprima parla la lingua del browser, come il sito.
 for (const hash of PAGES) {
-  test(`${hash}: nessun errore e niente esce dallo schermo`, async ({ page, isMobile }) => {
+  test(`${hash}: nessun errore e niente esce dallo schermo`, { tag: '@ogni-lingua' }, async ({ page }, testInfo) => {
     const errors = await open(page, hash);
+    expect(await page.evaluate(() => document.documentElement.lang), 'la lingua della pagina').toBe(testInfo.project.use.locale.slice(0, 2));
     // Sul telefono una pagina più larga allarga anche innerWidth: si confronta con lo schermo vero.
     const overflow = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, window.innerWidth) - window.visualViewport.width);
     expect(overflow, 'la pagina scorre in orizzontale').toBeLessThanOrEqual(1);

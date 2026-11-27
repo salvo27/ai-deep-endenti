@@ -1,5 +1,6 @@
 // Anteprima locale senza login, con dati finti: serve solo a controllare il layout.
 import { api } from '../../assets/js/lib/api.js';
+import { applyDocumentLanguage } from '../../assets/js/i18n/index.js';
 import * as store from '../../assets/js/store.js';
 import { buildShell } from '../../assets/js/views/shell.js';
 import { notFoundView, registerRoutes } from '../../assets/js/app.js';
@@ -152,6 +153,8 @@ api.surveyFunnel = async () => ({ views: 48, starts: 14, partial: 2, completed: 
 api.listSurveyResponses = async () => surveyResponses;
 api.deleteSurveyResponses = async () => 0;
 
+// Come il sito vero (main.js): la pagina dice la lingua del dispositivo, che sceglie anche i testi.
+applyDocumentLanguage();
 const { outlet } = buildShell(document.getElementById('app'), { onSignOut() {} });
 registerRoutes();
 startRouter(outlet, { fallback: notFoundView });

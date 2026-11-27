@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { estimateMinutes } from '../../assets/js/public/survey-time.js';
+import { textsFor } from '../../assets/js/public/texts.js';
 import { SURVEY, TOKEN } from './q-fixture.mjs';
 
 // Pagina pubblica dei questionari (q.html) con il client Supabase finto: tests/e2e/q-preview.html.
@@ -33,6 +34,52 @@ const next = (page) => page.getByRole('button', { name: 'Avanti' }).click();
 const counter = (page) => page.locator('.progress-text');
 const rpc = (page, name) => page.evaluate((n) => window.__fakeSupabase.calls.filter((c) => c[0] === 'rpc' && c[1] === n).map((c) => c[2]), name);
 const withQuestions = (ids, extra = {}) => ({ ...SURVEY, ...extra, questions: SURVEY.questions.filter((q) => ids.includes(q.id)) });
+
+// Le basi in ogni lingua del dispositivo (@ogni-lingua, anche nei progetti in inglese): la pagina parla la lingua del
+// browser e i suoi testi, più lunghi o più corti, non escono dallo schermo dall'introduzione al grazie, né quando il
+// questionario è chiuso o non esiste. Il questionario resta quello di prova, in italiano: i suoi testi sono del team.
+test('le basi nella lingua del dispositivo: nessun errore e niente esce dallo schermo', { tag: '@ogni-lingua' }, async ({ page }, testInfo) => {
+  const lang = testInfo.project.use.locale.slice(0, 2);
+  const t = textsFor(lang);
+  const button = (target, name) => target.getByRole('button', { name, exact: true });
+  const check = async (target, where) => {
+    const overflow = await target.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, `${where}: la pagina scorre in orizzontale`).toBeLessThanOrEqual(0);
+  };
+  const { errors } = await open(page);
+  expect(await page.evaluate(() => document.documentElement.lang), 'la lingua della pagina').toBe(lang);
+  await expect(page.locator('.facts')).toContainText(t.time.duration(estimateMinutes(SURVEY)));
+  await check(page, 'introduzione');
+  await button(page, t.intro.privacyToggle).click();
+  await check(page, 'privacy aperta');
+  await button(page, t.intro.start).click();
+  for (let i = 1; i <= 7; i += 1) {
+    await expect(counter(page)).toHaveText(t.progress.one(i, 7));
+    if (i === 1) {
+      await button(page, t.question.next).click();
+      await expect(page.locator('.q-error')).toHaveText(t.messages.required);
+      await check(page, 'domanda obbligatoria senza risposta');
+      await page.getByLabel('Meno di 30').check();
+    }
+    if (i === 3) await page.getByLabel(t.other, { exact: true }).check();
+    await check(page, `domanda ${i}`);
+    if (i < 7) await button(page, t.question.next).click();
+  }
+  await button(page, t.question.send).click();
+  await expect(page.getByRole('region', { name: t.reminder.label })).toBeVisible();
+  await check(page, 'promemoria');
+  await button(page, t.sending.anyway).click();
+  await expect(page.getByRole('heading', { name: t.thanks.title })).toBeVisible();
+  await check(page, 'grazie');
+  for (const [status, title] of [['chiuso', t.closed.title], ['non_trovato', t.notFound.title]]) {
+    const other = await page.context().newPage();
+    const { errors: otherErrors } = await open(other, { survey: { status } });
+    await expect(other.getByRole('heading', { level: 1, name: title })).toBeVisible();
+    await check(other, status);
+    expect(otherErrors, status).toEqual([]);
+  }
+  expect(errors).toEqual([]);
+});
 
 test('l\'introduzione mostra durata ed email facoltativa, con l\'informativa chiusa che si apre sul posto', async ({ page }) => {
   await open(page);
