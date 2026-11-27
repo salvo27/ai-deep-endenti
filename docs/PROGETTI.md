@@ -1,0 +1,84 @@
+# Progetti (multi-tenant)
+
+Il sito ospita più **progetti**. Ogni progetto è una board completa e isolata: idee e schede, storico, commenti, chat, menzioni, questionari e risposte, spese, squadra, membri. Una persona può stare in più progetti e passa dall'uno all'altro con un selettore; dentro un progetto vede solo i dati di quel progetto.
+
+Questo documento è il contratto: i test del database (`supabase/tests/database/`) e del sito lo verificano punto per punto.
+
+## Chi decide cosa
+
+| Figura | Dove vale | Cosa può fare |
+|---|---|---|
+| **Amministratore della piattaforma** (`platform_admins`) | ovunque | Crea, rinomina, archivia e riattiva progetti; aggiunge e toglie persone in qualunque progetto e ne cambia il ruolo; aggiunge e toglie altri amministratori della piattaforma (ne resta sempre almeno uno); legge il registro di sicurezza di tutto. **Non legge i contenuti di un progetto** se non ne è membro: per vederli deve aggiungersi, e l'aggiunta finisce nel registro. |
+| **Admin del progetto** (`members.role = 'admin'`) | nel suo progetto | Gestisce il team del progetto (aggiunge persone già registrate, cambia ruoli, toglie), rinomina il progetto, legge il registro del progetto; in più tutto quello che fa un membro. In ogni progetto resta sempre almeno un admin. |
+| **Membro** (`member`) | nel suo progetto | Crea e modifica le board. |
+| **Advisor** (`advisor`) | nel suo progetto | Legge, commenta, vota, scrive in chat; modifica solo i propri voti e impegni. |
+
+Tutto richiede la verifica in due passaggi (`aal2` nel token), come prima. Un progetto archiviato non si legge e non si scrive più da nessun membro (i dati restano): lo riattiva solo un amministratore della piattaforma.
+
+## Database
+
+### Tabelle nuove
+
+- `projects (id, name, created_by, created_at, archived_at)`: nome da 1 a 80 caratteri senza spazi ai bordi. Si scrive solo con le funzioni qui sotto, mai direttamente; non si cancella, si archivia.
+- `platform_admins (user_id, created_by, created_at)`: si scrive solo con le funzioni o dal SQL Editor.
+- `profiles (user_id, display_name, color, language, created_at)`: nome e colore valgono in tutti i progetti; `language` è `'en'`, `'it'` o `null` (= segue il dispositivo) e decide la lingua di email e risposte di Claude. Ognuno modifica solo il proprio profilo; lo vede chi condivide almeno un progetto con lui e l'amministratore della piattaforma.
+
+### Tabelle che cambiano
+
+- `members` diventa `(project_id, user_id, role, created_at)` con chiave `(project_id, user_id)`. Nome e colore passano a `profiles`.
+- `project_id` (non nullo, con indice) si aggiunge a `items`, `revisions`, `comments`, `chats`, `chat_messages`, `mentions`, `survey_responses`, `survey_events`; `audit_log.project_id` può essere nullo per gli eventi della piattaforma; `email_weekly` diventa per persona, progetto e settimana.
+- `project_id` lo scrive il database: in `items` e `chats` lo dà chi crea e non cambia più; nelle altre tabelle lo copia un trigger dall'elemento, dalla chat o dal questionario a cui appartengono, ignorando quello che manda il client. Un'idea collegata (`idea_id`) e una chat collegata a un'idea devono stare nello stesso progetto, e una risposta in chat può citare solo un messaggio della stessa chat.
+- Le unicità diventano per progetto: una sola scheda `criteria`, `generator`, `teamcanvas`, `equity` per progetto; un voto e un elemento «Impegni» per persona e progetto; un foglio ore per persona, progetto e settimana; una chat «Generale» per progetto, creata insieme al progetto. Il codice del link pubblico di un questionario resta unico in tutto il sito.
+
+### Funzioni
+
+- `is_platform_admin()`, `my_role(p_project)`, `can_read(p_project)`, `can_write(p_project)`, `is_admin(p_project)`, `can_manage(p_project)` (= admin del progetto o amministratore della piattaforma). Le versioni senza argomenti spariscono.
+- `my_projects()`: i progetti non archiviati di chi chiama, con il suo ruolo. `all_projects()`: per l'amministratore della piattaforma, tutti i progetti con numero di membri e di admin.
+- `create_project(p_name)`, `rename_project(p_project, p_name)`, `archive_project(p_project)`, `unarchive_project(p_project)`, `add_platform_admin(p_email)`, `remove_platform_admin(p_user)`.
+- `add_member(p_project, p_email, p_display_name, p_role)`: crea il profilo se manca, senza mai rinominare chi ne ha già uno. Ruolo e uscita dal progetto si cambiano su `members` con le regole di accesso (solo `can_manage`) e il trigger dell'ultimo admin.
+- `members_overview(p_project)`: come prima (nome, colore, ruolo, email, ultimo accesso, 2FA), ma solo per quel progetto e con l'ultima attività calcolata sui dati di quel progetto.
+- `create_item(p_project, p_kind, p_title, p_status, p_data, p_idea, p_message)`; le altre operazioni sugli elementi ricavano il progetto dall'elemento.
+- `chat_overview(p_project)`; `note_image_orphans(p_project, p_paths)` e `survey_image_orphans(p_project, p_paths)` guardano solo le immagini di quel progetto.
+- Menzioni: `@[tutti]` e `@[Nome]` cercano solo tra i membri del progetto del testo.
+- Email: i dati per la funzione `notify` portano progetto, nome del progetto e lingua di chi riceve; il riepilogo del lunedì è uno per persona e per progetto.
+
+### Errori
+
+Le funzioni nuove non scrivono frasi: rispondono con un codice, che il sito traduce nella lingua di chi legge (`tx.errors`).
+
+| Caso | SQLSTATE | Messaggio |
+|---|---|---|
+| Permesso negato da una funzione | `42501` | `not_allowed` |
+| Progetto inesistente o archiviato | `P0002` | `project_not_found` |
+| Nome del progetto non valido | `22023` | `invalid_project_name` |
+| Ruolo non valido | `22023` | `invalid_role` |
+| Nessun account con quell'email | `P0002` | `user_not_found` |
+| Ultimo amministratore della piattaforma | `P0001` | `last_platform_admin` |
+| Ultimo admin del progetto | `P0001` | `last_project_admin` |
+| Collegamento a un elemento di un altro progetto | `P0001` | `cross_project` |
+
+Le regole di accesso sulle tabelle rifiutano con il `42501` di Postgres.
+
+### Storage e tempo reale
+
+- Le immagini restano dove sono: la prima cartella del percorso è un'idea, un questionario, un gruppo di spese o una chat, e `storage_project(name)` ne ricava il progetto. Leggere, caricare e cancellare seguono i ruoli di quel progetto, come prima. Nessun file va spostato.
+- La presenza online usa un canale per progetto, `board:<id del progetto>`, autorizzato da `can_read` di quel progetto. Gli aggiornamenti dal vivo delle tabelle passano già dalle regole di accesso, quindi ognuno riceve solo quelli dei suoi progetti.
+
+### Aggiornamento dei dati esistenti
+
+Lo schema resta uno script che si può rieseguire senza perdere dati. Alla prima esecuzione su un database a squadra unica:
+
+1. crea il progetto `ai-deep-endenti` e ci mette tutte le righe esistenti, senza creare revisioni né menzioni nuove e senza far partire email;
+2. copia nome e colore di ogni membro nel suo profilo;
+3. rende amministratori della piattaforma gli admin di allora (solo se non ce n'è ancora nessuno);
+4. le esecuzioni successive non cambiano nulla.
+
+Il test `supabase/tests/database/*aggiornamento*` parte dallo schema di prima (`tests/db/legacy-schema.sql`) con dati di ogni tipo e lo prova.
+
+## Sito
+
+- Il progetto scelto si ricorda sul dispositivo; senza scelta valida si apre il primo di `my_projects()`. Chi non ha progetti vede la schermata «non fai parte di nessun progetto» (l'amministratore della piattaforma vede invece la pagina Progetti).
+- Il selettore nel menu elenca i progetti di `my_projects()`; cambiare progetto ricarica dati, presenza e chat di quel progetto.
+- Pagina **Progetti** (`#/progetti`), solo per l'amministratore della piattaforma: elenco con membri e admin, creazione, rinomina, archiviazione, persone e ruoli di ogni progetto, amministratori della piattaforma.
+- La pagina **Membri** resta all'admin del progetto, limitata al suo progetto.
+- I link delle email portano il progetto, così aprono il progetto giusto.

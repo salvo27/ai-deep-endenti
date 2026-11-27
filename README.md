@@ -265,7 +265,24 @@ npm run test:db
 npm run serve
 ```
 
-Il sito locale è su `http://localhost:8080`. `npm run test:db` richiede PostgreSQL 15 o successivo installato (per esempio `brew install postgresql@16`).
+Il sito locale è su `http://localhost:8080`. `npm run test:db` non richiede nulla da installare: usa PGlite, il vero PostgreSQL compilato in WebAssembly, con pgTAP, ed è uguale su Windows, macOS e Linux (`node tests/db/run.mjs 03_` esegue solo i file che iniziano così). Le prove con due connessioni vere al database (`npm run test:db:pg`) richiedono invece PostgreSQL 15 o successivo installato e girano su GitHub Actions.
+
+### Messaggi di commit
+
+I commit seguono [Conventional Commits](https://www.conventionalcommits.org/it/v1.0.0/): in inglese, su una riga, nella forma `tipo(area): cosa`, con l'area facoltativa.
+
+| Tipo | Quando |
+|---|---|
+| `feat` | una funzione nuova per chi usa il sito |
+| `fix` | un errore corretto |
+| `test` | solo test, senza cambiare il comportamento |
+| `docs` | solo documenti |
+| `refactor` | codice riscritto senza cambiare il comportamento |
+| `perf` | più veloce, con lo stesso risultato |
+| `chore` | dipendenze, configurazione, strumenti |
+| `ci` | il workflow di GitHub Actions |
+
+Per esempio `feat(projects): let platform admins create projects` o `fix(preload): write forward slashes in index.html on Windows`. Un cambiamento che rompe qualcosa per chi usa o installa il sito (per esempio uno schema da applicare prima di pubblicare) ha `!` dopo il tipo e una riga `BREAKING CHANGE:` nel corpo.
 
 ## Operazioni frequenti
 
