@@ -1,28 +1,33 @@
-// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { KINDS, TEAM_BLOCKS } from '../schema.js';
 import { canWrite, on, singleton } from '../store.js';
+import { tx } from '../i18n/index.js';
 import { conceptButton } from './concept-help.js';
 import { availabilityView } from './availability.js';
 import { timesheetView } from './timesheet.js';
 import { equityView } from './equity.js';
 import { button, emptyState, metaLine, pageHeader, tabs, textBlock } from './components.js';
 
+const t = tx.squad;
+
+// La chiave della scheda è l'indirizzo e non cambia con la lingua. «Team Canvas» è il nome dello strumento.
 const TABS = [
   ['canvas', 'Team Canvas', 'teamcanvas'],
-  ['quote', 'Divisione delle quote', 'equity'],
-  ['disponibilita', 'Disponibilità', 'availability'],
-  ['ore', 'Ore lavorate', 'timesheet'],
+  ['quote', t.tabs.equity, 'equity'],
+  ['disponibilita', t.tabs.availability, 'availability'],
+  ['ore', t.tabs.timesheet, 'timesheet'],
 ];
+
+// Gli indirizzi restano uguali in ogni lingua.
+const tabHref = (key) => `#/squadra/${key}`; // i18n-ignore
+const newHref = (kind) => `#/nuovo/${kind}`; // i18n-ignore
+const editHref = (id) => `#/modifica/${id}`; // i18n-ignore
+const historyHref = (id) => `#/storico/${id}`; // i18n-ignore
 
 function squadChrome(tab, actions) {
   return [
-    pageHeader({
-      title: 'Squadra',
-      subtitle: 'Il team che costruisce l\'azienda: chi siamo, come lavoriamo, quando siamo liberi, quante ore dedichiamo e come dividiamo le quote.',
-      actions,
-    }),
-    tabs(TABS.map(([key, text]) => [key, text]), tab, (key) => `#/squadra/${key}`),
+    pageHeader({ title: t.title, subtitle: t.subtitle, actions }),
+    tabs(TABS.map(([key, text]) => [key, text]), tab, tabHref),
   ];
 }
 
@@ -46,14 +51,12 @@ export function squadView(outlet, params, query) {
   if (tab === 'disponibilita') return availabilityView(outlet, query, (actions) => squadChrome(tab, actions));
   if (tab === 'ore') return timesheetView(outlet, query, (actions) => squadChrome(tab, actions));
   const [, , kind] = TABS.find(([key]) => key === tab);
+  const texts = kind === 'teamcanvas' ? t.canvas : t.equity;
   const writable = canWrite();
 
   const render = () => {
     const item = singleton(kind);
-    const intro =
-      kind === 'teamcanvas'
-        ? h('p', { class: 'muted' }, 'Da compilare insieme, in una sessione di un\'ora: ruoli, obiettivi, valori e regole messi per iscritto prima che servano. ', conceptButton('team-canvas'))
-        : h('p', { class: 'muted' }, 'Una proposta di divisione delle quote tra fondatori, da discutere apertamente prima di costituire la società. ', conceptButton('demmler'));
+    const intro = h('p', { class: 'muted' }, texts.intro, ' ', conceptButton(kind === 'teamcanvas' ? 'team-canvas' : 'demmler'));
     const body = item
       ? h(
           'div',
@@ -61,14 +64,11 @@ export function squadView(outlet, params, query) {
           kind === 'teamcanvas' ? teamCanvasView(item) : equityView(item),
           metaLine(item),
         )
-      : emptyState(
-          kind === 'teamcanvas' ? 'Il Team Canvas non è ancora stato compilato.' : 'Le quote non sono ancora state discusse.',
-          writable ? button(kind === 'teamcanvas' ? 'Compila il Team Canvas' : 'Prepara la divisione delle quote', { kind: 'primary', iconName: KINDS[kind].icon, href: `#/nuovo/${kind}` }) : null,
-        );
+      : emptyState(texts.empty, writable ? button(texts.create, { kind: 'primary', iconName: KINDS[kind].icon, href: newHref(kind) }) : null);
     const actions = item
       ? [
-          writable ? button('Modifica', { iconName: 'edit', href: `#/modifica/${item.id}` }) : null,
-          button('Versioni', { iconName: 'history', href: `#/storico/${item.id}` }),
+          writable ? button(tx.common.actions.edit, { iconName: 'edit', href: editHref(item.id) }) : null,
+          button(t.versions, { iconName: 'history', href: historyHref(item.id) }),
         ]
       : [];
     mount(outlet, ...squadChrome(tab, actions), h('div', { class: 'tab-body stack' }, intro, body));

@@ -1,15 +1,17 @@
-// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { fmtPercent, shortId } from '../lib/format.js';
 import { equitySplit } from '../schema.js';
+import { tx } from '../i18n/index.js';
 import { conceptButton } from './concept-help.js';
 import { fieldsGrid } from './components.js';
 
+const t = tx.squad.equity;
+
 function resultBars(data) {
   const split = equitySplit(data);
-  if (!split.length) return h('p', { class: 'muted' }, 'Aggiungi i fondatori per calcolare le quote.');
-  if (split.every((s) => s.percent === null)) return h('p', { class: 'muted' }, 'Dai i punteggi per calcolare le quote.');
+  if (!split.length) return h('p', { class: 'muted' }, t.noFounders);
+  if (split.every((s) => s.percent === null)) return h('p', { class: 'muted' }, t.noScores);
   return h(
     'div',
     { class: 'equity-bars' },
@@ -35,7 +37,7 @@ function scoreTable(data) {
     h(
       'table',
       { class: 'table' },
-      h('thead', null, h('tr', null, h('th', null, 'Elemento'), h('th', null, 'Peso'), founders.map((f) => h('th', null, f.name)))),
+      h('thead', null, h('tr', null, h('th', null, t.factor), h('th', null, t.weight), founders.map((f) => h('th', null, f.name)))),
       h(
         'tbody',
         null,
@@ -57,10 +59,10 @@ export function equityView(item) {
   return h(
     'div',
     { class: 'stack' },
-    h('div', { class: 'section-label' }, 'Quote proposte con il metodo Demmler', conceptButton('demmler')),
+    h('div', { class: 'section-label' }, t.method, conceptButton('demmler')),
     resultBars(item.data),
     scoreTable(item.data),
-    h('p', { class: 'muted small' }, 'Il calcolo è un punto di partenza per la discussione, non un accordo: le quote vanno messe per iscritto con un notaio o un legale, insieme al vesting.'),
+    h('p', { class: 'muted small' }, t.disclaimer),
     fieldsGrid(item),
   );
 }
@@ -104,7 +106,7 @@ export function equityEditor(working, onChange) {
         h(
           'table',
           { class: 'table equity-table' },
-          h('thead', null, h('tr', null, h('th', null, 'Elemento'), h('th', null, 'Peso (0-10)'), d.founders.map((f) => h('th', null, f.name || 'Senza nome')))),
+          h('thead', null, h('tr', null, h('th', null, t.factor), h('th', null, t.weightScale), d.founders.map((f) => h('th', null, f.name || t.noName)))),
           h(
             'tbody',
             null,
@@ -112,8 +114,8 @@ export function equityEditor(working, onChange) {
               h(
                 'tr',
                 null,
-                h('th', { scope: 'row' }, h('input', { class: 'input input-small', type: 'text', maxlength: 60, value: factor.label, 'aria-label': 'Nome dell\'elemento', onInput: (e) => { factor.label = e.target.value; onChange(); } })),
-                h('td', null, scoreInput(factor.weight, (v) => { factor.weight = v ?? 0; changed(); }, `Peso di ${factor.label}`)),
+                h('th', { scope: 'row' }, h('input', { class: 'input input-small', type: 'text', maxlength: 60, value: factor.label, 'aria-label': t.factorName, onInput: (e) => { factor.label = e.target.value; onChange(); } })),
+                h('td', null, scoreInput(factor.weight, (v) => { factor.weight = v ?? 0; changed(); }, t.weightOf(factor.label))),
                 d.founders.map((f) =>
                   h(
                     'td',
@@ -123,7 +125,7 @@ export function equityEditor(working, onChange) {
                       if (v === undefined) delete d.scores[key];
                       else d.scores[key] = v;
                       changed();
-                    }, `${f.name}: ${factor.label}`),
+                    }, t.scoreOf(f.name, factor.label)),
                   ),
                 ),
               ),
@@ -141,8 +143,8 @@ export function equityEditor(working, onChange) {
         h(
           'div',
           { class: 'edit-row' },
-          h('input', { class: 'input', type: 'text', maxlength: 80, value: founder.name, placeholder: 'Nome del fondatore', 'aria-label': 'Nome del fondatore', onInput: (e) => { founder.name = e.target.value; changed(); renderTable(); } }),
-          h('button', { type: 'button', class: 'icon-btn', 'aria-label': `Togli ${founder.name || 'fondatore'}`, onClick: () => {
+          h('input', { class: 'input', type: 'text', maxlength: 80, value: founder.name, placeholder: t.founderName, 'aria-label': t.founderName, onInput: (e) => { founder.name = e.target.value; changed(); renderTable(); } }),
+          h('button', { type: 'button', class: 'icon-btn', 'aria-label': t.removeFounder(founder.name || t.founder), onClick: () => {
             d.founders.splice(index, 1);
             for (const key of Object.keys(d.scores)) if (key.endsWith(`:${founder.id}`)) delete d.scores[key];
             changed();
@@ -152,7 +154,7 @@ export function equityEditor(working, onChange) {
         ),
       ),
       d.founders.length < 10
-        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.founders.push({ id: newId(), name: '' }); renderFounders(); renderTable(); } }, icon('plus', 14), h('span', null, 'Aggiungi un fondatore'))
+        ? h('button', { type: 'button', class: 'btn btn-ghost btn-small', onClick: () => { d.founders.push({ id: newId(), name: '' }); renderFounders(); renderTable(); } }, icon('plus', 14), h('span', null, t.addFounder))
         : null,
     );
   };
@@ -163,14 +165,14 @@ export function equityEditor(working, onChange) {
   return h(
     'div',
     { class: 'stack' },
-    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, 'Fondatori'), foundersHost),
+    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, t.founders), foundersHost),
     h(
       'section',
       { class: 'stack' },
-      h('h2', { class: 'form-group-title' }, 'Pesi e punteggi', conceptButton('demmler')),
-      h('p', { class: 'muted small' }, 'Per ogni elemento: quanto pesa per questa startup (0-10) e quanto contribuisce ciascuno (0-10).'),
+      h('h2', { class: 'form-group-title' }, t.weights, conceptButton('demmler')),
+      h('p', { class: 'muted small' }, t.weightsHelp),
       tableHost,
     ),
-    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, 'Risultato'), resultHost),
+    h('section', { class: 'stack' }, h('h2', { class: 'form-group-title' }, t.result), resultHost),
   );
 }
