@@ -104,7 +104,8 @@ export function parseAmount(text, currency = 'EUR') {
   const dot = s.lastIndexOf('.');
   let whole = s;
   let frac = '';
-  if (comma >= 0 || (dot >= 0 && !/^\d{1,3}(\.\d{3})+$/.test(s))) {
+  // Un gruppo di migliaia non comincia mai con lo zero: «0.500» non sono cinquecento euro.
+  if (comma >= 0 || (dot >= 0 && !/^[1-9]\d{0,2}(\.\d{3})+$/.test(s))) {
     const at = Math.max(comma, dot);
     whole = s.slice(0, at);
     frac = s.slice(at + 1);
