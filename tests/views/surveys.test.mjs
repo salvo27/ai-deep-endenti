@@ -225,6 +225,21 @@ test('a questionnaire opened while the list is on screen gets its completed resp
   assert.match(draft(), /Risposte complete: 1/);
 });
 
+test('when copying fails on a card the link appears selected, ready to copy by hand', async () => {
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new Error('negato'); } }, configurable: true });
+  await visit('#/questionari');
+  const open = outlet.querySelector(`.sv-card[data-id="${S.open}"]`);
+  assert.equal(open.querySelector('.sv-link-input'), null, 'nella scheda c è solo il pulsante');
+  byText(open, 'button', 'Copia il link').click();
+  await flush(2);
+  const input = open.querySelector('.sv-link-input');
+  assert.ok(input, 'il link compare nella scheda');
+  assert.equal(input.value, `https://board.example/q-indaco.html#${TOKEN}`);
+  assert.equal(document.activeElement, input);
+  assert.deepEqual([input.selectionStart, input.selectionEnd], [0, input.value.length]);
+  assert.match(text(document.body), /Copia non riuscita: il link è selezionato, copialo a mano/);
+});
+
 test('questions are edited, reordered, duplicated, deleted and added, then saved with a merge', async () => {
   await visit(`#/questionario/${S.open}`);
   assert.deepEqual([...outlet.querySelectorAll('.tabs .tab')].map((t) => text(t)), ['Domande', 'Aspetto e impostazioni', 'Condividi', 'Risposte']);

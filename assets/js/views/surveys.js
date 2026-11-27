@@ -37,12 +37,15 @@ export function warningCount(data) {
   return surveyWarnings(data).length + (data.questions || []).reduce((sum, q) => sum + questionWarnings(q).length, 0);
 }
 
-async function copyLink(url, input) {
+// Se la copia non riesce il link si mostra selezionato, anche nella scheda compatta dove prima non c'era.
+async function copyLink(url, input, box) {
   try {
     await navigator.clipboard.writeText(url);
     toast('Link copiato.', { type: 'success' });
   } catch {
-    input?.select();
+    if (!input.isConnected) box.prepend(input);
+    input.focus();
+    input.select();
     toast('Copia non riuscita: il link è selezionato, copialo a mano.', { type: 'error' });
   }
 }
@@ -50,13 +53,14 @@ async function copyLink(url, input) {
 function linkBox(item, { compact = false } = {}) {
   const url = shareLink(item.data.token, item.data.appearance?.accent);
   const input = h('input', { class: 'input sv-link-input', type: 'text', value: url, readOnly: true, 'aria-label': 'Link pubblico del questionario', onFocus: (e) => e.target.select() });
-  return h(
+  const box = h(
     'div',
     { class: ['sv-link', compact && 'is-compact'] },
     compact ? null : input,
-    h('button', { type: 'button', class: 'btn btn-small', onClick: () => copyLink(url, input) }, icon('copy', 14), h('span', null, compact ? 'Copia il link' : 'Copia')),
+    h('button', { type: 'button', class: 'btn btn-small', onClick: () => copyLink(url, input, box) }, icon('copy', 14), h('span', null, compact ? 'Copia il link' : 'Copia')),
     h('a', { class: 'btn btn-small btn-ghost', href: url, target: '_blank', rel: 'noopener noreferrer' }, 'Apri'),
   );
+  return box;
 }
 
 // Nuovo questionario dal modello: titolo, idea (se non è già scelta) ed esperimento facoltativo.
