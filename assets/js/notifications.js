@@ -1,11 +1,16 @@
 // i18n: da tradurre
 import { api } from './lib/api.js';
 import { routeFor, statusLabel } from './schema.js';
-import { emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
+import { currentProjectId, emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
 import { addDays, thisMonday, weekLabel } from './availability.js';
 import { pledgeFor, sanitizeTimesheet } from './timesheet.js';
+import { tx } from './i18n/index.js';
 
 // Notifiche: cosa fanno gli altri che vale la pena sapere. Le modifiche minori ai testi restano nello storico.
+
+// What arrives live is already filtered on the open project by the database; a row that names another project is not
+// for this page all the same (the realtime rows always carry project_id; the ones read with a query have no need to).
+export const ofOpenProject = (row) => Boolean(row) && (row.project_id === undefined || row.project_id === null || row.project_id === currentProjectId());
 
 const MAX = 60;
 const LOOKBACK_DAYS = 14;
@@ -230,10 +235,13 @@ export async function enableBrowserAlerts(enabled) {
   return permission === 'granted';
 }
 
+// With more projects the alert says which one it comes from.
+const alertTitle = () => (state.project?.name ? `${tx.common.appName} · ${state.project.name}` : tx.common.appName);
+
 export function browserAlert(note) {
   if (!browserAlertsEnabled() || document.visibilityState === 'visible') return;
   try {
-    const alert = new Notification('ai-deep-endenti', { body: note.text, tag: note.id });
+    const alert = new Notification(alertTitle(), { body: note.text, tag: note.id });
     alert.onclick = () => {
       window.focus();
       location.hash = note.href.replace(/^#/, '');

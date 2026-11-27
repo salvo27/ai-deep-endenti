@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText } from '../setup/dom.mjs';
-import { IDS, ME, OTHER, boardItems, members } from '../setup/fixtures.mjs';
+import { IDS, ME, OTHER, PROJECT, boardItems, members } from '../setup/fixtures.mjs';
 
 let api;
 let store;
@@ -38,6 +38,8 @@ let read;
 beforeEach(async () => {
   store.resetStore();
   store.state.user = { id: ME };
+  // Chats and mentions are those of the open project: without one nothing is loaded.
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   boardItems().forEach((i) => store.applyItem(i));
   read = [];
