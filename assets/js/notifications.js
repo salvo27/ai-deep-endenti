@@ -1,4 +1,3 @@
-// i18n: da tradurre
 import { api } from './lib/api.js';
 import { routeFor, statusLabel } from './schema.js';
 import { currentProjectId, emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
@@ -6,7 +5,10 @@ import { addDays, thisMonday, weekLabel } from './availability.js';
 import { pledgeFor, sanitizeTimesheet } from './timesheet.js';
 import { tx } from './i18n/index.js';
 
-// Notifiche: cosa fanno gli altri che vale la pena sapere. Le modifiche minori ai testi restano nello storico.
+// Notifiche: cosa fanno gli altri nel progetto aperto che vale la pena sapere. Le modifiche minori ai testi restano nello
+// storico.
+
+const t = tx.notifications;
 
 // What arrives live is already filtered on the open project by the database; a row that names another project is not
 // for this page all the same (the realtime rows always carry project_id; the ones read with a query have no need to).
@@ -14,16 +16,8 @@ export const ofOpenProject = (row) => Boolean(row) && (row.project_id === undefi
 
 const MAX = 60;
 const LOOKBACK_DAYS = 14;
-const BOARD_LABELS = {
-  canvas: 'un Lean Canvas',
-  persona: 'una buyer persona',
-  vpc: 'un Value Proposition Canvas',
-  market: 'una stima del mercato',
-  competitors: 'un\'analisi dei concorrenti',
-  deeptech: 'una scheda deep tech',
-  note: 'una nota',
-  survey: 'un questionario',
-};
+// The other sheets of an idea are announced when they are created; the phrase with its article is in the texts.
+const boardPhrase = (kind) => (Object.hasOwn(t.boards, kind) ? t.boards[kind] : null);
 
 let items = [];
 let lastRead = null;
@@ -38,15 +32,15 @@ const READ_IDS = 'notificheLetteSingole';
 const readKey = (name) => `${name}:${currentProjectId()}`;
 
 const routeOf = (kind, id) => routeFor({ kind, id });
-const quoted = (title) => `«${title || 'senza titolo'}»`;
+const quoted = (title) => t.quote(title || t.untitled);
 
 function expenseText(rev, who, title) {
   const item = getItem(rev.item_id);
   const group = getItem(item?.data?.group);
-  const where = group ? ` in ${quoted(group.title)}` : '';
-  if (item?.data?.type === 'rimborso') return `${who} ha registrato un rimborso${where}`;
-  if (item?.data?.type === 'entrata') return `${who} ha registrato l'entrata ${title}${where}`;
-  return `${who} ha aggiunto la spesa ${title}${where}`;
+  const where = group ? t.expense.inGroup(quoted(group.title)) : '';
+  if (item?.data?.type === 'rimborso') return t.expense.refund(who, where);
+  if (item?.data?.type === 'entrata') return t.expense.income(who, title, where);
+  return t.expense.expense(who, title, where);
 }
 
 export function describeRevision(rev) {
@@ -57,46 +51,46 @@ export function describeRevision(rev) {
   let text = null;
   switch (rev.kind) {
     case 'idea':
-      if (rev.op === 'create') text = `${who} ha aggiunto l'idea ${title}`;
-      else if (rev.op === 'delete') text = `${who} ha archiviato l'idea ${title}`;
-      else if (rev.op === 'restore') text = `${who} ha ripristinato l'idea ${title}`;
-      else if (changedStatus) text = `${who} ha spostato ${title} in «${statusLabel('idea', rev.status)}»`;
+      if (rev.op === 'create') text = t.idea.created(who, title);
+      else if (rev.op === 'delete') text = t.idea.archived(who, title);
+      else if (rev.op === 'restore') text = t.idea.restored(who, title);
+      else if (changedStatus) text = t.idea.moved(who, title, statusLabel('idea', rev.status));
       break;
     case 'decision':
-      if (rev.op === 'create') text = `${who} ha registrato la decisione ${title}`;
-      else if (changedStatus) text = `${who} ha segnato la decisione ${title} come «${statusLabel('decision', rev.status)}»`;
+      if (rev.op === 'create') text = t.decision.created(who, title);
+      else if (changedStatus) text = t.decision.marked(who, title, statusLabel('decision', rev.status));
       break;
     case 'experiment':
-      if (rev.op === 'create') text = `${who} ha pianificato l'esperimento ${title}`;
-      else if (changedStatus && rev.status === 'concluso') text = `${who} ha concluso l'esperimento ${title}`;
+      if (rev.op === 'create') text = t.experiment.planned(who, title);
+      else if (changedStatus && rev.status === 'concluso') text = t.experiment.concluded(who, title);
       break;
     case 'interview':
-      if (rev.op === 'create') text = `${who} ha aggiunto l'intervista ${title}`;
+      if (rev.op === 'create') text = t.interview(who, title);
       break;
     case 'contact':
-      if (rev.op === 'create') text = `${who} ha aggiunto ${title} tra le persone con cui interfacciarsi`;
+      if (rev.op === 'create') text = t.contact(who, title);
       break;
     case 'survey':
-      if (rev.op === 'create') text = `${who} ha creato un questionario: ${title}`;
-      else if (changedStatus && rev.status === 'aperto') text = `${who} ha aperto il questionario ${title}`;
+      if (rev.op === 'create') text = t.survey.created(who, title);
+      else if (changedStatus && rev.status === 'aperto') text = t.survey.opened(who, title); // i18n-ignore: stored status
       break;
     case 'teamcanvas':
-      if (rev.op === 'create' || rev.op === 'update') text = `${who} ha aggiornato il Team Canvas`;
+      if (rev.op === 'create' || rev.op === 'update') text = t.teamcanvas(who);
       break;
     case 'equity':
-      if (rev.op === 'create' || rev.op === 'update') text = `${who} ha aggiornato la divisione delle quote`;
+      if (rev.op === 'create' || rev.op === 'update') text = t.equity(who);
       break;
     case 'criteria':
-      if (rev.op === 'update') text = `${who} ha cambiato i criteri di valutazione`;
+      if (rev.op === 'update') text = t.criteria(who);
       break;
     case 'expensegroup':
-      if (rev.op === 'create') text = `${who} ha creato il gruppo di spese ${title}`;
+      if (rev.op === 'create') text = t.expensegroup(who, title);
       break;
     case 'expense':
       if (rev.op === 'create') text = expenseText(rev, who, title);
       break;
     default:
-      if (BOARD_LABELS[rev.kind] && rev.op === 'create') text = `${who} ha creato ${BOARD_LABELS[rev.kind]}: ${title}`;
+      if (boardPhrase(rev.kind) && rev.op === 'create') text = t.board(who, boardPhrase(rev.kind), title);
   }
   if (!text) return null;
   return { id: `r-${rev.id}`, text, href, at: rev.created_at, authorId: rev.author_id, kind: rev.kind };
@@ -106,9 +100,9 @@ export function describeComment(row) {
   if (row.deleted_at || row.edited_at) return null;
   const item = getItem(row.item_id);
   const who = memberName(row.author_id);
-  const target = item ? quoted(item.title) : 'una scheda';
-  const text = row.ai_task ? `${who} ha salvato una risposta di Claude su ${target}` : `${who} ha commentato ${target}`;
-  const href = item?.kind === 'idea' ? `#/idea/${item.id}/commenti` : `#/elemento/${row.item_id}/commenti`;
+  const target = item ? quoted(item.title) : t.aCard;
+  const text = row.ai_task ? t.claudeAnswer(who, target) : t.comment(who, target);
+  const href = item?.kind === 'idea' ? `#/idea/${item.id}/commenti` : `#/elemento/${row.item_id}/commenti`; // i18n-ignore: address
   return { id: `c-${row.id}`, text, href, at: row.created_at, authorId: row.author_id, kind: 'comment' };
 }
 
@@ -141,8 +135,8 @@ export function timesheetReminder(now = new Date()) {
   if (now < at) return null;
   return {
     id: `t-${lastWeek}`,
-    text: `Non hai ancora segnato le ore della settimana ${weekLabel(lastWeek)}`,
-    href: `#/squadra/ore?vista=mie&settimana=${lastWeek}`,
+    text: t.reminder(weekLabel(lastWeek)),
+    href: `#/squadra/ore?vista=mie&settimana=${lastWeek}`, // i18n-ignore: address
     at: at.toISOString(),
     authorId: null,
     kind: 'reminder',
@@ -200,8 +194,10 @@ export async function refreshNotifications() {
 
 let offs = [];
 
+// Only for the open project: without one there is nothing to read nor to listen to.
 export async function startNotifications() {
   stopNotifications();
+  if (!currentProjectId()) return;
   lastRead = readLocal(readKey(LAST_READ), null);
   const stored = readLocal(readKey(READ_IDS), []);
   readIds = new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
@@ -209,8 +205,8 @@ export async function startNotifications() {
   if (!lastRead) markAllRead();
   syncReminder();
   offs = [
-    on('revision', (rev) => add(describeRevision(rev), { live: true })),
-    on('comment', (row) => add(describeComment(row), { live: true })),
+    on('revision', (rev) => ofOpenProject(rev) && add(describeRevision(rev), { live: true })),
+    on('comment', (row) => ofOpenProject(row) && add(describeComment(row), { live: true })),
     on('synced', () => refreshNotifications().then(syncReminder)),
     on('item', ({ item }) => {
       if (item.kind === 'timesheet') syncReminder();

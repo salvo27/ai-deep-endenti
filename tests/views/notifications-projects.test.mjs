@@ -1,19 +1,32 @@
 import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupDom } from '../setup/dom.mjs';
+import { setupDom, flush } from '../setup/dom.mjs';
 import { IDS, ME, OTHER, PROJECT, PROJECT2, boardItems, members } from '../setup/fixtures.mjs';
 
 // La campanella è del progetto aperto: novità, letture e avvisi non si mescolano tra progetti.
 let api;
 let store;
 let notes;
+let bellView;
 let original;
 let feeds;
+let asked;
+let shown;
 
 const ALFA = { id: PROJECT, name: 'Alfa', role: 'admin' };
 const BETA = { id: PROJECT2, name: 'Beta', role: 'member' };
 const hoursAgo = (n) => new Date(Date.now() - n * 3600 * 1000).toISOString();
 const rev = (over) => ({ id: 1, item_id: IDS.idea, kind: 'idea', op: 'create', title: 'Idea alfa', status: 'nuova', changed: [], author_id: OTHER, created_at: hoursAgo(1), ...over });
+
+class FakeNotification {
+  static permission = 'granted';
+
+  constructor(title, options) {
+    shown.push({ title, ...options });
+  }
+
+  close() {}
+}
 
 async function open(project) {
   notes.stopNotifications();
@@ -26,6 +39,7 @@ before(async () => {
   ({ api } = await import('../../assets/js/lib/api.js'));
   store = await import('../../assets/js/store.js');
   notes = await import('../../assets/js/notifications.js');
+  bellView = await import('../../assets/js/views/notifications.js');
   original = { ...api };
 });
 
@@ -36,12 +50,21 @@ beforeEach(() => {
   boardItems().forEach((i) => store.applyItem(i));
   localStorage.clear();
   feeds = { [PROJECT]: [], [PROJECT2]: [] };
+  asked = [];
+  shown = [];
+  globalThis.Notification = FakeNotification;
+  document.body.querySelectorAll('.toasts, .bell-box').forEach((el) => el.remove());
   // Like the real call: the revisions of the project open in the api, after the given moment.
-  api.activityFeed = async (since) => ({ revisions: feeds[api.currentProject()].filter((r) => r.created_at > since), comments: [] });
+  api.activityFeed = async (since) => {
+    asked.push(api.currentProject());
+    return { revisions: feeds[api.currentProject()].filter((r) => r.created_at > since), comments: [] };
+  };
 });
 
 afterEach(() => {
   notes.stopNotifications();
+  delete document.visibilityState;
+  delete globalThis.Notification;
   Object.assign(api, original);
 });
 
@@ -78,5 +101,61 @@ describe('letture della campanella per progetto', () => {
     await open(ALFA);
     assert.deepEqual(notes.notifications({ includeRead: true }).map((n) => n.id), ['r-6', 'r-5']);
     assert.equal(notes.unreadCount(), 0, 'in Alfa la notifica aperta resta letta');
+  });
+});
+
+describe('novità del progetto aperto', () => {
+  const comment = (over) => ({ id: 'c0000000-0000-4000-8000-000000000001', item_id: IDS.idea, author_id: OTHER, ai_task: null, created_at: hoursAgo(-0.1), edited_at: null, deleted_at: null, ...over });
+
+  function bell() {
+    const box = bellView.notificationBell();
+    document.body.append(box);
+    return box;
+  }
+
+  it('si chiedono per il progetto aperto', async () => {
+    await open(ALFA);
+    assert.deepEqual(asked, [PROJECT]);
+  });
+
+  it('revisioni e commenti di un altro progetto arrivati dal vivo non contano e non avvisano', async () => {
+    await open(ALFA);
+    const box = bell();
+    store.emit('revision', rev({ id: 20, project_id: PROJECT2, title: 'Idea di Beta', created_at: hoursAgo(-0.1) }));
+    store.emit('comment', comment({ project_id: PROJECT2 }));
+    await flush();
+    assert.equal(notes.unreadCount(), 0);
+    assert.equal(box.querySelector('.bell-badge').hidden, true);
+    assert.equal(document.querySelector('.toasts'), null);
+    store.writeLocal('avvisiBrowser', true);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    store.emit('revision', rev({ id: 21, project_id: PROJECT2, created_at: hoursAgo(-0.1) }));
+    assert.deepEqual(shown, []);
+  });
+
+  it('quelli del progetto aperto contano e, con la scheda in secondo piano, avvisano con il nome del progetto', async () => {
+    await open(ALFA);
+    const box = bell();
+    store.writeLocal('avvisiBrowser', true);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    store.emit('revision', rev({ id: 22, project_id: PROJECT, title: 'Idea nuova', created_at: hoursAgo(-0.1) }));
+    store.emit('comment', comment({ id: 'c0000000-0000-4000-8000-000000000002', project_id: PROJECT }));
+    assert.equal(notes.unreadCount(), 2);
+    assert.equal(box.querySelector('.bell-badge').textContent, '2');
+    assert.deepEqual(shown.map((n) => [n.title, n.body]), [
+      ['ai-deep-endenti · Alfa', "Bruno ha aggiunto l'idea «Idea nuova»"],
+      ['ai-deep-endenti · Alfa', 'Bruno ha commentato «Idea alfa»'],
+    ]);
+  });
+
+  it('senza un progetto aperto la campanella non chiede niente e non ascolta', async () => {
+    await open(null);
+    assert.deepEqual(asked, []);
+    store.emit('revision', rev({ id: 23, created_at: hoursAgo(-0.1) }));
+    store.emit('synced');
+    await flush();
+    assert.equal(notes.unreadCount(), 0);
+    assert.deepEqual(asked, []);
+    assert.equal(localStorage.length, 0, 'non si segna niente come letto');
   });
 });

@@ -1,4 +1,3 @@
-// i18n: da tradurre
 import { claimPopup, h, mount, onOtherPopup, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { on } from '../store.js';
@@ -7,17 +6,18 @@ import { markMentionsRead, mentionExcerpt, mentionHref, mentionState, mentionTex
 import { tx } from '../i18n/index.js';
 import { avatar, timeAgo } from './components.js';
 
+const tb = tx.notifications.bell;
 const tm = tx.mentions.panel;
 
 export function notificationBell() {
   const badge = h('span', { class: 'bell-badge', hidden: true });
   const button = h(
     'button',
-    { type: 'button', class: 'icon-btn bell', 'aria-label': 'Notifiche', 'aria-expanded': 'false', 'aria-haspopup': 'true' },
+    { type: 'button', class: 'icon-btn bell', 'aria-label': tb.title, 'aria-expanded': 'false', 'aria-haspopup': 'true' },
     icon('bell', 20),
     badge,
   );
-  const panel = h('div', { class: 'bell-panel', hidden: true, role: 'dialog', 'aria-label': 'Notifiche' });
+  const panel = h('div', { class: 'bell-panel', hidden: true, role: 'dialog', 'aria-label': tb.title });
   const box = h('div', { class: 'bell-box' }, button, panel);
   let showRead = false;
 
@@ -25,7 +25,7 @@ export function notificationBell() {
     const n = unreadCount();
     badge.hidden = n === 0;
     badge.textContent = n > 9 ? '9+' : String(n);
-    button.setAttribute('aria-label', n ? `Notifiche, ${n} da leggere` : 'Notifiche');
+    button.setAttribute('aria-label', n ? tb.unread(n) : tb.title);
   };
 
   const renderPanel = () => {
@@ -34,7 +34,7 @@ export function notificationBell() {
     const hasRead = notifications({ includeRead: true }).length > unread;
     mount(
       panel,
-      h('div', { class: 'bell-head' }, h('strong', null, 'Notifiche'), unread ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markAllRead() }, 'Segna tutte come lette') : null),
+      h('div', { class: 'bell-head' }, h('strong', null, tb.title), unread ? h('button', { type: 'button', class: 'link-btn small', onClick: () => markAllRead() }, tb.markAllRead) : null),
       list.length
         ? h(
             'ul',
@@ -58,15 +58,15 @@ export function notificationBell() {
               ),
             ),
           )
-        : h('p', { class: 'muted small bell-empty' }, 'Nessuna novità da leggere.'),
+        : h('p', { class: 'muted small bell-empty' }, tb.empty),
       hasRead
         ? h(
             'button',
             { type: 'button', class: 'link-btn small bell-toggle', onClick: () => { showRead = !showRead; renderPanel(); } },
-            showRead ? 'Nascondi quelle già lette' : 'Mostra anche quelle già lette',
+            showRead ? tb.hideRead : tb.showRead,
           )
         : null,
-      h('p', { class: 'muted small bell-foot' }, 'Avvisi anche quando il sito è in un\'altra scheda: ', h('a', { href: '#/profilo', onClick: () => close() }, 'attivali dal Profilo'), '.'),
+      h('p', { class: 'muted small bell-foot' }, `${tb.alertsHint} `, h('a', { href: '#/profilo', onClick: () => close() }, tb.alertsLink), '.'), // i18n-ignore: address
     );
   };
 

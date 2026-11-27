@@ -1,2 +1,59 @@
 // Same entries as ../it/notifications.js, which is the reference: tests/unit/i18n.test.mjs checks it.
-export const notifications = {};
+export const notifications = {
+  quote: (title) => `“${title}”`,
+  untitled: 'untitled',
+  aCard: 'a card',
+  idea: {
+    created: (who, title) => `${who} added the idea ${title}`,
+    archived: (who, title) => `${who} archived the idea ${title}`,
+    restored: (who, title) => `${who} restored the idea ${title}`,
+    moved: (who, title, status) => `${who} moved ${title} to “${status}”`,
+  },
+  decision: {
+    created: (who, title) => `${who} recorded the decision ${title}`,
+    marked: (who, title, status) => `${who} marked the decision ${title} as “${status}”`,
+  },
+  experiment: {
+    planned: (who, title) => `${who} planned the experiment ${title}`,
+    concluded: (who, title) => `${who} completed the experiment ${title}`,
+  },
+  interview: (who, title) => `${who} added the interview ${title}`,
+  contact: (who, title) => `${who} added ${title} to the people to talk to`,
+  survey: {
+    created: (who, title) => `${who} created a survey: ${title}`,
+    opened: (who, title) => `${who} opened the survey ${title}`,
+  },
+  teamcanvas: (who) => `${who} updated the Team Canvas`,
+  equity: (who) => `${who} updated the equity split`,
+  criteria: (who) => `${who} changed the scoring criteria`,
+  expensegroup: (who, title) => `${who} created the expense group ${title}`,
+  expense: {
+    refund: (who, where) => `${who} recorded a refund${where}`,
+    income: (who, title, where) => `${who} recorded the income ${title}${where}`,
+    expense: (who, title, where) => `${who} added the expense ${title}${where}`,
+    inGroup: (title) => ` in ${title}`,
+  },
+  board: (who, what, title) => `${who} created ${what}: ${title}`,
+  boards: {
+    canvas: 'a Lean Canvas',
+    persona: 'a buyer persona',
+    vpc: 'a Value Proposition Canvas',
+    market: 'a market estimate',
+    competitors: 'a competitor analysis',
+    deeptech: 'a deep tech sheet',
+    note: 'a note',
+  },
+  comment: (who, target) => `${who} commented on ${target}`,
+  claudeAnswer: (who, target) => `${who} saved an answer from Claude on ${target}`,
+  reminder: (week) => `You have not logged your hours for the week ${week} yet`,
+  bell: {
+    title: 'Notifications',
+    unread: (count) => `Notifications, ${count} to read`,
+    markAllRead: 'Mark all as read',
+    empty: 'Nothing new to read.',
+    showRead: 'Show the ones already read too',
+    hideRead: 'Hide the ones already read',
+    alertsHint: 'Alerts even when the site is in another tab:',
+    alertsLink: 'turn them on in your Profile',
+  },
+};
