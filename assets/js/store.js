@@ -93,6 +93,11 @@ export function setProjects(rows) {
 export const currentProjectId = () => state.project?.id ?? null;
 export const isPlatformAdmin = () => state.platformAdmin === true;
 
+/** Whether the person administers the platform: only a real true counts. */
+export function setPlatformAdmin(value) {
+  state.platformAdmin = value === true;
+}
+
 export function setMembers(rows) {
   state.members = Array.isArray(rows) ? rows.filter((m) => isUuid(m?.user_id)) : [];
   state.me = state.members.find((m) => m.user_id === state.user?.id) || null;
@@ -185,12 +190,30 @@ const membersKey = (rows) => JSON.stringify(rows.map((m) => [m.user_id, m.role, 
 // An answer without a list is an error, not an empty project: nobody is removed. A list without me means I cannot read
 // the project any more (removed, or the project was archived).
 export async function reloadMembers({ onlyChanges = false } = {}) {
-  const rows = await api.membersOverview(currentProjectId());
+  const [rows, stillMine] = await Promise.all([api.membersOverview(currentProjectId()), openProjectStillMine()]);
   if (!Array.isArray(rows)) throw new AppError(tx.errors.generic, { code: 'error' });
   const before = membersKey(state.members);
   setMembers(rows);
   if (!onlyChanges || membersKey(state.members) !== before) emit('members', state.members);
-  if (!state.me) emit('removed');
+  if (!state.me || !stillMine) emit('removed');
+}
+
+// members_overview answers a platform admin for every project, archived ones too, so for them being in that list does
+// not mean the project can still be read: my_projects says it. An error says nothing, and nobody leaves.
+async function openProjectStillMine() {
+  if (!isPlatformAdmin()) return true;
+  let rows;
+  try {
+    rows = await api.myProjects();
+  } catch {
+    return true;
+  }
+  if (!Array.isArray(rows)) return true;
+  const ids = (list) => list.map((p) => p.id).join();
+  const before = ids(state.projects);
+  setProjects(rows);
+  if (ids(state.projects) !== before) emit('projects');
+  return state.projects.some((p) => p.id === currentProjectId());
 }
 
 const refreshCommentCounts = debounce(async () => {

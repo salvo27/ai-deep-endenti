@@ -7,8 +7,6 @@ import { BOARD_KINDS, routeFor } from '../schema.js';
 import { totalUnread } from '../chat.js';
 import { isPlatformAdmin, on, readLocal, state, writeLocal } from '../store.js';
 import { navigate, onRouteChange } from '../router.js';
-// app.js builds this shell and owns the change of project: the import goes both ways, and only functions cross it.
-import { switchProject } from '../app.js';
 import { avatar, kindBadge } from './components.js';
 import { mentionsButton, notificationBell } from './notifications.js';
 
@@ -165,8 +163,9 @@ const roleName = (role) => (Object.hasOwn(tx.common.roles, role ?? '') ? tx.comm
 const projectLabel = (project) => t.project.option(project.name, roleName(project.role));
 
 // The open project and the others of mine (my_projects), each with my role. Choosing one hands it to app.js, which
-// remembers it and reloads the page. Without an open project (a platform administrator in no project) it says so,
-// and offers the projects as soon as the Projects page adds me to one.
+// asks the open page whether it can be left, remembers the choice and reloads the page; when the switch does not happen
+// (false, now or once the page has answered) the select goes back to the open project. Without an open project
+// (a platform admin in no project) it says so, and offers the projects as soon as the Projects page adds me to one.
 function projectSwitch(onSwitchProject) {
   const box = h('div', { class: 'project-switch' });
   const render = () => {
@@ -196,7 +195,12 @@ function projectSwitch(onSwitchProject) {
     select.addEventListener('change', () => {
       const id = select.value;
       if (!id || id === current?.id) return;
-      if (onSwitchProject(id) === false) select.value = current?.id ?? '';
+      const revert = (switched) => {
+        if (switched === false) select.value = current?.id ?? '';
+      };
+      const result = onSwitchProject(id);
+      if (typeof result?.then === 'function') result.then(revert, () => revert(false));
+      else revert(result);
     });
     mount(box, h('label', { class: 'project-switch-label', for: 'project-select' }, t.project.label), select);
   };
@@ -204,7 +208,9 @@ function projectSwitch(onSwitchProject) {
   return { box, render };
 }
 
-export function buildShell(root, { onSignOut, onSwitchProject = (id) => switchProject(id) }) {
+// app.js builds this shell and owns the change of project: it hands it over as onSwitchProject. Without it (the tests of
+// the pages) the select changes nothing.
+export function buildShell(root, { onSignOut, onSwitchProject = () => false }) {
   const withProject = projectOpen();
   const outlet = h('main', { class: 'content', id: 'content', tabindex: '-1' });
   const chatBadge = h('span', { class: 'nav-badge', hidden: true });

@@ -157,6 +157,63 @@ describe('dati del progetto aperto', () => {
   });
 });
 
+// members_overview answers a platform admin for every project, archived ones too: being in that list does not say that
+// the open project can still be read. For them the answer comes from my_projects.
+describe('progetto aperto che non si può più leggere', () => {
+  const sync = async ({ platformAdmin, mine, rows = members() }) => {
+    store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
+    store.setProjects(projects());
+    store.setMembers(members());
+    store.setPlatformAdmin(platformAdmin);
+    const asked = [];
+    api.listItems = async () => (platformAdmin && !mine.some((p) => p.id === PROJECT) ? [] : [idea()]);
+    api.commentCounts = async () => new Map();
+    api.membersOverview = async () => rows;
+    api.myProjects = async () => (asked.push('myProjects'), typeof mine === 'function' ? mine() : mine);
+    const events = [];
+    store.on('removed', () => events.push('removed'));
+    store.on('projects', () => events.push('projects'));
+    await store.syncItems({ force: true });
+    return { asked, events };
+  };
+
+  it('un amministratore della piattaforma ancora tra i membri di un progetto archiviato ne esce', async () => {
+    const { events } = await sync({ platformAdmin: true, mine: [projects()[1]] });
+    assert.deepEqual(events, ['projects', 'removed']);
+    assert.deepEqual(store.state.projects.map((p) => p.id), [PROJECT2], 'il menu non offre più il progetto archiviato');
+  });
+
+  it('un amministratore della piattaforma in un progetto attivo resta, e i suoi progetti non cambiano', async () => {
+    const { asked, events } = await sync({ platformAdmin: true, mine: projects() });
+    assert.deepEqual(asked, ['myProjects']);
+    assert.deepEqual(events, []);
+  });
+
+  it('per un membro qualunque basta l elenco dei membri: i suoi progetti non si chiedono', async () => {
+    const { asked, events } = await sync({ platformAdmin: false, mine: [] });
+    assert.deepEqual(asked, []);
+    assert.deepEqual(events, []);
+  });
+
+  it('se i progetti di un amministratore della piattaforma non arrivano non esce nessuno', async () => {
+    const { events } = await sync({
+      platformAdmin: true,
+      mine: () => {
+        throw new Error('offline');
+      },
+    });
+    assert.deepEqual(events, []);
+    assert.equal(store.state.me.user_id, ME);
+  });
+
+  it('setPlatformAdmin vale solo per un vero sì', () => {
+    for (const [value, expected] of [[true, true], [false, false], ['true', false], [1, false], [null, false]]) {
+      store.setPlatformAdmin(value);
+      assert.equal(store.isPlatformAdmin(), expected, String(value));
+    }
+  });
+});
+
 describe('tempo reale del progetto aperto', () => {
   it('aggiornamenti dal vivo e presenza seguono il progetto aperto, senza membri dal vivo', () => {
     store.setProject({ id: PROJECT2, name: 'Beta', role: 'member' });

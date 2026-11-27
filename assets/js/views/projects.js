@@ -3,7 +3,7 @@ import { api } from '../lib/api.js';
 import { fmtDate, initials } from '../lib/format.js';
 import { LIMITS, cleanLine, isEmail } from '../lib/validate.js';
 import { tx } from '../i18n/index.js';
-import { currentProjectId, emit, isPlatformAdmin, reloadMembers, setProject, setProjects, state } from '../store.js';
+import { currentProjectId, emit, isPlatformAdmin, reloadMembers, setPlatformAdmin, setProject, setProjects, state } from '../store.js';
 import { button, emptyState, errorBox, loading, pageHeader } from './components.js';
 
 // Pagina Progetti (#/progetti), solo per l'amministratore della piattaforma (docs/PROGETTI.md): tutti i progetti, le
@@ -39,7 +39,9 @@ async function refreshMine() {
   emit('projects');
 }
 
-// Members are not sent live any more: a change to the open project reaches the rest of the site from here.
+// Members are not sent live any more: a change to the open project reaches the rest of the site from here. When I can no
+// longer read it (I archived it, or removed myself) the store says 'removed', and app.js opens another of my projects
+// or the Projects page.
 function refreshOpenProject(projectId) {
   if (projectId && projectId === currentProjectId()) reloadMembers().catch(() => {});
 }
@@ -297,7 +299,7 @@ function platformAdminsCard(onLostRole) {
     toast(a.removed, { type: 'success' });
     if (isMe) {
       // The database no longer lets me manage anything: the page and the menu stop offering it.
-      state.platformAdmin = false;
+      setPlatformAdmin(false);
       emit('projects');
       onLostRole();
       return;
@@ -402,6 +404,7 @@ export function projectsView(outlet) {
       toast(texts.done(project.name), { type: 'success' });
       await loadList();
       await refreshMine();
+      refreshOpenProject(project.id);
     });
 
   function renderList() {

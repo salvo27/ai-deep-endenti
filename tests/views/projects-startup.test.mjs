@@ -186,23 +186,147 @@ describe('cambio di progetto', () => {
     store.setProject(projects()[0]);
     history.replaceState(null, '', `#/idea/${IDS.idea}?progetto=${PROJECT}`);
     let reloaded = 0;
-    assert.equal(app.switchProject(PROJECT2, () => reloaded++), true);
+    assert.equal(await app.switchProject(PROJECT2, () => reloaded++), true);
     assert.equal(localStorage.getItem('progetto'), PROJECT2);
     assert.equal(location.hash, '#/');
     assert.equal(reloaded, 1);
   });
 
   for (const target of [PROJECT3, 'x', null]) {
-    it(`non passa a un progetto che non è tra i miei (${target})`, () => {
+    it(`non passa a un progetto che non è tra i miei (${target})`, async () => {
       store.setProjects(projects());
       store.setProject(projects()[0]);
       localStorage.setItem('progetto', PROJECT);
       let reloaded = 0;
-      assert.equal(app.switchProject(target, () => reloaded++), false);
+      assert.equal(await app.switchProject(target, () => reloaded++), false);
       assert.equal(localStorage.getItem('progetto'), PROJECT);
       assert.equal(reloaded, 0);
     });
   }
+
+  // The page open can have unsaved changes: switching project asks like every other way out of it.
+  describe('con modifiche non salvate nella pagina aperta', () => {
+    let cleaned;
+    const openPage = async () => {
+      store.setProjects(projects());
+      store.setProject(projects()[0]);
+      localStorage.setItem('progetto', PROJECT);
+      cleaned = 0;
+      router.addRoute('/modifica/:id', () => () => (cleaned += 1));
+      history.replaceState(null, '', `#/modifica/${IDS.idea}`);
+      await router.startRouter(document.createElement('main'));
+    };
+
+    it('chi decide di restare resta nel progetto aperto, sulla stessa pagina, e nulla si ricorda', async () => {
+      await openPage();
+      const asked = [];
+      router.setLeaveGuard(async () => (asked.push('lasciare?'), false));
+      let reloaded = 0;
+      assert.equal(await app.switchProject(PROJECT2, () => reloaded++), false);
+      assert.deepEqual(asked, ['lasciare?']);
+      assert.equal(reloaded, 0);
+      assert.equal(localStorage.getItem('progetto'), PROJECT);
+      assert.equal(location.hash, `#/modifica/${IDS.idea}`);
+      assert.equal(cleaned, 0);
+    });
+
+    it('chi decide di lasciare la pagina cambia progetto, e la pagina si chiude prima del ricaricamento', async () => {
+      await openPage();
+      router.setLeaveGuard(async () => true);
+      const order = [];
+      assert.equal(await app.switchProject(PROJECT2, () => order.push(`ricarica dopo ${cleaned} chiusure`)), true);
+      assert.deepEqual(order, ['ricarica dopo 1 chiusure'], 'la pagina toglie la domanda del browser prima di ricaricare');
+      assert.equal(localStorage.getItem('progetto'), PROJECT2);
+      assert.equal(location.hash, '#/');
+    });
+  });
+
+  it('il selettore del menu cambia progetto con switchProject del sito', async () => {
+    let reloaded = 0;
+    assert.equal(await app.startApp(root, { reload: () => reloaded++ }), true);
+    const select = root.querySelector('.project-switch select');
+    select.value = PROJECT2;
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush();
+    assert.equal(localStorage.getItem('progetto'), PROJECT2);
+    assert.equal(reloaded, 1);
+  });
+});
+
+// A link of an email pasted into a tab where the site is already open changes the address after #, nothing else.
+describe('link con il progetto aperto in una scheda già aperta', () => {
+  const start = async () => {
+    let reloads = 0;
+    assert.equal(await app.startApp(root, { reload: () => (reloads += 1) }), true);
+    return () => reloads;
+  };
+  const go = async (hash) => {
+    location.hash = hash;
+    await flush(8);
+  };
+
+  it('un link a un altro dei miei progetti lo apre sulla pagina del link', async () => {
+    const reloads = await start();
+    await go(`#/idea/${IDS.idea}?progetto=${PROJECT2}`);
+    assert.equal(reloads(), 1);
+    assert.equal(localStorage.getItem('progetto'), PROJECT2);
+    assert.equal(location.hash, `#/idea/${IDS.idea}`);
+  });
+
+  for (const [name, target] of [
+    ['al progetto aperto', PROJECT],
+    ['a un progetto non mio', PROJECT3],
+    ['malformato', 'non-un-uuid'],
+  ]) {
+    it(`un link ${name} apre la pagina nel progetto aperto e il parametro sparisce`, async () => {
+      const reloads = await start();
+      await go(`#/storico?tipo=idea&progetto=${target}`);
+      assert.equal(reloads(), 0);
+      assert.equal(store.currentProjectId(), PROJECT);
+      assert.equal(location.hash, '#/storico?tipo=idea');
+      assert.equal(router.currentPath(), '/storico');
+    });
+  }
+
+  it('con modifiche non salvate chi resta rimane sulla sua pagina', async () => {
+    const reloads = await start();
+    await go('#/storico');
+    router.setLeaveGuard(async () => false);
+    await go(`#/idea/${IDS.idea}?progetto=${PROJECT2}`);
+    assert.equal(reloads(), 0);
+    assert.equal(localStorage.getItem('progetto'), PROJECT);
+    assert.equal(location.hash, '#/storico');
+  });
+});
+
+describe('amministratore della piattaforma', () => {
+  it('senza progetti, scrivendo l indirizzo di una pagina di progetto arriva alla pagina Progetti', async () => {
+    api.myProjects = async () => [];
+    api.isPlatformAdmin = async () => true;
+    assert.equal(await app.startApp(root), true);
+    for (const hash of ['#/', '#/idee', '#/chat', '#/nuovo/idea', '#/membri', `#/idea/${IDS.idea}`, '#/concetti', '#/inesistente']) {
+      location.hash = hash;
+      await flush(5);
+      assert.equal(location.hash, '#/progetti', hash);
+      assert.equal(text(root.querySelector('.content h1')), tx.projects.title, hash);
+    }
+    location.hash = '#/profilo';
+    await flush(5);
+    assert.equal(router.currentPath(), '/profilo');
+  });
+
+  // Archived by them or by another platform admin, or they removed themselves: they always have somewhere to land.
+  it('che non può più leggere il progetto aperto ricarica il sito sulla pagina Progetti, senza la schermata di chi è stato tolto', async () => {
+    api.isPlatformAdmin = async () => true;
+    let reloads = 0;
+    assert.equal(await app.startApp(root, { reload: () => (reloads += 1) }), true);
+    api.myProjects = async () => [projects()[1]];
+    await store.syncItems({ force: true });
+    await flush();
+    assert.equal(reloads, 1);
+    assert.equal(location.hash, '#/progetti');
+    assert.notEqual(text(root.querySelector('h1')), tx.auth.notMember.removedTitle);
+  });
 });
 
 describe('lingua del profilo', () => {

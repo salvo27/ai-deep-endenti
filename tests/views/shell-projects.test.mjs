@@ -100,19 +100,30 @@ describe('selettore del progetto nel menu', () => {
     assert.deepEqual(opened, [PROJECT2]);
   });
 
-  it('senza altro da fare usa switchProject del sito: ricorda il progetto e torna alla dashboard', async () => {
+  // The change of project belongs to app.js, which hands it to the shell: the shell imports nothing from app.js.
+  it('senza chi cambia progetto il selettore non cambia nulla e resta sul progetto aperto', async () => {
     inProject();
     history.replaceState(null, '', '#/idee');
     const root = build();
     await quietly(() => choose(root, PROJECT2));
-    assert.equal(localStorage.getItem('progetto'), PROJECT2);
-    assert.equal(location.hash, '#/');
+    await flush();
+    assert.equal(localStorage.getItem('progetto'), null);
+    assert.equal(location.hash, '#/idee');
+    assert.equal(select(root).value, PROJECT);
   });
 
   it('un progetto che switchProject rifiuta lascia il selettore sul progetto aperto', () => {
     inProject();
     const root = build({ onSwitchProject: () => false });
     choose(root, PROJECT2);
+    assert.equal(select(root).value, PROJECT);
+  });
+
+  it('un cambio che la pagina aperta non lascia fare (modifiche non salvate) riporta il selettore sul progetto aperto', async () => {
+    inProject();
+    const root = build({ onSwitchProject: async () => false });
+    choose(root, PROJECT2);
+    await flush();
     assert.equal(select(root).value, PROJECT);
   });
 

@@ -314,8 +314,31 @@ describe('rinominare, archiviare e riattivare', () => {
     await confirm('Archivia');
     assert.deepEqual(named('archiveProject'), [['archiveProject', PROJECT]]);
     assert.equal(named('allProjects').length, 2);
-    assert.equal(named('myProjects').length, 1, 'un progetto archiviato sparisce dai miei');
+    assert.ok(named('myProjects').length >= 1, 'un progetto archiviato sparisce dai miei');
     assert.match(toasts(), /Progetto «Alfa» archiviato\./);
+  });
+
+  // The members list still answers a platform admin for an archived project: the site leaves it all the same
+  // (app.js then opens another project of mine, or the Projects page).
+  it('archiviare il progetto aperto porta fuori da quel progetto', async () => {
+    const left = [];
+    store.on('removed', () => left.push('removed'));
+    api.myProjects = record('myProjects', () => []);
+    await open();
+    button('Archivia Alfa').click();
+    await flush();
+    await confirm('Archivia');
+    assert.deepEqual(left, ['removed']);
+  });
+
+  it('archiviare un altro progetto lascia aperto quello aperto', async () => {
+    const left = [];
+    store.on('removed', () => left.push('removed'));
+    await open();
+    button('Archivia Beta').click();
+    await flush();
+    await confirm('Archivia');
+    assert.deepEqual(left, []);
   });
 
   it('riattivare chiede conferma dicendo che i membri tornano a leggerlo e scriverci', async () => {
@@ -423,7 +446,19 @@ describe('persone di un progetto', () => {
     assert.match(text(dialog()), /Non potrai più aprire «Alfa»/);
     await confirm('Rimuovi');
     assert.deepEqual(named('removeMember'), [['removeMember', PROJECT, ME]]);
-    assert.equal(named('myProjects').length, 1);
+    assert.ok(named('myProjects').length >= 1);
+  });
+
+  it('chi toglie se stesso dal progetto aperto ne esce', async () => {
+    const left = [];
+    store.on('removed', () => left.push('removed'));
+    await openPeople();
+    api.membersOverview = record('membersOverview', () => members().filter((m) => m.user_id !== ME));
+    api.myProjects = record('myProjects', () => []);
+    button('Rimuovi Anna').click();
+    await flush();
+    await confirm('Rimuovi');
+    assert.deepEqual(left, ['removed']);
   });
 
   it('si aggiunge una persona per email, con nome e ruolo, a quel progetto', async () => {

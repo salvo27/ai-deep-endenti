@@ -4,8 +4,23 @@ import { isUuid } from './lib/validate.js';
 import { CONFIG } from './config.js';
 import { language, tx } from './i18n/index.js';
 import { notMemberScreen, errorScreen } from './auth.js';
-import { loadAll, on, setProject, setProjects, startRealtime, startSync, state, stopRealtime, stopSync, syncItems, trackPresence } from './store.js';
-import { addRedirect, addRoute, onRouteChange, parseHash, startRouter, stopRouter } from './router.js';
+import {
+  currentProjectId,
+  isPlatformAdmin,
+  loadAll,
+  on,
+  setPlatformAdmin,
+  setProject,
+  setProjects,
+  startRealtime,
+  startSync,
+  state,
+  stopRealtime,
+  stopSync,
+  syncItems,
+  trackPresence,
+} from './store.js';
+import { addRedirect, addRoute, canLeave, currentKey, onRouteChange, parseHash, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
@@ -145,13 +160,22 @@ export function rememberProject(id, storage = globalThis.localStorage) {
   }
 }
 
-/** Opens another of my projects: the choice is saved and the page reloads, so data, presence and chats are all of it. */
-export function switchProject(id, reload = () => location.reload()) {
+const reloadPage = () => location.reload();
+const setAddress = (hash) => history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
+
+/**
+ * Opens another of my projects: the choice is saved and the page reloads, so data, presence and chats are all of it.
+ * The open page is asked first, as every way out of it does: with unsaved changes the person can stay, and then nothing
+ * changes. The new project opens on its dashboard, or on the page of the link that asked for it.
+ */
+export async function switchProject(id, reload = reloadPage, { route = '#/' } = {}) {
   const project = state.projects.find((p) => p.id === id);
   if (!project) return false;
+  if (!(await canLeave())) return false;
+  // The page is closed before the reload: it takes away the browser's own question about unsaved changes too.
+  stopRouter();
   rememberProject(project.id);
-  // The open page belongs to the old project: the new one opens on its dashboard.
-  history.replaceState(null, '', `${location.pathname}${location.search}#/`);
+  setAddress(route);
   reload();
   return true;
 }
@@ -163,6 +187,28 @@ export async function syncProfileLanguage(current = language) {
   if (!profile || profile.language === current) return false;
   await api.updateProfile({ language: current });
   return true;
+}
+
+// Every address goes through here before it is shown. A link with the project (an email link pasted into a tab where
+// the site is already open) opens that project when it is another of mine, keeping the page of the link; otherwise the
+// parameter goes and the page opens in the project open. Without a project only some pages exist: the others lead to
+// the Projects page.
+function addressFilter(reload, { pages = null } = {}) {
+  return (hash) => {
+    const { linked, hash: clean } = projectLink(hash);
+    const target = linked && state.projects.find((p) => p.id === linked && p.id !== currentProjectId());
+    if (target) {
+      // Until the switch happens the address is the one of the page still open.
+      const open = currentKey();
+      setAddress(open ? `#${open}` : '#/');
+      switchProject(target.id, reload, { route: clean });
+      return null;
+    }
+    let next = linked !== null ? clean : hash;
+    if (pages && !pages.includes(parseHash(next).path)) next = '#/progetti';
+    if (next !== hash) history.replaceState(history.state, '', next);
+    return next;
+  };
 }
 
 let stopIdle = null;
@@ -197,24 +243,28 @@ function listenToAuth() {
   });
 }
 
-// A platform administrator in no project: only the Projects page, where they create one or add themselves to one.
-async function startWithoutProject(root) {
+// A platform admin in no project: only the Projects page, where they create one or add themselves to one, and their
+// Profile. Any other address leads to the Projects page (docs/PROGETTI.md).
+const PAGES_WITHOUT_PROJECT = ['/progetti', '/profilo']; // i18n-ignore: addresses
+
+async function startWithoutProject(root, reload) {
   history.replaceState(history.state, '', '#/progetti');
-  const { outlet } = buildShell(root, { onSignOut: () => api.signOut() });
+  const { outlet } = buildShell(root, { onSignOut: () => api.signOut(), onSwitchProject: (id) => switchProject(id, reload) });
   stopIdle = startIdleLogout();
   listenToAuth();
-  registerRoutes();
-  await startRouter(outlet, { fallback: notFoundView });
+  addRoute('/progetti', projectsView);
+  addRoute('/profilo', profileView); // i18n-ignore: address
+  await startRouter(outlet, { fallback: notFoundView, onAddress: addressFilter(reload, { pages: PAGES_WITHOUT_PROJECT }) });
   return true;
 }
 
-export async function startApp(root) {
+export async function startApp(root, { reload = reloadPage } = {}) {
   const session = await api.getSession();
   state.user = { id: session.user.id, email: session.user.email };
   try {
     const [projects, platformAdmin] = await Promise.all([api.myProjects(), api.isPlatformAdmin()]);
     setProjects(projects);
-    state.platformAdmin = platformAdmin === true;
+    setPlatformAdmin(platformAdmin === true);
   } catch (error) {
     errorScreen(root, error, () => location.reload());
     return false;
@@ -224,7 +274,7 @@ export async function startApp(root) {
   const { linked, hash } = projectLink(location.hash);
   const project = chooseProject(state.projects, { linked, remembered: rememberedProject() });
   if (!project) {
-    if (state.platformAdmin) return startWithoutProject(root);
+    if (isPlatformAdmin()) return startWithoutProject(root, reload);
     notMemberScreen(root, { reason: 'none' });
     return false;
   }
@@ -244,7 +294,7 @@ export async function startApp(root) {
     return false;
   }
 
-  const { outlet } = buildShell(root, { onSignOut: () => api.signOut() });
+  const { outlet } = buildShell(root, { onSignOut: () => api.signOut(), onSwitchProject: (id) => switchProject(id, reload) });
   await api.setRealtimeAuth().catch(() => {});
   startRealtime();
   startSync();
@@ -256,8 +306,15 @@ export async function startApp(root) {
   stopIdle = startIdleLogout();
   stopActivity = startActivityPing();
   // Members are not sent live any more: whoever is removed finds out at the next sync (entering a page, every minute).
+  // A platform admin always has somewhere to go (they archived the project, removed themselves, or another platform
+  // admin did): the site reloads on the Projects page, in another project of theirs or in none.
   on('removed', () => {
     stopApp();
+    if (isPlatformAdmin()) {
+      setAddress('#/progetti');
+      reload();
+      return;
+    }
     notMemberScreen(root, { reason: 'removed' });
   });
   listenToAuth();
@@ -266,6 +323,6 @@ export async function startApp(root) {
     syncItems();
   });
   registerRoutes();
-  await startRouter(outlet, { fallback: notFoundView });
+  await startRouter(outlet, { fallback: notFoundView, onAddress: addressFilter(reload) });
   return true;
 }
