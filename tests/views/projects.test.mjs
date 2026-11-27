@@ -501,7 +501,7 @@ describe('persone di un progetto', () => {
     const form = people().querySelector('form');
     typeInto(form.querySelector('input[name="email"]'), 'nessuno@test.it');
     await submit(form);
-    assert.match(text(form), /Nessun account con questa email: va creato prima in Supabase\./);
+    assert.match(text(form), /Nessun account con questa email che tu possa aggiungere: va creato prima in Supabase\./);
     assert.deepEqual(fake.calls.find(([kind, name]) => kind === 'rpc' && name === 'add_member')[2], {
       p_project: PROJECT2,
       p_email: 'nessuno@test.it',

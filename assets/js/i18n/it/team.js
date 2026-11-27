@@ -22,7 +22,7 @@ export const team = {
   removeOk: 'Rimuovi',
   add: {
     title: 'Aggiungi un membro',
-    help: 'Prima crea l\'account in Supabase: Authentication › Users › Add user, con email, password temporanea e "Auto Confirm User". Poi aggiungilo qui. Al primo accesso dovrà attivare la verifica in due passaggi.',
+    help: 'Prima crea l\'account in Supabase: Authentication › Users › Add user, con email, password temporanea e "Auto Confirm User". Poi aggiungilo qui. Al primo accesso dovrà attivare la verifica in due passaggi. Chi sta già solo nei progetti di altri lo aggiunge un amministratore della piattaforma.',
     email: 'Email',
     name: 'Nome',
     role: 'Ruolo',
@@ -66,5 +66,6 @@ export const team = {
       project_unarchived: 'ha riattivato il progetto',
     },
     quoted: (name) => `«${name}»`,
+    platformAdmin: 'Un amministratore della piattaforma',
   },
 };

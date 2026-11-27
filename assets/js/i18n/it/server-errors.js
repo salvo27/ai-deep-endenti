@@ -6,7 +6,7 @@ export const serverErrors = {
   project_not_found: 'Il progetto non esiste o è archiviato.',
   invalid_project_name: 'Il nome del progetto deve avere da 1 a 80 caratteri.',
   invalid_role: 'Ruolo non valido.',
-  user_not_found: 'Nessun account con questa email: va creato prima in Supabase.',
+  user_not_found: 'Nessun account con questa email che tu possa aggiungere: va creato prima in Supabase.',
   last_platform_admin: 'Deve restare almeno un amministratore della piattaforma.',
   last_project_admin: 'Nel progetto deve restare almeno un admin.',
   cross_project: 'Si può collegare solo un elemento dello stesso progetto.',

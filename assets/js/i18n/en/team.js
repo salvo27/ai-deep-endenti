@@ -21,7 +21,7 @@ export const team = {
   removeOk: 'Remove',
   add: {
     title: 'Add a member',
-    help: 'First create the account in Supabase: Authentication › Users › Add user, with email, a temporary password and "Auto Confirm User". Then add it here. At their first sign-in they will have to turn on two-step verification.',
+    help: 'First create the account in Supabase: Authentication › Users › Add user, with email, a temporary password and "Auto Confirm User". Then add it here. At their first sign-in they will have to turn on two-step verification. Someone who is only in other teams\' projects is added by a platform admin.',
     email: 'Email',
     name: 'Name',
     role: 'Role',
@@ -64,5 +64,6 @@ export const team = {
       project_unarchived: 'reactivated the project',
     },
     quoted: (name) => `“${name}”`,
+    platformAdmin: 'A platform admin',
   },
 };

@@ -1,7 +1,7 @@
 -- Members and profiles (docs/PROGETTI.md): a person is in each project with a role of that project, while name,
 -- colour and language live in one profile valid everywhere. Who adds, promotes and removes people, who sees whom.
 begin;
-select plan(141);
+select plan(149);
 
 -- =========================================================================
 -- What exists
@@ -336,6 +336,10 @@ select ok(
   ),
   'the addition is recorded in the security log of that project, with who did it'
 );
+select ok(
+  (select not details ? 'by' from public.audit_log where event = 'member_added' and project_id = t02.id('alfa') and target_id = tests.uid('1')),
+  'an addition by the admin of the project is not marked as done by a platform admin'
+);
 
 select tests.login('b');
 select lives_ok($$select public.add_member(t02.id('alfa'), '2@test.example', 'Altro nome', 'advisor')$$, 'a person already in another project can be added too');
@@ -346,6 +350,26 @@ select results_eq(
   $$values ('advisor'::text, t02.id('alfa')), ('member', t02.id('beta'))$$,
   'and they keep their role in the other project'
 );
+
+-- With many teams on one platform, the admin of a project does not pull in someone who belongs only to other teams, and
+-- cannot tell such an account from an address without one: both answers are user_not_found. A new account, in no
+-- project yet, is added as before; so is someone the admin already shares a project with.
+select tests.create_user('4');
+select tests.login('e');
+select throws_ok($$select public.add_member(t02.id('beta'), 'advisor@test.it', 'Carla', 'member')$$, 'P0002', 'user_not_found', 'the admin of a project cannot add someone who is only in projects of others');
+select throws_ok($$select public.add_member(t02.id('beta'), ' Advisor@Test.IT ', 'Carla', 'member')$$, 'P0002', 'user_not_found', 'whatever the case and spaces of the address');
+select throws_ok($$select public.add_member(t02.id('beta'), 'nessuno@test.example', 'Nessuno', 'member')$$, 'P0002', 'user_not_found', 'the same answer as for an address without an account');
+select lives_ok($$select public.add_member(t02.id('beta'), '4@test.example', 'Quarto', 'member')$$, 'a new account, in no project yet, is added by the admin of the project');
+select tests.logout();
+select ok(not exists (select 1 from public.members where project_id = t02.id('beta') and user_id = tests.uid('c')), 'who belongs only to other teams was not added');
+select tests.login('a');
+select lives_ok($$select public.add_member(t02.id('beta'), 'advisor@test.it', null, 'advisor')$$, 'a platform admin adds anyone, and the addition is in the log');
+select tests.logout();
+select ok(
+  (select details ->> 'by' = 'platform_admin' from public.audit_log where event = 'member_added' and project_id = t02.id('beta') and target_id = tests.uid('c')),
+  'an addition by a platform admin is marked as such in the log of the project'
+);
+delete from public.members where project_id = t02.id('beta') and user_id in (tests.uid('c'), tests.uid('4'));
 
 select tests.login('c');
 select throws_ok($$select public.add_member(t02.id('alfa'), '3@test.example', 'Ivo', 'member')$$, '42501', 'not_allowed', 'a member cannot add people');

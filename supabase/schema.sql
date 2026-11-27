@@ -317,6 +317,9 @@ create trigger members_update_one_project
 
 -- Aggiunge a un progetto un utente già creato in Authentication > Users, con il suo profilo se non ne ha uno:
 -- chi ha già un profilo non viene mai rinominato. Dal SQL Editor funziona sempre; dal sito solo per chi gestisce il progetto.
+-- Sulla piattaforma ci sono più team: l'admin di un progetto aggiunge un account nuovo (in nessun progetto) o chi sta già
+-- in uno dei suoi progetti; chi sta solo nei progetti di altri lo aggiunge un amministratore della piattaforma. A un admin
+-- quell'account risponde user_not_found come un indirizzo senza account: non scopre chi c'è sulla piattaforma.
 create or replace function public.add_member(p_project uuid, p_email text, p_display_name text, p_role text default 'member')
 returns public.members
 language plpgsql
@@ -338,6 +341,11 @@ begin
     raise exception 'invalid_role' using errcode = '22023';
   end if;
   select u.id, u.email into v_user_id, v_email from auth.users u where lower(u.email) = lower(btrim(p_email)) limit 1;
+  if v_user_id is not null and auth.uid() is not null and not public.is_platform_admin()
+    and exists (select 1 from public.members m where m.user_id = v_user_id)
+    and not public.shares_project(v_user_id) then
+    v_user_id := null;
+  end if;
   if v_user_id is null then
     raise exception 'user_not_found' using errcode = 'P0002';
   end if;
@@ -1880,6 +1888,23 @@ alter table public.audit_log add constraint audit_log_event_check check (
 create index if not exists audit_log_created_idx on public.audit_log (created_at desc);
 create index if not exists audit_log_project_idx on public.audit_log (project_id, created_at desc);
 
+-- I dettagli di una riga del registro di un progetto. Quello che un amministratore della piattaforma fa in un progetto di
+-- cui non è admin porta "by": "platform_admin": chi legge il registro del progetto vede un amministratore della
+-- piattaforma, e non qualcuno uscito dal team.
+create or replace function public.audit_details(p_project uuid, p_details jsonb default '{}'::jsonb)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when auth.uid() is not null and public.is_platform_admin() and public.my_role(p_project) is distinct from 'admin'
+      then coalesce(p_details, '{}'::jsonb) || jsonb_build_object('by', 'platform_admin')
+    else coalesce(p_details, '{}'::jsonb)
+  end
+$$;
+
 create or replace function public.members_audit()
 returns trigger
 language plpgsql
@@ -1889,15 +1914,18 @@ as $$
 begin
   if tg_op = 'INSERT' then
     insert into public.audit_log (project_id, event, actor_id, target_id, details)
-    values (new.project_id, 'member_added', auth.uid(), new.user_id, jsonb_build_object('role', new.role));
+    values (new.project_id, 'member_added', auth.uid(), new.user_id, public.audit_details(new.project_id, jsonb_build_object('role', new.role)));
   elsif tg_op = 'UPDATE' then
     if new.role is distinct from old.role then
       insert into public.audit_log (project_id, event, actor_id, target_id, details)
-      values (new.project_id, 'member_role_changed', auth.uid(), new.user_id, jsonb_build_object('from', old.role, 'to', new.role));
+      values (
+        new.project_id, 'member_role_changed', auth.uid(), new.user_id,
+        public.audit_details(new.project_id, jsonb_build_object('from', old.role, 'to', new.role))
+      );
     end if;
   else
     insert into public.audit_log (project_id, event, actor_id, target_id, details)
-    values (old.project_id, 'member_removed', auth.uid(), old.user_id, jsonb_build_object('role', old.role));
+    values (old.project_id, 'member_removed', auth.uid(), old.user_id, public.audit_details(old.project_id, jsonb_build_object('role', old.role)));
   end if;
   return null;
 end
@@ -1941,7 +1969,7 @@ begin
   -- Il trigger del progetto apre la chat Generale. Chi lo crea non ne diventa membro: per leggerlo deve aggiungersi.
   insert into public.projects (name, created_by) values (v_name, auth.uid()) returning * into r;
   insert into public.audit_log (project_id, event, actor_id, details)
-  values (r.id, 'project_created', auth.uid(), jsonb_build_object('name', r.name));
+  values (r.id, 'project_created', auth.uid(), public.audit_details(r.id, jsonb_build_object('name', r.name)));
   return r;
 end
 $$;
@@ -1970,7 +1998,7 @@ begin
   end if;
   update public.projects set name = v_name where id = p_project returning * into r;
   insert into public.audit_log (project_id, event, actor_id, details)
-  values (p_project, 'project_renamed', auth.uid(), jsonb_build_object('from', v_old, 'to', v_name));
+  values (p_project, 'project_renamed', auth.uid(), public.audit_details(p_project, jsonb_build_object('from', v_old, 'to', v_name)));
   return r;
 end
 $$;
@@ -1994,7 +2022,8 @@ begin
   end if;
   if r.archived_at is null then
     update public.projects set archived_at = now() where id = p_project returning * into r;
-    insert into public.audit_log (project_id, event, actor_id) values (p_project, 'project_archived', auth.uid());
+    insert into public.audit_log (project_id, event, actor_id, details)
+    values (p_project, 'project_archived', auth.uid(), public.audit_details(p_project));
   end if;
   return r;
 end
@@ -2018,7 +2047,8 @@ begin
   end if;
   if r.archived_at is not null then
     update public.projects set archived_at = null where id = p_project returning * into r;
-    insert into public.audit_log (project_id, event, actor_id) values (p_project, 'project_unarchived', auth.uid());
+    insert into public.audit_log (project_id, event, actor_id, details)
+    values (p_project, 'project_unarchived', auth.uid(), public.audit_details(p_project));
   end if;
   return r;
 end
@@ -3235,6 +3265,7 @@ revoke execute on function public.members_before_update() from public, anon, aut
 revoke execute on function public.members_before_delete() from public, anon, authenticated;
 revoke execute on function public.members_one_project_per_statement() from public, anon, authenticated;
 revoke execute on function public.members_audit() from public, anon, authenticated;
+revoke execute on function public.audit_details(uuid, jsonb) from public, anon, authenticated;
 revoke execute on function public.profiles_before_update() from public, anon, authenticated;
 revoke execute on function public.projects_after_insert() from public, anon, authenticated;
 revoke execute on function public.chats_before_write() from public, anon, authenticated;

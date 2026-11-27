@@ -1,7 +1,7 @@
 -- Projects and platform admins (docs/PROGETTI.md): who creates, renames, archives and reactivates a project,
 -- who manages the platform admins, what a platform admin can and cannot read, and what the security log keeps.
 begin;
-select plan(115);
+select plan(119);
 
 -- =========================================================================
 -- What exists
@@ -355,6 +355,28 @@ select ok(
       and r.event not in (select a.event from public.audit_log a where a.project_id is null and a.actor_id = tests.uid('a') and a.target_id = tests.uid('e'))
   ),
   'removing a platform admin is recorded as a different platform event'
+);
+
+-- The admin of a project reads its log: what a platform admin did there without being its admin says so, so that it does
+-- not read as the work of someone who left the team.
+select ok(
+  (select bool_and(l.details ->> 'by' = 'platform_admin') from public.audit_log l join public.projects p on p.id = l.project_id
+   where p.name = 'Gamma' and l.event = 'project_created'),
+  'a project created by a platform admin is marked in its log as created by a platform admin'
+);
+select ok(
+  (select bool_and(details ->> 'by' = 'platform_admin') from public.audit_log
+   where project_id = t01.id('alfa') and event in ('project_archived', 'project_unarchived')),
+  'archiving and reactivating are marked as done by a platform admin'
+);
+select ok(
+  (select bool_and(not details ? 'by') from public.audit_log where project_id = t01.id('alfa') and event = 'project_renamed' and actor_id = tests.uid('b')),
+  'a rename by the admin of the project is not marked'
+);
+select ok(
+  (select bool_and(details ->> 'by' = 'platform_admin') from public.audit_log
+   where project_id = t01.id('alfa') and event = 'member_added' and actor_id = tests.uid('a') and target_id = tests.uid('a')),
+  'a platform admin joining a project is marked as a platform admin'
 );
 
 insert into t01.count select 'audit', count(*) from public.audit_log;

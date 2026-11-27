@@ -137,7 +137,7 @@ describe('pagina Membri del progetto aperto', () => {
     typeInto(name, 'Nessuno');
     form.dispatchEvent(new window.Event('submit', { cancelable: true }));
     await flush(5);
-    assert.match(text(form), /Nessun account con questa email: va creato prima in Supabase\./);
+    assert.match(text(form), /Nessun account con questa email che tu possa aggiungere: va creato prima in Supabase\./);
     assert.equal(fake.calls.find(([kind, name]) => kind === 'rpc' && name === 'add_member')[2].p_project, PROJECT);
   });
 
@@ -156,6 +156,31 @@ describe('pagina Membri del progetto aperto', () => {
       'Sistema ha creato il progetto «Alfa»',
       'Anna ha aggiunto Bruno (Membro)',
       'Anna ha archiviato il progetto',
+    ]);
+  });
+
+  // A platform admin creates a project and adds its first admin without being a member: the log names them as such,
+  // not as someone who left the team. The events only a platform admin can do say it even in rows written before.
+  it('nel registro chi agisce come amministratore della piattaforma si legge così, non come ex membro', async () => {
+    const PLATFORM = '00000000-0000-4000-8000-0000000000ee';
+    const GONE = '00000000-0000-4000-8000-0000000000ef';
+    api.auditLog = record('auditLog', () => [
+      { id: 6, event: 'member_removed', actor_id: GONE, target_id: OTHER, details: { role: 'member' }, created_at: '2026-10-19T10:00:00Z' },
+      { id: 5, event: 'project_archived', actor_id: PLATFORM, target_id: null, details: {}, created_at: '2026-10-18T10:00:00Z' },
+      { id: 4, event: 'project_renamed', actor_id: PLATFORM, target_id: null, details: { from: 'Alfa', to: 'Alfa 2', by: 'platform_admin' }, created_at: '2026-10-17T10:00:00Z' },
+      { id: 3, event: 'member_role_changed', actor_id: ME, target_id: OTHER, details: { from: 'member', to: 'advisor' }, created_at: '2026-10-16T12:00:00Z' },
+      { id: 2, event: 'member_added', actor_id: PLATFORM, target_id: ME, details: { role: 'admin', by: 'platform_admin' }, created_at: '2026-10-16T10:00:00Z' },
+      { id: 1, event: 'project_created', actor_id: PLATFORM, target_id: null, details: { name: 'Alfa', by: 'platform_admin' }, created_at: '2026-10-15T10:00:00Z' },
+    ]);
+    await open();
+    const lines = [...outlet.querySelectorAll('.log-main')].map((el) => text(el));
+    assert.deepEqual(lines, [
+      'Ex membro ha rimosso Bruno (Membro)',
+      'Un amministratore della piattaforma ha archiviato il progetto',
+      'Un amministratore della piattaforma ha rinominato il progetto (Alfa → Alfa 2)',
+      'Anna ha cambiato il ruolo di Bruno (Membro → Advisor)',
+      'Un amministratore della piattaforma ha aggiunto Anna (Admin)',
+      'Un amministratore della piattaforma ha creato il progetto «Alfa»',
     ]);
   });
 

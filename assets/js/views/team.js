@@ -4,7 +4,7 @@ import { fmtDateTime } from '../lib/format.js';
 import { LIMITS, cleanLine, isEmail } from '../lib/validate.js';
 import { tx } from '../i18n/index.js';
 import { exportBackup } from '../export.js';
-import { currentProjectId, isAdmin, memberName, on, reloadMembers, state } from '../store.js';
+import { currentProjectId, isAdmin, memberById, memberName, on, reloadMembers, state } from '../store.js';
 import { avatar, button, errorBox, loading, pageHeader, timeAgo } from './components.js';
 
 // Pagina Membri: le persone del progetto aperto e solo quelle. I membri non arrivano più dal vivo (docs/PROGETTI.md):
@@ -140,6 +140,15 @@ function weeklyCard() {
   return h('section', { class: 'card stack' }, h('h2', null, w.title), h('p', { class: 'muted small' }, w.help), h('div', { class: 'row' }, show, send), host);
 }
 
+// Who did it. A platform admin acting in a project they do not administer is not one of its members: the database marks
+// those rows ("by"), and creating, archiving and reactivating a project are theirs only, even in rows written before.
+const PLATFORM_EVENTS = new Set(['project_created', 'project_archived', 'project_unarchived']);
+
+function auditActor(row, details) {
+  if (row.actor_id && !memberById(row.actor_id) && (details.by === 'platform_admin' || PLATFORM_EVENTS.has(row.event))) return t.audit.platformAdmin;
+  return memberName(row.actor_id);
+}
+
 // One line of the log: who did it, what, to whom (when someone), and the details that matter.
 function auditLine(row) {
   const a = t.audit;
@@ -150,7 +159,7 @@ function auditLine(row) {
   else if (row.event === 'project_renamed') extra = ` (${textOf(details.from)} → ${textOf(details.to)})`;
   else if (row.event === 'project_created' && details.name) extra = ` ${a.quoted(textOf(details.name))}`;
   else if (details.role) extra = ` (${roleLabel(details.role)})`;
-  return [h('strong', null, memberName(row.actor_id)), ` ${verb}`, row.target_id ? [' ', h('strong', null, memberName(row.target_id))] : null, extra];
+  return [h('strong', null, auditActor(row, details)), ` ${verb}`, row.target_id ? [' ', h('strong', null, memberName(row.target_id))] : null, extra];
 }
 
 export function teamView(outlet) {
