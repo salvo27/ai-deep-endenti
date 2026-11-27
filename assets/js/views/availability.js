@@ -24,7 +24,7 @@ import {
   thisMonday,
   weekLabel,
 } from '../availability.js';
-import { availabilityOf, createItem, memberName, on, readLocal, state, syncItems, writeLocal } from '../store.js';
+import { availabilityOf, createItem, memberName, on, readProjectLocal, state, syncItems, writeProjectLocal } from '../store.js';
 import { setLeaveGuard } from '../router.js';
 import { tx } from '../i18n/index.js';
 import { saveWithMerge } from './merge.js';
@@ -41,9 +41,9 @@ const WEEK_MS = 7 * 24 * 3600 * 1000;
 // Se il pulsante premuto sparisce o si disattiva dopo il ridisegno, il focus va al vicino.
 const FOCUS_FALLBACK = { 'week-prev': ['week-next', 'week-title'], 'week-next': ['week-prev', 'week-title'], 'back-base': ['scope-week'], save: ['scope-base', 'scope-week'] };
 
-// Chi deve esserci: admin e membri di default, gli advisor solo se scelti. Si ricorda su questo dispositivo.
+// Chi deve esserci: admin e membri di default, gli advisor solo se scelti. Si ricorda su questo dispositivo, per progetto.
 function loadChoice() {
-  const saved = readLocal(CHOICE_KEY);
+  const saved = readProjectLocal(CHOICE_KEY);
   const ids = (list) => (Array.isArray(list) ? list.filter(isUuid) : []);
   return { on: ids(saved?.on), off: ids(saved?.off) };
 }
@@ -455,7 +455,7 @@ export function availabilityView(outlet, query, chrome) {
         on: wasChosen ? choice.on.filter((x) => x !== id) : [...choice.on, id],
         off: wasChosen ? [...choice.off.filter((x) => x !== id), id] : choice.off.filter((x) => x !== id),
       };
-      writeLocal(CHOICE_KEY, choice);
+      writeProjectLocal(CHOICE_KEY, choice);
       render();
     };
 

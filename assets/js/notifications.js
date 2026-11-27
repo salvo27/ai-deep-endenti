@@ -1,6 +1,6 @@
 import { api } from './lib/api.js';
 import { routeFor, statusLabel } from './schema.js';
-import { currentProjectId, emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
+import { currentProjectId, emit, getItem, memberName, on, readLocal, readProjectLocal, state, timesheetsOf, writeLocal, writeProjectLocal } from './store.js';
 import { addDays, thisMonday, weekLabel } from './availability.js';
 import { pledgeFor, sanitizeTimesheet } from './timesheet.js';
 import { tx } from './i18n/index.js';
@@ -29,10 +29,10 @@ let readIds = new Set();
 // What was read is kept per project: reading everything in one project says nothing about the others.
 const LAST_READ = 'notificheLette';
 const READ_IDS = 'notificheLetteSingole';
-const readKey = (name) => `${name}:${currentProjectId()}`;
-// Before the projects there was one mark for the whole site, under the bare name: it still counts for a project that
-// has none of its own yet, so what was unread before the update stays unread.
-const readStored = (name, fallback) => readLocal(readKey(name), null) ?? readLocal(name, fallback);
+// Before the projects there was one mark for the whole site, under the bare name: it counts for the first project opened
+// after the update (the one the site was moved into), so what was unread before stays unread there. A project joined
+// later starts with everything read (store.js readProjectLocal).
+const readStored = (name, fallback) => readProjectLocal(name, fallback);
 
 const routeOf = (kind, id) => routeFor({ kind, id });
 const quoted = (title) => t.quote(title || t.untitled);
@@ -162,7 +162,7 @@ export const notifications = ({ includeRead = false } = {}) => (includeRead ? it
 export const unreadCount = () => items.filter(isUnread).length;
 
 function saveReadIds() {
-  writeLocal(readKey(READ_IDS), [...readIds].slice(-200));
+  writeProjectLocal(READ_IDS, [...readIds].slice(-200));
 }
 
 export function markRead(id) {
@@ -177,7 +177,7 @@ export function markAllRead() {
   const latest = items.reduce((max, note) => (note.at > max ? note.at : max), newest || '');
   lastRead = latest || new Date().toISOString();
   readIds = new Set();
-  writeLocal(readKey(LAST_READ), lastRead);
+  writeProjectLocal(LAST_READ, lastRead);
   saveReadIds();
   emit('notifications', { note: null, live: false });
 }

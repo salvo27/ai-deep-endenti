@@ -116,6 +116,22 @@ describe('letture della campanella per progetto', () => {
     assert.equal(store.readLocal(`notificheLette:${PROJECT}`), latest, 'da qui in poi il progetto ha il suo segno');
   });
 
+  // The old mark belongs to the project the site was moved into: a project joined later starts with nothing to read.
+  it('il segno di lettura di prima dei progetti vale solo per il primo progetto aperto', async () => {
+    store.writeLocal('notificheLette', hoursAgo(300));
+    store.writeLocal('notificheLetteSingole', ['r-21']);
+    feeds[PROJECT] = [rev({ id: 20, created_at: hoursAgo(2) })];
+    feeds[PROJECT2] = [rev({ id: 21, created_at: hoursAgo(5) }), rev({ id: 22, created_at: hoursAgo(3) })];
+    await open(ALFA);
+    assert.deepEqual(notes.notifications().map((n) => n.id), ['r-20'], 'Alfa tiene ciò che non era letto prima');
+    assert.equal(store.readLocal('notificheLette'), null, 'il segno senza progetto non resta');
+    assert.equal(store.readLocal('notificheLetteSingole'), null);
+
+    await open(BETA);
+    assert.equal(notes.unreadCount(), 0, 'un progetto aggiunto dopo parte senza nulla da leggere');
+    assert.deepEqual(store.readLocal(`notificheLetteSingole:${PROJECT2}`), []);
+  });
+
   it('un progetto con il suo segno di lettura non guarda quello di prima', async () => {
     store.writeLocal('notificheLette', hoursAgo(10));
     store.writeLocal(`notificheLette:${PROJECT}`, hoursAgo(1.5));

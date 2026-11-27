@@ -388,3 +388,23 @@ export function writeLocal(name, value) {
     // archiviazione locale non disponibile: si continua senza
   }
 }
+
+/** The name under which this device keeps something of the open project only. */
+export const projectKey = (name) => `${name}:${currentProjectId()}`;
+
+/**
+ * What this device remembers for the open project. Before the projects there was one value for the whole site, under
+ * the bare name: the first project opened takes it over and the bare value goes, so a project joined later never
+ * inherits it.
+ */
+export function readProjectLocal(name, fallback = null) {
+  const own = readLocal(projectKey(name), null);
+  const legacy = readLocal(name, null);
+  if (legacy !== null) writeLocal(name, null);
+  if (own !== null) return own;
+  if (legacy === null) return fallback;
+  writeLocal(projectKey(name), legacy);
+  return legacy;
+}
+
+export const writeProjectLocal = (name, value) => writeLocal(projectKey(name), value);

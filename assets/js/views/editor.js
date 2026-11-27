@@ -17,6 +17,7 @@ import {
 import {
   canWrite,
   createItem,
+  currentProjectId,
   getItem,
   ideas,
   isExample,
@@ -516,7 +517,9 @@ export function editorView(outlet, params, query) {
     return null;
   }
 
-  const draftKey = `draft:${editing ? editing.id : `new-${kind}-${query.get('idea') || ''}`}`;
+  // A new item is born in the open project, and so is its draft: it is never offered, nor saved, in another project.
+  // An existing item's id is enough. Drafts of new items from before the projects carry no project and are not offered.
+  const draftKey = `draft:${editing ? editing.id : `${currentProjectId()}:new-${kind}-${query.get('idea') || ''}`}`;
   let base = editing ? snapshotOf(editing) : initialSnapshot(kind, query);
   let baseVersion = editing ? editing.version : 0;
   let working = structuredClone(base);

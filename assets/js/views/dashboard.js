@@ -9,10 +9,10 @@ import {
   canWrite,
   itemsOf,
   on,
-  readLocal,
+  readProjectLocal,
   scoreItems,
   state,
-  writeLocal,
+  writeProjectLocal,
 } from '../store.js';
 import { ranking } from '../scoring.js';
 import { avatar, button, emptyState, errorBox, itemLink, kindBadge, loading, pageHeader, statusPill } from './components.js';
@@ -62,7 +62,8 @@ function deadline(item) {
 export function dashboardView(outlet) {
   const texts = tx.dashboard;
   const news = h('div', null, loading());
-  const lastSeen = readLocal('lastSeen');
+  // The last visit is the one to this project: switching project lands on the dashboard of the other one.
+  const lastSeen = readProjectLocal('lastSeen');
 
   const render = () => {
     const d = dashboardData();
@@ -155,7 +156,7 @@ export function dashboardView(outlet) {
 
   render();
   loadNews();
-  writeLocal('lastSeen', new Date().toISOString());
+  writeProjectLocal('lastSeen', new Date().toISOString());
   const offs = [on('item', render), on('members', render)];
   return () => offs.forEach((off) => off());
 }
