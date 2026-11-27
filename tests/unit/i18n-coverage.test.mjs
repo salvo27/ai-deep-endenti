@@ -64,7 +64,7 @@ describe('testi scritti nel codice', () => {
     assert.deepEqual(leftovers, []);
   });
 
-  it('nessun file resta da tradurre', { todo: 'finché la traduzione non è completa' }, () => {
+  it('nessun file resta da tradurre', () => {
     assert.deepEqual(sources.filter(({ source }) => source.includes(TODO)).map(({ file }) => file), []);
   });
 });
