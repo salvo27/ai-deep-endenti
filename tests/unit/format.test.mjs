@@ -8,6 +8,8 @@ import {
   debounce,
   fmtDate,
   fmtDateTime,
+  fmtMoney,
+  fmtPercent,
   fmtRelative,
   initials,
   plural,
@@ -31,6 +33,17 @@ test('dates are formatted in Italian and plain dates are not shifted by time zon
   assert.match(fmtDateTime('2026-10-16T09:05:00'), /16\/10\/2026/);
   assert.equal(fmtDate('boh'), '');
   assert.equal(dayKey('2026-10-16'), '2026-10-16');
+});
+
+test('amounts and percentages follow the Italian way of writing numbers', () => {
+  // In Italian the thousands dot starts at five digits (CLDR): 1234 stays as it is.
+  assert.equal(fmtMoney(1234), '1234 €');
+  assert.equal(fmtMoney(12345), '12.345 €');
+  assert.equal(fmtMoney(2_300_000), '2,3 mln €');
+  assert.equal(fmtMoney(1_500_000_000), '1,5 mld €');
+  assert.equal(fmtMoney(Number.NaN), '');
+  assert.equal(fmtPercent(12.25), '12,3%');
+  assert.equal(fmtPercent(Number.NaN), '-');
 });
 
 test('dayLabel names today and yesterday', () => {

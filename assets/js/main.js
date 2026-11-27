@@ -1,9 +1,11 @@
 import { runAuthGate } from './auth.js';
 import { startApp } from './app.js';
+import { applyDocumentLanguage } from './i18n/index.js';
 
 const root = document.getElementById('app');
 
 async function boot() {
+  applyDocumentLanguage();
   await runAuthGate(root);
   if (location.search) history.replaceState(null, '', `${location.pathname}${location.hash}`);
   await startApp(root);

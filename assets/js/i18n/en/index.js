@@ -1,0 +1,37 @@
+// All the texts in English, by area, with the same entries as the Italian ones.
+import { ai } from './ai.js';
+import { analysis } from './analysis.js';
+import { auth } from './auth.js';
+import { availability } from './availability.js';
+import { boards } from './boards.js';
+import { chat } from './chat.js';
+import { common } from './common.js';
+import { concepts } from './concepts.js';
+import { contacts } from './contacts.js';
+import { dashboard } from './dashboard.js';
+import { editor } from './editor.js';
+import { errors } from './errors.js';
+import { examples } from './examples.js';
+import { expenses } from './expenses.js';
+import { exporting } from './exporting.js';
+import { generator } from './generator.js';
+import { guide } from './guide.js';
+import { history } from './history.js';
+import { idea } from './idea.js';
+import { ideas } from './ideas.js';
+import { lists } from './lists.js';
+import { mentions } from './mentions.js';
+import { notes } from './notes.js';
+import { notifications } from './notifications.js';
+import { profile } from './profile.js';
+import { projects } from './projects.js';
+import { roadmap } from './roadmap.js';
+import { scoring } from './scoring.js';
+import { shell } from './shell.js';
+import { squad } from './squad.js';
+import { surveys } from './surveys.js';
+import { team } from './team.js';
+import { timesheet } from './timesheet.js';
+import { trash } from './trash.js';
+
+export const en = Object.freeze({ ai, analysis, auth, availability, boards, chat, common, concepts, contacts, dashboard, editor, errors, examples, expenses, exporting, generator, guide, history, idea, ideas, lists, mentions, notes, notifications, profile, projects, roadmap, scoring, shell, squad, surveys, team, timesheet, trash });

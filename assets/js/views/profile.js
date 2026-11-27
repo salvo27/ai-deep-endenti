@@ -7,6 +7,25 @@ import { reloadMembers, state } from '../store.js';
 import { browserAlertsEnabled, enableBrowserAlerts } from '../notifications.js';
 import { button, errorBox, loading, pageHeader } from './components.js';
 import { roleLabel } from './team.js';
+import { languageChoice, saveLanguageChoice, tx } from '../i18n/index.js';
+import { LANGUAGES, LANGUAGE_NAMES, deviceLanguage } from '../i18n/languages.js';
+
+// The choice stays on this device; the page reloads so that every text, even the ones built when a module loads,
+// comes back in the new language.
+export function languageCard(reload = () => location.reload()) {
+  const texts = tx.profile.language;
+  const options = [['auto', texts.auto(LANGUAGE_NAMES[deviceLanguage(navigator)])], ...LANGUAGES.map((lang) => [lang, LANGUAGE_NAMES[lang]])];
+  const select = h(
+    'select',
+    { class: 'input', name: 'language', 'aria-label': texts.label },
+    options.map(([value, label]) => h('option', { value, selected: value === languageChoice }, label)),
+  );
+  select.addEventListener('change', () => {
+    if (saveLanguageChoice(select.value)) reload();
+    else toast(texts.saveFailed, { type: 'error' });
+  });
+  return h('section', { class: 'card card-stack' }, h('h2', null, texts.title), h('p', { class: 'muted small' }, texts.help), select);
+}
 
 function profileCard() {
   const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.displayName, value: state.me.display_name });
@@ -226,6 +245,6 @@ export function profileView(outlet) {
     mount(outlet, errorBox({ message: 'Profilo non disponibile.' }));
     return null;
   }
-  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), passwordCard(), factorsCard(), notificationsCard(), emailCard(), sessionCard()));
+  mount(outlet, pageHeader({ title: 'Profilo e sicurezza' }), h('div', { class: 'cards cards-2' }, profileCard(), languageCard(), passwordCard(), factorsCard(), notificationsCard(), emailCard(), sessionCard()));
   return null;
 }
