@@ -192,7 +192,7 @@ test('the team grid of next week counts who is free and lists the best hours', a
   await visit(TEAM);
   await nextWeek();
   assert.equal(text(cell(0, 8)), '1/2');
-  assert.equal(cell(0, 8).getAttribute('aria-label'), `lunedì ${av.shortDate(next)} dalle 8 alle 9: 1 liberi su 2`);
+  assert.equal(cell(0, 8).getAttribute('aria-label'), `lunedì ${av.shortDate(next)} dalle 8 alle 9: 1 libero su 2`);
   assert.equal(text(cell(1, 8)), '2/2');
   assert.ok(cell(1, 8).classList.contains('av-l4'));
   assert.equal(cell(1, 8).getAttribute('aria-pressed'), null);

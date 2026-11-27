@@ -44,7 +44,7 @@ export const availability = {
     busy: (count, names) => `${count === 1 ? 'manca' : 'mancano'} ${names}`,
     unknownFor: (names) => `non si sa per ${names}`,
     gridLabel: (week) => `Persone libere ${week}`,
-    freeOf: (free, counted) => `${free} liberi su ${counted}`,
+    freeOf: (free, counted) => `${free} ${free === 1 ? 'libero' : 'liberi'} su ${counted}`,
     nobodyMarked: 'nessuno ha segnato i suoi impegni',
     cellWhen: (day, date, span) => `${day} ${date} ${span}`,
     cell: (when, what) => `${when}: ${what}`,

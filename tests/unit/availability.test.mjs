@@ -30,6 +30,8 @@ import {
   withDay,
 } from '../../assets/js/availability.js';
 import { fmtDate } from '../../assets/js/lib/format.js';
+import { availability as itTexts } from '../../assets/js/i18n/it/availability.js';
+import { availability as enTexts } from '../../assets/js/i18n/en/availability.js';
 import {
   BOARD_KINDS,
   EXPENSE_KINDS,
@@ -229,6 +231,15 @@ test('joinNames lists names with a final "e"', () => {
   assert.equal(joinNames(['Anna']), 'Anna');
   assert.equal(joinNames(['Anna', 'Bruno']), 'Anna e Bruno');
   assert.equal(joinNames(['Anna', 'Bruno', 'Chiara']), 'Anna, Bruno e Chiara');
+});
+
+test('in una casella della squadra «liberi» concorda con il numero, in italiano e in inglese', () => {
+  for (const [texts, cases] of [
+    [itTexts, [[0, 2, '0 liberi su 2'], [1, 2, '1 libero su 2'], [1, 1, '1 libero su 1'], [2, 3, '2 liberi su 3']]],
+    [enTexts, [[0, 2, '0 of 2 free'], [1, 2, '1 of 2 free'], [2, 3, '2 of 3 free']]],
+  ]) {
+    for (const [free, counted, expected] of cases) assert.equal(texts.team.freeOf(free, counted), expected);
+  }
 });
 
 test('sanitizeHours keeps only whole hours 0-23, once, in numeric order', () => {
