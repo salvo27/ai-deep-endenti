@@ -3,7 +3,7 @@
 -- con dati di ogni tipo, si applica lo schema di adesso e tutto finisce nel progetto ai-deep-endenti, senza revisioni né
 -- menzioni nuove e senza email; rieseguire lo schema non cambia più nulla.
 begin;
-select plan(45);
+select plan(46);
 
 create schema t05;
 
@@ -229,9 +229,10 @@ select set_eq(
   $$ select user_id, display_name, color from t05.members_before $$,
   'every member gets a profile with their name and colour, and nobody else does'
 );
-select is_empty(
-  $$ select user_id from public.profiles where language is not null $$,
-  'the upgrade chooses no language: everyone follows their device'
+select set_eq(
+  $$ select user_id, language from public.profiles $$,
+  $$ select user_id, 'it'::text from t05.members_before $$,
+  'every member of before gets Italian, the only language of the site they used'
 );
 select set_eq(
   $$ select user_id, role, created_at from public.members $$,
@@ -305,11 +306,16 @@ select is((select project_id from public.items where title = 'Nuova idea'), t05.
 -- La vita continua, poi lo schema si riesegue
 -- =========================================================================
 
--- Il progetto cambia nome, Bruno cambia nome e lingua, l'amministrazione passa a lui, nasce un secondo progetto.
+-- Il progetto cambia nome, Bruno cambia nome e lingua, l'amministrazione passa a lui, Elena torna, nasce un secondo progetto.
 select tests.login('a');
 select public.rename_project(t05.p(), 'Nutrizione');
 select tests.logout();
 update public.profiles set display_name = 'Bruna Verdi', language = 'en' where user_id = tests.uid('b');
+select public.add_member(t05.p(), 'e@test.example', 'Elena Gialli', 'member');
+select is(
+  (select language from public.profiles where user_id = tests.uid('e')), null,
+  'a profile born after the upgrade chooses no language: it follows the device'
+);
 insert into public.platform_admins (user_id) values (tests.uid('b'));
 delete from public.platform_admins where user_id = tests.uid('a');
 insert into public.projects (id, name) values ('bbbbbbbb-0000-4000-8000-000000000002', 'Beta');

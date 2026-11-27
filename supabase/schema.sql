@@ -46,8 +46,8 @@ alter table public.profiles enable row level security;
 
 -- Un database di prima dei progetti si riconosce da members con nome e colore. Alla prima esecuzione tutto finisce nel
 -- progetto ai-deep-endenti con i trigger degli utenti spenti: niente revisioni, menzioni o email nuove, versioni e date
--- come prima. Nomi e colori passano nei profili, gli admin di allora diventano amministratori della piattaforma (solo se
--- non ce n'è ancora nessuno). Dopo, members non ha più display_name e questo blocco non fa più nulla.
+-- come prima. Nomi e colori passano nei profili, con l'italiano come lingua; gli admin di allora diventano amministratori
+-- della piattaforma (solo se non ce n'è ancora nessuno). Dopo, members non ha più display_name e questo blocco non fa più nulla.
 do $$
 declare
   v_project uuid;
@@ -85,8 +85,9 @@ begin
     end if;
   end loop;
 
-  insert into public.profiles (user_id, display_name, color, created_at)
-  select m.user_id, m.display_name, m.color, m.created_at from public.members m
+  -- Il sito di allora era solo in italiano: chi c'era tiene l'italiano. I profili nuovi restano senza lingua (= il dispositivo).
+  insert into public.profiles (user_id, display_name, color, language, created_at)
+  select m.user_id, m.display_name, m.color, 'it', m.created_at from public.members m
   on conflict (user_id) do nothing;
 
   if not exists (select 1 from public.platform_admins) then

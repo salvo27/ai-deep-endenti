@@ -86,7 +86,7 @@ Le regole di accesso sulle tabelle rifiutano con il `42501` di Postgres.
 Lo schema resta uno script che si può rieseguire senza perdere dati. Alla prima esecuzione su un database a squadra unica:
 
 1. crea il progetto `ai-deep-endenti` e ci mette tutte le righe esistenti, senza creare revisioni né menzioni nuove e senza far partire email;
-2. copia nome e colore di ogni membro nel suo profilo;
+2. copia nome e colore di ogni membro nel suo profilo, con l'italiano come lingua (il sito di allora era solo in italiano); i profili creati dopo restano senza lingua;
 3. rende amministratori della piattaforma gli admin di allora (solo se non ce n'è ancora nessuno);
 4. le esecuzioni successive non cambiano nulla.
 
