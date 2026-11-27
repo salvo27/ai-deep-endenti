@@ -1,5 +1,7 @@
 -- Test del database: permessi, 2FA, storico, conflitti, registro di sicurezza, questionari e link pubblico.
--- Utenti di prova: a = admin, b = membro, c = advisor, d = estraneo (account senza ruolo nel team).
+-- Tutto succede in un progetto, la squadra di prova creata qui sotto (test.p()): i test sull'isolamento tra progetti
+-- stanno in supabase/tests/database.
+-- Utenti di prova: a = admin, b = membro, c = advisor, d = estraneo (account senza ruolo nel progetto).
 
 \set ON_ERROR_STOP 1
 \pset tuples_only on
@@ -43,6 +45,13 @@ begin
 end
 $$;
 
+-- Il progetto della squadra di prova, scelto una volta sola più sotto.
+create function test.p()
+returns uuid
+language sql
+stable
+as $$ select current_setting('test.project')::uuid $$;
+
 -- Per le ore lavorate «oggi» è quello di Roma, come nel database, qualunque fuso abbia la sessione.
 create function test.today()
 returns date
@@ -82,7 +91,7 @@ begin
    where kind = 'timesheet' and created_by = auth.uid() and data ->> 'week' = p_data ->> 'week';
   begin
     if v_item.id is null then
-      perform public.create_item('timesheet', 'Ore lavorate', null, p_data);
+      perform public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, p_data);
       v_msg := 'accettate';
     else
       v_res := public.save_item(v_item.id, v_item.version, 'Ore lavorate', null, p_data);
@@ -98,9 +107,12 @@ $$;
 
 grant execute on all functions in schema test to authenticated, anon;
 
-select public.add_member('admin@test.it', 'Admin', 'admin');
-select public.add_member('membro@test.it', 'Membro', 'member');
-select public.add_member('advisor@test.it', 'Advisor', 'advisor');
+-- Dal SQL Editor, come all'installazione: il progetto nasce con la sua chat Generale.
+with p as (insert into public.projects (name) values ('Squadra di prova') returning id)
+select set_config('test.project', (select id::text from p), false);
+select public.add_member(test.p(), 'admin@test.it', 'Admin', 'admin');
+select public.add_member(test.p(), 'membro@test.it', 'Membro', 'member');
+select public.add_member(test.p(), 'advisor@test.it', 'Advisor', 'advisor');
 
 \echo 'ok - tutte le tabelle pubbliche hanno la RLS attiva'
 do $$
@@ -137,7 +149,11 @@ do $$
 declare
   f text;
 begin
-  foreach f in array array['items_before_write', 'items_after_write', 'comments_before_write', 'members_before_update', 'members_audit'] loop
+  foreach f in array array[
+    'items_before_write', 'items_after_write', 'comments_before_write', 'members_before_update', 'members_audit',
+    'members_before_delete', 'profiles_before_update', 'projects_after_insert', 'chats_before_write', 'chat_messages_before_write',
+    'survey_rows_before_write'
+  ] loop
     assert not has_function_privilege('authenticated', format('public.%I()', f), 'execute'), f || ' eseguibile da authenticated';
     assert not has_function_privilege('anon', format('public.%I()', f), 'execute'), f || ' eseguibile da anon';
   end loop;
@@ -150,8 +166,11 @@ begin
   perform test.expect_error('select count(*) from public.items', 'permission denied');
   perform test.expect_error('select count(*) from public.members', 'permission denied');
   perform test.expect_error('select count(*) from public.revisions', 'permission denied');
-  perform test.expect_error($q$select public.create_item('idea', 'x', 'nuova', '{}')$q$, 'permission denied');
-  perform test.expect_error($q$select public.add_member('x@test.it', 'X')$q$, 'permission denied');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'x', 'nuova', '{}')$q$, 'permission denied');
+  perform test.expect_error($q$select public.add_member(test.p(), 'x@test.it', 'X')$q$, 'permission denied');
+  perform test.expect_error('select count(*) from public.projects', 'permission denied');
+  perform test.expect_error('select count(*) from public.profiles', 'permission denied');
+  perform test.expect_error('select count(*) from public.platform_admins', 'permission denied');
 end
 $$;
 
@@ -214,10 +233,11 @@ select test.login('a', 'aal1');
 do $$
 begin
   assert (select count(*) from public.members) = 0, 'members visibili senza 2FA';
-  assert (select count(*) from public.members_overview()) = 0, 'overview visibile senza 2FA';
-  perform test.expect_error($q$select public.create_item('idea', 'x', 'nuova', '{}')$q$, 'row-level security');
-  assert public.my_role() = 'admin', 'my_role deve rispondere anche senza 2FA';
-  assert not public.can_read(), 'can_read senza 2FA';
+  assert (select count(*) from public.members_overview(test.p())) = 0, 'overview visibile senza 2FA';
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'x', 'nuova', '{}')$q$, 'row-level security');
+  -- Prima my_role ignorava la 2FA; il contratto dei progetti (docs/PROGETTI.md) la chiede a tutto: senza, nessun ruolo.
+  assert public.my_role(test.p()) is null, 'my_role risponde senza 2FA';
+  assert not public.can_read(test.p()), 'can_read senza 2FA';
 end
 $$;
 
@@ -225,16 +245,17 @@ $$;
 select test.login('d');
 do $$
 begin
-  assert public.my_role() is null, 'un estraneo non ha ruolo';
+  assert public.my_role(test.p()) is null, 'un estraneo non ha ruolo';
   assert (select count(*) from public.members) = 0, 'estraneo vede i membri';
-  perform test.expect_error($q$select public.create_item('idea', 'x', 'nuova', '{}')$q$, 'row-level security');
-  perform test.expect_error($q$select public.add_member('membro@test.it', 'X', 'admin')$q$, 'Solo un admin');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'x', 'nuova', '{}')$q$, 'row-level security');
+  -- Le funzioni nuove rispondono con un codice (docs/PROGETTI.md, «Errori»), non con una frase.
+  perform test.expect_error($q$select public.add_member(test.p(), 'membro@test.it', 'X', 'admin')$q$, 'not_allowed');
 end
 $$;
 
 \echo 'ok - con 2FA un membro crea un idea e nasce la prima revisione'
 select test.login('a');
-select set_config('test.idea', (public.create_item('idea', 'Idea alfa', 'nuova', '{"pitch":"uno","problem":"p1"}', null, 'prima versione')).id::text, false);
+select set_config('test.idea', (public.create_item(test.p(), 'idea', 'Idea alfa', 'nuova', '{"pitch":"uno","problem":"p1"}', null, 'prima versione')).id::text, false);
 do $$
 declare
   r public.revisions;
@@ -252,8 +273,8 @@ do $$
 declare
   i public.items;
 begin
-  insert into public.items (kind, title, status, data, version, created_by, created_at)
-  values ('idea', 'Falsa', 'nuova', '{}', 77, test.uid('c'), '2000-01-01')
+  insert into public.items (project_id, kind, title, status, data, version, created_by, created_at)
+  values (test.p(), 'idea', 'Falsa', 'nuova', '{}', 77, test.uid('c'), '2000-01-01')
   returning * into i;
   assert i.version = 1 and i.created_by = test.uid('a') and i.created_at > '2020-01-01', 'campi protetti accettati';
 end
@@ -262,14 +283,14 @@ $$;
 \echo 'ok - stati, titoli e collegamenti non validi vengono rifiutati'
 do $$
 begin
-  perform test.expect_error($q$select public.create_item('idea', 'x', 'inventato', '{}')$q$, 'Stato non valido');
-  perform test.expect_error($q$select public.create_item('canvas', 'x', 'nuova', '{}', current_setting('test.idea')::uuid)$q$, 'Stato non valido');
-  perform test.expect_error($q$select public.create_item('idea', '   ', 'nuova', '{}')$q$, 'titolo');
-  perform test.expect_error($q$select public.create_item('experiment', 'Esp', 'pianificato', '{}')$q$, 'appartenere a un''idea');
-  perform test.expect_error($q$select public.create_item('decision', 'Dec', 'presa', '{}', current_setting('test.idea')::uuid)$q$, 'non può appartenere');
-  perform test.expect_error($q$select public.create_item('idea', 'x', 'nuova', '[1,2]')$q$, 'check constraint');
-  perform test.expect_error($q$select public.create_item('idea', repeat('x', 201), 'nuova', '{}')$q$, 'check constraint');
-  perform test.expect_error($q$select public.create_item('boh', 'x', null, '{}')$q$, 'non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'x', 'inventato', '{}')$q$, 'Stato non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'canvas', 'x', 'nuova', '{}', current_setting('test.idea')::uuid)$q$, 'Stato non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', '   ', 'nuova', '{}')$q$, 'titolo');
+  perform test.expect_error($q$select public.create_item(test.p(), 'experiment', 'Esp', 'pianificato', '{}')$q$, 'appartenere a un''idea');
+  perform test.expect_error($q$select public.create_item(test.p(), 'decision', 'Dec', 'presa', '{}', current_setting('test.idea')::uuid)$q$, 'non può appartenere');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'x', 'nuova', '[1,2]')$q$, 'check constraint');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', repeat('x', 201), 'nuova', '{}')$q$, 'check constraint');
+  perform test.expect_error($q$select public.create_item(test.p(), 'boh', 'x', null, '{}')$q$, 'non valido');
 end
 $$;
 
@@ -278,8 +299,8 @@ do $$
 declare
   v_canvas uuid;
 begin
-  v_canvas := (public.create_item('canvas', 'Canvas', null, '{}', current_setting('test.idea')::uuid)).id;
-  perform test.expect_error(format($q$select public.create_item('canvas', 'C2', null, '{}', %L)$q$, v_canvas), 'idea esistente');
+  v_canvas := (public.create_item(test.p(), 'canvas', 'Canvas', null, '{}', current_setting('test.idea')::uuid)).id;
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'canvas', 'C2', null, '{}', %L)$q$, v_canvas), 'idea esistente');
 end
 $$;
 
@@ -289,16 +310,16 @@ declare
   v_equity uuid;
   res jsonb;
 begin
-  perform public.create_item('persona', 'Persona', null, '{}', current_setting('test.idea')::uuid);
-  perform public.create_item('contact', 'Chi sentire', 'da_contattare', '{}', current_setting('test.idea')::uuid);
-  perform public.create_item('competitors', 'Concorrenti', null, '{"rivals":[{"id":"c-a","name":"A","type":"diretto"}]}', current_setting('test.idea')::uuid);
-  perform test.expect_error($q$select public.create_item('contact', 'x', 'sentita', '{}', current_setting('test.idea')::uuid)$q$, 'Stato non valido');
-  perform test.expect_error($q$select public.create_item('market', 'Mercato', null, '{}')$q$, 'appartenere a un''idea');
-  perform test.expect_error($q$select public.create_item('vpc', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
-  perform public.create_item('teamcanvas', 'Team Canvas', null, '{}');
-  perform test.expect_error($q$select public.create_item('teamcanvas', 'Secondo', null, '{}')$q$, 'items_singleton_idx');
-  perform test.expect_error($q$select public.create_item('equity', 'Quote', null, '{}', current_setting('test.idea')::uuid)$q$, 'non può appartenere');
-  v_equity := (public.create_item('equity', 'Quote', null, '{}')).id;
+  perform public.create_item(test.p(), 'persona', 'Persona', null, '{}', current_setting('test.idea')::uuid);
+  perform public.create_item(test.p(), 'contact', 'Chi sentire', 'da_contattare', '{}', current_setting('test.idea')::uuid);
+  perform public.create_item(test.p(), 'competitors', 'Concorrenti', null, '{"rivals":[{"id":"c-a","name":"A","type":"diretto"}]}', current_setting('test.idea')::uuid);
+  perform test.expect_error($q$select public.create_item(test.p(), 'contact', 'x', 'sentita', '{}', current_setting('test.idea')::uuid)$q$, 'Stato non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'market', 'Mercato', null, '{}')$q$, 'appartenere a un''idea');
+  perform test.expect_error($q$select public.create_item(test.p(), 'vpc', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
+  perform public.create_item(test.p(), 'teamcanvas', 'Team Canvas', null, '{}');
+  perform test.expect_error($q$select public.create_item(test.p(), 'teamcanvas', 'Secondo', null, '{}')$q$, 'items_singleton_idx');
+  perform test.expect_error($q$select public.create_item(test.p(), 'equity', 'Quote', null, '{}', current_setting('test.idea')::uuid)$q$, 'non può appartenere');
+  v_equity := (public.create_item(test.p(), 'equity', 'Quote', null, '{}')).id;
   res := public.delete_item(v_equity, 1, null);
   assert res ->> 'status' <> 'ok', 'le quote non si archiviano';
 end
@@ -388,56 +409,56 @@ select test.login('a');
 \echo 'ok - questionari: stati, titolo, idea, link, impostazioni, aspetto ed esperimento controllati dal database'
 do $$
 declare
-  v_idea uuid := (public.create_item('idea', 'Idea dei questionari', 'esplorazione', '{}')).id;
-  v_exp uuid := (public.create_item('experiment', 'Sondaggio online', 'pianificato', '{}', v_idea)).id;
-  v_other_exp uuid := (public.create_item('experiment', 'Esperimento di un''altra idea', 'pianificato', '{}', current_setting('test.idea')::uuid)).id;
+  v_idea uuid := (public.create_item(test.p(), 'idea', 'Idea dei questionari', 'esplorazione', '{}')).id;
+  v_exp uuid := (public.create_item(test.p(), 'experiment', 'Sondaggio online', 'pianificato', '{}', v_idea)).id;
+  v_other_exp uuid := (public.create_item(test.p(), 'experiment', 'Esperimento di un''altra idea', 'pianificato', '{}', current_setting('test.idea')::uuid)).id;
   v_many jsonb := jsonb_build_object('questions', (select jsonb_agg(jsonb_build_object('id', 'q' || g, 'type', 'breve', 'label', 'D')) from generate_series(1, 41) g));
   s public.items;
 begin
   perform set_config('test.sidea', v_idea::text, false);
   perform set_config('test.sexp', v_exp::text, false);
-  perform test.expect_error($q$select public.create_item('survey', 'Q', 'bozza', '{}')$q$, 'appartenere a un''idea');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'nuova', '{}', %L)$q$, v_idea), 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', null, '{}', %L)$q$, v_idea), 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('survey', '  ', 'bozza', '{}', %L)$q$, v_idea), 'titolo');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":"corto"}', %L)$q$, v_idea), 'link pubblico');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":"Token con spazi e punti."}', %L)$q$, v_idea), 'link pubblico');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"token":1234567890123456789012}', %L)$q$, v_idea), 'link pubblico');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"layout":"tutte"}', %L)$q$, v_idea), 'Impostazioni');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"progress":"percentuale"}', %L)$q$, v_idea), 'Impostazioni');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"show_time":"si"}', %L)$q$, v_idea), 'Impostazioni');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"questions":{}}', %L)$q$, v_idea), 'Impostazioni');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', %L, %L)$q$, v_many, v_idea), 'Impostazioni');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"theme":"rosa"}}', %L)$q$, v_idea), 'Aspetto');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"red"}}', %L)$q$, v_idea), 'Aspetto');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"#AA3300"}}', %L)$q$, v_idea), 'Aspetto');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"accent":"#aa3300; background: url(x)"}}', %L)$q$, v_idea), 'Aspetto');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":{"font":"Comic Sans"}}', %L)$q$, v_idea), 'Aspetto');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"appearance":"scuro"}', %L)$q$, v_idea), 'Aspetto');
-  perform public.create_item('survey', 'Seppia', 'bozza', '{"appearance":{"theme":"seppia"}}', v_idea::uuid, null);
-  perform public.create_item('survey', 'Contrasto', 'bozza', '{"appearance":{"theme":"contrasto"}}', v_idea::uuid, null);
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":"x.jpg"}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"thanks_image":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"thanks_image":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","css":"x"}}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"%1$s"}}', %2$L)$q$, replace('aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', '.jpg', '.png'), v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","url":"https://altro.example"}}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","alt":12}}', %L)$q$, v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', %L, %L)$q$, jsonb_build_object('cover', jsonb_build_object('path', 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', 'alt', repeat('x', 201))), v_idea), 'Immagine');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":"x"}', %L)$q$, v_idea), 'esperimento collegato non è valido');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_other_exp::text), v_idea), 'stessa idea');
-  perform test.expect_error(format($q$select public.create_item('survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_idea::text), v_idea), 'stessa idea');
+  perform test.expect_error($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{}')$q$, 'appartenere a un''idea');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'nuova', '{}', %L)$q$, v_idea), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', null, '{}', %L)$q$, v_idea), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', '  ', 'bozza', '{}', %L)$q$, v_idea), 'titolo');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"token":"corto"}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"token":"Token con spazi e punti."}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"token":1234567890123456789012}', %L)$q$, v_idea), 'link pubblico');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"layout":"tutte"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"progress":"percentuale"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"show_time":"si"}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"questions":{}}', %L)$q$, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', %L, %L)$q$, v_many, v_idea), 'Impostazioni');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":{"theme":"rosa"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":{"accent":"red"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":{"accent":"#AA3300"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":{"accent":"#aa3300; background: url(x)"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":{"font":"Comic Sans"}}', %L)$q$, v_idea), 'Aspetto');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"appearance":"scuro"}', %L)$q$, v_idea), 'Aspetto');
+  perform public.create_item(test.p(), 'survey', 'Seppia', 'bozza', '{"appearance":{"theme":"seppia"}}', v_idea::uuid, null);
+  perform public.create_item(test.p(), 'survey', 'Contrasto', 'bozza', '{"appearance":{"theme":"contrasto"}}', v_idea::uuid, null);
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"cover":"x.jpg"}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"thanks_image":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"thanks_image":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","css":"x"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"cover":{"path":"https://altro.example/x.jpg"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"cover":{"path":"%1$s"}}', %2$L)$q$, replace('aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', '.jpg', '.png'), v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","url":"https://altro.example"}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"cover":{"path":"aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg","alt":12}}', %L)$q$, v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', %L, %L)$q$, jsonb_build_object('cover', jsonb_build_object('path', 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg', 'alt', repeat('x', 201))), v_idea), 'Immagine');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"experiment_id":"x"}', %L)$q$, v_idea), 'esperimento collegato non è valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_other_exp::text), v_idea), 'stessa idea');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Q', 'bozza', '{"experiment_id":%s}', %L)$q$, to_jsonb(v_idea::text), v_idea), 'stessa idea');
 
-  s := public.create_item('survey', 'Turni in reparto', 'bozza', test.survey_data('TokenDiProvaAperto0001', v_exp), v_idea, 'nuovo questionario');
+  s := public.create_item(test.p(), 'survey', 'Turni in reparto', 'bozza', test.survey_data('TokenDiProvaAperto0001', v_exp), v_idea, 'nuovo questionario');
   assert s.version = 1 and s.status = 'bozza' and s.idea_id = v_idea, 'questionario non creato';
   perform set_config('test.survey', s.id::text, false);
-  perform test.expect_error(format($q$select public.create_item('survey', 'Copia', 'bozza', '{"token":"TokenDiProvaAperto0001"}', %L)$q$, v_idea), 'items_survey_token_idx');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'survey', 'Copia', 'bozza', '{"token":"TokenDiProvaAperto0001"}', %L)$q$, v_idea), 'items_survey_token_idx');
   perform test.expect_error(
     format($q$select public.save_item(%L, 1, 'Turni in reparto', 'bozza', test.survey_data('TokenDiProvaAperto0001', %L), %L)$q$, s.id, v_exp, current_setting('test.idea')),
     'stessa idea'
   );
-  perform set_config('test.survey2', (public.create_item('survey', 'Seconda', 'aperto', '{"token":"TokenDiProvaSecondo_02","questions":[{"id":"nota","type":"breve","label":"Qualcosa da aggiungere?"}]}', v_idea)).id::text, false);
-  perform set_config('test.survey3', (public.create_item('survey', 'Chiuso', 'chiuso', '{"token":"TokenDiProvaTerzo-0003","questions":[{"id":"nota","type":"breve","label":"Nota"}]}', v_idea)).id::text, false);
+  perform set_config('test.survey2', (public.create_item(test.p(), 'survey', 'Seconda', 'aperto', '{"token":"TokenDiProvaSecondo_02","questions":[{"id":"nota","type":"breve","label":"Qualcosa da aggiungere?"}]}', v_idea)).id::text, false);
+  perform set_config('test.survey3', (public.create_item(test.p(), 'survey', 'Chiuso', 'chiuso', '{"token":"TokenDiProvaTerzo-0003","questions":[{"id":"nota","type":"breve","label":"Nota"}]}', v_idea)).id::text, false);
 end
 $$;
 
@@ -1335,7 +1356,8 @@ begin
   assert (select count(*) from public.survey_responses where survey_id = v_survey) = n, 'l''advisor non legge le risposte';
   assert (select count(*) from public.survey_responses where survey_id = v_survey and not completed) = 1, 'l''advisor non vede le compilazioni interrotte';
   assert public.survey_funnel(v_survey) = jsonb_build_object('views', 2, 'starts', 1, 'partial', 1, 'completed', n - 1), 'imbuto: ' || public.survey_funnel(v_survey)::text;
-  perform test.expect_error(format('select public.delete_survey_responses(%L)', v_survey), 'Solo admin e membri');
+  -- Il rifiuto ora è un codice (docs/PROGETTI.md, «Errori»): solo admin e membri del progetto cancellano.
+  perform test.expect_error(format('select public.delete_survey_responses(%L)', v_survey), 'not_allowed');
   perform test.expect_error(format($q$insert into public.survey_responses (survey_id, answers) values (%L, '{}')$q$, v_survey), 'permission denied');
   perform test.expect_error($q$update public.survey_responses set answers = '{}'$q$, 'permission denied');
   perform test.expect_error('delete from public.survey_responses', 'permission denied');
@@ -1365,7 +1387,7 @@ do $$
 begin
   assert (select count(*) from public.survey_responses) = 0, 'un estraneo legge le risposte';
   assert public.survey_funnel(current_setting('test.survey')::uuid) is null, 'un estraneo vede l''imbuto';
-  perform test.expect_error(format('select public.delete_survey_responses(%L)', current_setting('test.survey')), 'Solo admin e membri');
+  perform test.expect_error(format('select public.delete_survey_responses(%L)', current_setting('test.survey')), 'not_allowed');
 end
 $$;
 select test.login('a', 'aal1');
@@ -1560,7 +1582,7 @@ $$;
 select test.login('c');
 do $$
 begin
-  perform test.expect_error($q$select public.create_item('idea', 'Idea advisor', 'nuova', '{}')$q$, 'row-level security');
+  perform test.expect_error($q$select public.create_item(test.p(), 'idea', 'Idea advisor', 'nuova', '{}')$q$, 'row-level security');
   assert public.save_item(current_setting('test.idea')::uuid, 2, 'Hack', 'nuova', '{}') ->> 'status' = 'forbidden', 'advisor ha modificato';
   assert public.delete_item(current_setting('test.idea')::uuid, 2) ->> 'status' = 'forbidden', 'advisor ha archiviato';
 end
@@ -1572,7 +1594,7 @@ declare
   v_score uuid;
   c public.comments;
 begin
-  v_score := (public.create_item('score', 'Voti di Advisor', null, '{"scores":{}}')).id;
+  v_score := (public.create_item(test.p(), 'score', 'Voti di Advisor', null, '{"scores":{}}')).id;
   assert public.save_item(v_score, 1, 'Voti di Advisor', null, '{"scores":{"x":{"a":4}}}') ->> 'status' = 'ok', 'advisor non riesce a votare';
   insert into public.comments (item_id, body, author_id) values (current_setting('test.idea')::uuid, 'Ottimo', test.uid('a')) returning * into c;
   assert c.author_id = test.uid('c'), 'autore del commento falsificabile';
@@ -1589,8 +1611,8 @@ declare
   n int;
 begin
   assert public.save_item(v_other, 2, 'Hack', null, '{}') ->> 'status' = 'forbidden', 'voti altrui modificati';
-  perform public.create_item('score', 'Voti di Membro', null, '{"scores":{}}');
-  perform test.expect_error($q$select public.create_item('score', 'Secondo', null, '{}')$q$, 'items_one_score_per_member_idx');
+  perform public.create_item(test.p(), 'score', 'Voti di Membro', null, '{"scores":{}}');
+  perform test.expect_error($q$select public.create_item(test.p(), 'score', 'Secondo', null, '{}')$q$, 'items_one_score_per_member_idx');
   with x as (update public.comments set body = 'hack' where author_id = test.uid('c') returning 1) select count(*) into n from x;
   assert n = 0, 'commento altrui modificato';
 end
@@ -1614,11 +1636,11 @@ declare
   i public.items;
   res jsonb;
 begin
-  i := public.create_item('availability', 'Impegni di Membro', null, '{"busy":{}}', null, 'Primi impegni');
+  i := public.create_item(test.p(), 'availability', 'Impegni di Membro', null, '{"busy":{}}', null, 'Primi impegni');
   assert i.version = 1 and i.created_by = test.uid('b') and i.status is null and i.idea_id is null and i.data = '{"busy":{}}'::jsonb,
     'impegni non creati: ' || row_to_json(i)::text;
   assert i.title = 'Impegni', 'titolo non forzato alla creazione: ' || i.title;
-  perform test.expect_error($q$select public.create_item('availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
+  perform test.expect_error($q$select public.create_item(test.p(), 'availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
   res := public.save_item(i.id, 1, 'Impegni di Membro', null, jsonb_build_object(
     'busy', '{"lun":[9,10],"dom":[0,23]}'::jsonb,
     'until', (v_monday + 60)::text,
@@ -1648,12 +1670,12 @@ declare
   i public.items;
   n int;
 begin
-  insert into public.items (kind, title, data, created_by)
-  values ('availability', 'Impegni di Advisor', jsonb_build_object('busy', '{"ven":[18,19]}'::jsonb, 'weeks', jsonb_build_array(jsonb_build_object('key', v_monday::text, 'busy', '{}'::jsonb))), test.uid('b'))
+  insert into public.items (project_id, kind, title, data, created_by)
+  values (test.p(), 'availability', 'Impegni di Advisor', jsonb_build_object('busy', '{"ven":[18,19]}'::jsonb, 'weeks', jsonb_build_array(jsonb_build_object('key', v_monday::text, 'busy', '{}'::jsonb))), test.uid('b'))
   returning * into i;
   assert i.created_by = test.uid('c'), 'impegni creati a nome di un altro';
   assert i.title = 'Impegni', 'titolo non forzato con un insert diretto: ' || i.title;
-  perform test.expect_error($q$select public.create_item('availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
+  perform test.expect_error($q$select public.create_item(test.p(), 'availability', 'Secondo', null, '{"busy":{}}')$q$, 'items_one_availability_per_member_idx');
   assert public.save_item(i.id, 1, 'Impegni di Advisor', null, '{"busy":{"ven":[18]}}') ->> 'status' = 'ok', 'l''advisor non modifica i propri impegni';
   update public.items set title = 'Impegni di Advisor' where id = i.id;
   assert (select title = 'Impegni' and version = 2 from public.items where id = i.id), 'titolo cambiato con un update diretto';
@@ -1708,8 +1730,8 @@ declare
   i public.items;
 begin
   assert current_user = 'authenticated', 'il test non gira come authenticated';
-  perform test.expect_error($q$select public.create_item('availability', 'X', 'nuova', '{"busy":{}}')$q$, 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('availability', 'X', null, '{"busy":{}}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  perform test.expect_error($q$select public.create_item(test.p(), 'availability', 'X', 'nuova', '{"busy":{}}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'availability', 'X', null, '{"busy":{}}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
   v_bads := array[
     '[1,2]', '[]', '"busy"', '9', 'true', 'null',
     '{}', '{"busy":[]}', '{"busy":null}', '{"busy":"lun 9"}',
@@ -1742,7 +1764,7 @@ begin
       '{"busy":{},"weeks":[{"key":"2026-02-31","busy":{}}]}', '{"busy":{},"until":"2026-02-31"}', '{"busy":{},"until":"2027-02-29"}'
     ]::jsonb[] loop
       begin
-        perform public.create_item('availability', 'X', null, v_bad);
+        perform public.create_item(test.p(), 'availability', 'X', null, v_bad);
         raise exception 'impegni accettati: %', v_bad;
       exception when others then
         assert sqlerrm = 'Impegni non validi' and sqlstate = 'P0001',
@@ -1752,7 +1774,7 @@ begin
   end loop;
   perform set_config('plan_cache_mode', 'auto', true);
 
-  i := public.create_item('availability', null, null, jsonb_build_object(
+  i := public.create_item(test.p(), 'availability', null, null, jsonb_build_object(
     'busy', (select jsonb_object_agg(d, v_all) from unnest(array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom']) d),
     'until', v_monday::text,
     'weeks', (select jsonb_agg(jsonb_build_object('key', (v_monday + 7 * g)::text, 'busy', jsonb_build_object('dom', v_all))) from generate_series(0, 25) g)
@@ -1795,7 +1817,7 @@ begin
     'Gli impegni non si possono mettere nel cestino'
   );
   perform test.expect_error(
-    $q$insert into public.items (kind, title, data, deleted_at) values ('availability', 'Impegni', '{"busy":{}}', now())$q$,
+    $q$insert into public.items (project_id, kind, title, data, deleted_at) values (test.p(), 'availability', 'Impegni', '{"busy":{}}', now())$q$,
     'Gli impegni non si possono mettere nel cestino'
   );
   assert (select deleted_at is null and version = 2 from public.items where id = current_setting('test.avail_a')::uuid), 'impegni archiviati senza RPC';
@@ -1831,14 +1853,14 @@ select test.login('d');
 do $$
 begin
   assert (select count(*) from public.items where kind = 'availability') = 0, 'un estraneo vede gli impegni';
-  perform test.expect_error($q$select public.create_item('availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
+  perform test.expect_error($q$select public.create_item(test.p(), 'availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
 end
 $$;
 select test.login('c', 'aal1');
 do $$
 begin
   assert (select count(*) from public.items where kind = 'availability') = 0, 'impegni visibili senza 2FA';
-  perform test.expect_error($q$select public.create_item('availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
+  perform test.expect_error($q$select public.create_item(test.p(), 'availability', 'X', null, '{"busy":{}}')$q$, 'row-level security');
   assert public.save_item(current_setting('test.avail_c')::uuid, 2, 'Impegni di Advisor', null, '{"busy":{}}') ->> 'status' = 'not_found', 'impegni modificati senza 2FA';
 end
 $$;
@@ -1853,25 +1875,25 @@ declare
   i public.items;
   j public.items;
 begin
-  assert current_user = 'authenticated' and public.my_role() = 'member', 'il test non gira come membro';
-  i := public.create_item('timesheet', 'Ore di Membro', null, v_data, null, 'Prima settimana');
+  assert current_user = 'authenticated' and public.my_role(test.p()) = 'member', 'il test non gira come membro';
+  i := public.create_item(test.p(), 'timesheet', 'Ore di Membro', null, v_data, null, 'Prima settimana');
   assert i.version = 1 and i.created_by = test.uid('b') and i.status is null and i.idea_id is null and i.deleted_at is null and i.data = v_data,
     'ore non create: ' || row_to_json(i)::text;
   assert i.title = 'Ore lavorate', 'titolo non forzato alla creazione: ' || i.title;
-  insert into public.items (kind, title, data, created_by)
-  values ('timesheet', 'Ore di Admin', jsonb_build_object('week', (v_monday - 7)::text, 'entries', '[{"id":"r1","day":"lun","start":540,"end":600,"area":"prodotto"}]'::jsonb), test.uid('a'))
+  insert into public.items (project_id, kind, title, data, created_by)
+  values (test.p(), 'timesheet', 'Ore di Admin', jsonb_build_object('week', (v_monday - 7)::text, 'entries', '[{"id":"r1","day":"lun","start":540,"end":600,"area":"prodotto"}]'::jsonb), test.uid('a'))
   returning * into j;
   assert j.created_by = test.uid('b') and j.title = 'Ore lavorate', 'ore create a nome di un altro o con un altro titolo: ' || row_to_json(j)::text;
-  perform test.expect_error(format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, v_data - 'pledge'), 'items_one_timesheet_per_week_idx');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, %L)$q$, v_data - 'pledge'), 'items_one_timesheet_per_week_idx');
   perform test.expect_error(
-    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 7)::text, 'pledge', 0, 'entries', '[]'::jsonb)),
+    format($q$select public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 7)::text, 'pledge', 0, 'entries', '[]'::jsonb)),
     'items_one_timesheet_per_week_idx'
   );
   assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'settimane del membro sbagliate';
   assert (select r.op = 'create' and r.title = 'Ore lavorate' and r.message = 'Prima settimana' and r.author_id = test.uid('b')
           from public.revisions r where r.item_id = i.id and r.version = 1), 'prima revisione delle ore sbagliata';
-  perform test.expect_error(format($q$select public.create_item('timesheet', 'X', 'nuova', %L)$q$, v_data), 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('timesheet', 'X', null, %L, %L)$q$, v_data, current_setting('test.idea')), 'non può appartenere');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'timesheet', 'X', 'nuova', %L)$q$, v_data), 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'timesheet', 'X', null, %L, %L)$q$, v_data, current_setting('test.idea')), 'non può appartenere');
   perform set_config('test.ts_b', i.id::text, false);
 end
 $$;
@@ -1917,7 +1939,7 @@ declare
   i public.items;
   n int;
 begin
-  i := public.create_item('timesheet', null, null, jsonb_build_object('week', v_monday::text, 'entries', '[]'::jsonb));
+  i := public.create_item(test.p(), 'timesheet', null, null, jsonb_build_object('week', v_monday::text, 'entries', '[]'::jsonb));
   assert i.created_by = test.uid('a') and i.title = 'Ore lavorate' and i.data = jsonb_build_object('week', v_monday::text, 'entries', '[]'::jsonb),
     'l''admin non crea la stessa settimana del membro: ' || row_to_json(i)::text;
   assert (select count(*) from public.items where kind = 'timesheet') = 3, 'il team non vede le ore di tutti';
@@ -1957,9 +1979,9 @@ declare
   n int;
 begin
   assert (select count(*) from public.items where kind = 'timesheet') = 3, 'l''advisor non legge le ore del team';
-  perform test.expect_error(format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, v_week), 'row-level security');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, %L)$q$, v_week), 'row-level security');
   perform test.expect_error(
-    format($q$insert into public.items (kind, title, data) values ('timesheet', 'Ore lavorate', %L)$q$, v_week || jsonb_build_object('week', (v_monday - 7)::text)),
+    format($q$insert into public.items (project_id, kind, title, data) values (test.p(), 'timesheet', 'Ore lavorate', %L)$q$, v_week || jsonb_build_object('week', (v_monday - 7)::text)),
     'row-level security'
   );
   assert public.save_item(v_id, 2, 'Ore lavorate', null, (select data from public.items where id = v_id) - 'pledge') ->> 'status' = 'forbidden',
@@ -1982,13 +2004,13 @@ declare
   v_data jsonb := (select data from public.items where id = current_setting('test.ts_b')::uuid);
   n int;
 begin
-  assert public.my_role() = 'advisor', 'il ruolo non è cambiato';
+  assert public.my_role(test.p()) = 'advisor', 'il ruolo non è cambiato';
   assert (select count(*) from public.items where kind = 'timesheet' and created_by = test.uid('b')) = 2, 'da advisor non legge più le sue ore';
   assert public.save_item(v_id, 2, 'Ore lavorate', null, v_data || '{"pledge":0}') ->> 'status' = 'forbidden', 'un advisor modifica le sue ore';
   with x as (update public.items set data = data || '{"pledge":0}' where id = v_id returning 1) select count(*) into n from x;
   assert n = 0, 'un advisor modifica le sue ore senza RPC';
   perform test.expect_error(
-    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 14)::text, 'entries', '[]'::jsonb)),
+    format($q$select public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', (v_monday - 14)::text, 'entries', '[]'::jsonb)),
     'row-level security'
   );
   assert (select version = 2 and data = v_data from public.items where id = v_id), 'ore cambiate da advisor';
@@ -2002,7 +2024,7 @@ declare
   v_id uuid := current_setting('test.ts_b')::uuid;
   res jsonb;
 begin
-  assert public.my_role() = 'member', 'il ruolo non è tornato membro';
+  assert public.my_role(test.p()) = 'member', 'il ruolo non è tornato membro';
   res := public.save_item(v_id, 2, 'Ore lavorate', null, (select data from public.items where id = v_id) || '{"pledge":0}');
   assert res ->> 'status' = 'ok' and (res -> 'item' ->> 'version')::int = 3 and res -> 'item' -> 'data' -> 'pledge' = '0'::jsonb,
     'tornato membro non modifica le sue ore: ' || res::text;
@@ -2018,7 +2040,7 @@ begin
   assert public.delete_item(v_id, 3) ->> 'status' = 'forbidden', 'ore archiviate dal proprietario';
   perform test.expect_error(format($q$update public.items set deleted_at = now() where id = %L$q$, v_id), 'Le ore lavorate non si possono mettere nel cestino');
   perform test.expect_error(
-    format($q$insert into public.items (kind, title, data, deleted_at) values ('timesheet', 'Ore lavorate', %L, now())$q$,
+    format($q$insert into public.items (project_id, kind, title, data, deleted_at) values (test.p(), 'timesheet', 'Ore lavorate', %L, now())$q$,
       jsonb_build_object('week', (v_monday - 21)::text, 'entries', '[]'::jsonb)),
     'Le ore lavorate non si possono mettere nel cestino'
   );
@@ -2098,7 +2120,7 @@ begin
         else 'Ore lavorate non valide'
       end;
       begin
-        perform public.create_item('timesheet', 'Ore lavorate', null, v_bad);
+        perform public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, v_bad);
         raise exception 'ore accettate: %', v_bad;
       exception when others then
         assert sqlerrm = v_expected and sqlstate = 'P0001',
@@ -2198,14 +2220,14 @@ begin
   set local time zone 'Pacific/Kiritimati';
   if v_dow < 7 then
     begin
-      perform public.create_item('timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow + 1]]));
+      perform public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow + 1]]));
       raise exception 'ore di domani accettate alla creazione';
     exception when others then
       assert sqlerrm = v_day_msg and sqlstate = 'P0001', 'creazione con ore di domani: ' || sqlstate || ' ' || sqlerrm;
     end;
   end if;
   begin
-    perform public.create_item('timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow]]));
+    perform public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, test.timesheet_days(v_monday, array[v_days[v_dow]]));
     raise exception 'seconda scheda della settimana accettata';
   exception when others then
     assert sqlerrm like '%items_one_timesheet_per_week_idx%', 'creazione con ore di oggi: ' || sqlerrm;
@@ -2225,7 +2247,7 @@ declare
   i public.items;
   res jsonb;
 begin
-  i := public.create_item('timesheet', null, null, jsonb_build_object('week', v_week, 'pledge', 4800, 'entries', v_many));
+  i := public.create_item(test.p(), 'timesheet', null, null, jsonb_build_object('week', v_week, 'pledge', 4800, 'entries', v_many));
   assert i.version = 1 and jsonb_array_length(i.data -> 'entries') = 100 and i.data -> 'pledge' = '4800'::jsonb, '100 righe o 80 ore dichiarate rifiutate';
   v_edge := jsonb_build_object('week', v_week, 'pledge', 0, 'entries', jsonb_build_array(
     jsonb_build_object('id', 'tutto', 'day', 'lun', 'start', 0, 'end', 1440, 'area', 'ricerca', 'note', repeat('x', 140)),
@@ -2285,7 +2307,7 @@ do $$
 begin
   assert (select count(*) from public.items where kind = 'timesheet') = 0, 'un estraneo vede le ore';
   perform test.expect_error(
-    format($q$select public.create_item('timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', test.this_monday()::text, 'entries', '[]'::jsonb)),
+    format($q$select public.create_item(test.p(), 'timesheet', 'Ore lavorate', null, %L)$q$, jsonb_build_object('week', test.this_monday()::text, 'entries', '[]'::jsonb)),
     'row-level security'
   );
 end
@@ -2304,8 +2326,8 @@ do $$
 declare
   v_criteria uuid;
 begin
-  v_criteria := (public.create_item('criteria', 'Criteri', null, '{"criteria":[]}')).id;
-  perform test.expect_error($q$select public.create_item('criteria', 'Criteri 2', null, '{}')$q$, 'items_singleton_idx');
+  v_criteria := (public.create_item(test.p(), 'criteria', 'Criteri', null, '{"criteria":[]}')).id;
+  perform test.expect_error($q$select public.create_item(test.p(), 'criteria', 'Criteri 2', null, '{}')$q$, 'items_singleton_idx');
   assert public.delete_item(v_criteria, 1) ->> 'status' = 'forbidden', 'criteri archiviati';
 end
 $$;
@@ -2315,11 +2337,11 @@ do $$
 declare
   v_photo uuid;
 begin
-  v_photo := (public.create_item('scoresnap', 'Prima della riunione', null, '{"criteria":[],"ideas":[],"votes":{}}')).id;
-  perform public.create_item('scoresnap', 'Dopo la riunione', null, '{}');
-  perform test.expect_error($q$select public.create_item('scoresnap', '  ', null, '{}')$q$, 'titolo');
-  perform test.expect_error($q$select public.create_item('scoresnap', 'X', 'nuova', '{}')$q$, 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('scoresnap', 'X', null, '{}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  v_photo := (public.create_item(test.p(), 'scoresnap', 'Prima della riunione', null, '{"criteria":[],"ideas":[],"votes":{}}')).id;
+  perform public.create_item(test.p(), 'scoresnap', 'Dopo la riunione', null, '{}');
+  perform test.expect_error($q$select public.create_item(test.p(), 'scoresnap', '  ', null, '{}')$q$, 'titolo');
+  perform test.expect_error($q$select public.create_item(test.p(), 'scoresnap', 'X', 'nuova', '{}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'scoresnap', 'X', null, '{}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
   assert public.delete_item(v_photo, 1) ->> 'status' = 'ok', 'fotografia non archiviata';
 end
 $$;
@@ -2384,14 +2406,19 @@ do $$
 declare
   n int;
 begin
-  perform test.expect_error(format($q$update public.members set role = 'admin' where user_id = %L$q$, test.uid('b')), 'Solo un admin');
-  with x as (update public.members set display_name = 'Membro Due' where user_id = test.uid('b') returning 1) select count(*) into n from x;
+  -- Con i progetti i ruoli li cambia su members solo chi gestisce il progetto: le regole di accesso nascondono la riga
+  -- a un membro, quindi l'update non tocca nulla invece di dare errore.
+  with x as (update public.members set role = 'admin' where user_id = test.uid('b') returning 1) select count(*) into n from x;
+  assert n = 0, 'un membro si è promosso da solo';
+  assert (select role from public.members where user_id = test.uid('b')) = 'member', 'il ruolo del membro è cambiato';
+  -- Nome e colore stanno nel profilo, uguale in tutti i progetti.
+  with x as (update public.profiles set display_name = 'Membro Due' where user_id = test.uid('b') returning 1) select count(*) into n from x;
   assert n = 1, 'il membro non riesce a cambiare il proprio nome';
-  with x as (update public.members set display_name = 'Hack' where user_id = test.uid('a') returning 1) select count(*) into n from x;
+  with x as (update public.profiles set display_name = 'Hack' where user_id = test.uid('a') returning 1) select count(*) into n from x;
   assert n = 0, 'nome altrui modificato';
   with x as (delete from public.members where user_id = test.uid('c') returning 1) select count(*) into n from x;
   assert n = 0, 'un membro ha rimosso qualcuno';
-  perform test.expect_error($q$select public.add_member('estraneo@test.it', 'Intruso', 'admin')$q$, 'Solo un admin');
+  perform test.expect_error($q$select public.add_member(test.p(), 'estraneo@test.it', 'Intruso', 'admin')$q$, 'not_allowed');
 end
 $$;
 
@@ -2402,13 +2429,13 @@ declare
 begin
   with x as (update public.members set role = 'advisor' where user_id = test.uid('b') returning 1) select count(*) into n from x;
   assert n = 1, 'admin non cambia i ruoli';
-  perform test.expect_error(format($q$update public.members set role = 'member' where user_id = %L$q$, test.uid('a')), 'almeno un admin');
+  perform test.expect_error(format($q$update public.members set role = 'member' where user_id = %L$q$, test.uid('a')), 'last_project_admin');
   with x as (delete from public.members where user_id = test.uid('a') returning 1) select count(*) into n from x;
   assert n = 0, 'admin ha rimosso se stesso';
-  perform public.add_member('estraneo@test.it', 'Nuovo', 'member');
+  perform public.add_member(test.p(), 'estraneo@test.it', 'Nuovo', 'member');
   with x as (delete from public.members where user_id = test.uid('d') returning 1) select count(*) into n from x;
   assert n = 1, 'admin non rimuove un membro';
-  perform test.expect_error($q$select public.add_member('nessuno@test.it', 'X')$q$, 'Nessun utente');
+  perform test.expect_error($q$select public.add_member(test.p(), 'nessuno@test.it', 'X')$q$, 'user_not_found');
 end
 $$;
 
@@ -2442,10 +2469,10 @@ insert into auth.sessions (user_id, updated_at, refreshed_at) values (test.uid('
 select test.login('a');
 do $$
 begin
-  assert (select count(*) from public.members_overview()) = 3, 'overview incompleta';
-  assert (select mfa_enabled from public.members_overview() where user_id = test.uid('a')), '2FA non rilevata';
-  assert not (select mfa_enabled from public.members_overview() where user_id = test.uid('c')), '2FA inventata';
-  assert (select last_sign_in_at >= now() - interval '61 minutes' from public.members_overview() where user_id = test.uid('c')), 'ultimo accesso fermo al login, rinnovo della sessione ignorato';
+  assert (select count(*) from public.members_overview(test.p())) = 3, 'overview incompleta';
+  assert (select mfa_enabled from public.members_overview(test.p()) where user_id = test.uid('a')), '2FA non rilevata';
+  assert not (select mfa_enabled from public.members_overview(test.p()) where user_id = test.uid('c')), '2FA inventata';
+  assert (select last_sign_in_at >= now() - interval '61 minutes' from public.members_overview(test.p()) where user_id = test.uid('c')), 'ultimo accesso fermo al login, rinnovo della sessione ignorato';
 end
 $$;
 
@@ -2476,7 +2503,7 @@ select test.login('a');
 do $$
 begin
   assert (select count(*) from public.member_activity) = 0, 'la tabella delle attività si legge direttamente';
-  assert (select last_sign_in_at = '2100-01-01 00:00:00+00' from public.members_overview() where user_id = test.uid('c')), 'l ultimo accesso ignora l attività salvata';
+  assert (select last_sign_in_at = '2100-01-01 00:00:00+00' from public.members_overview(test.p()) where user_id = test.uid('c')), 'l ultimo accesso ignora l attività salvata';
 end
 $$;
 reset role;
@@ -2492,12 +2519,12 @@ declare
   v_used text := v_idea || '/11111111-1111-4111-8111-111111111111.jpg';
   v_orphan text := v_idea || '/22222222-2222-4222-8222-222222222222.jpg';
 begin
-  perform test.expect_error($q$select public.create_item('note', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
-  perform public.create_item('note', 'Riunione', null, jsonb_build_object('body', 'Lavagna: ![foto](immagine:' || v_used || ')'), v_idea::uuid, null);
+  perform test.expect_error($q$select public.create_item(test.p(), 'note', '  ', null, '{}', current_setting('test.idea')::uuid)$q$, 'titolo');
+  perform public.create_item(test.p(), 'note', 'Riunione', null, jsonb_build_object('body', 'Lavagna: ![foto](immagine:' || v_used || ')'), v_idea::uuid, null);
   insert into storage.objects (bucket_id, name) values ('note-immagini', v_used), ('note-immagini', v_orphan);
   perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('note-immagini', 'cartella/foto.png')$q$, 'row-level security');
-  assert (select array_agg(x) from public.note_image_orphans(array[v_used, v_orphan]) x) = array[v_orphan], 'immagine con puntatore considerata orfana';
-  assert (select count(*) from public.note_image_orphans()) = 0, 'immagini appena caricate considerate orfane';
+  assert (select array_agg(x) from public.note_image_orphans(test.p(), array[v_used, v_orphan]) x) = array[v_orphan], 'immagine con puntatore considerata orfana';
+  assert (select count(*) from public.note_image_orphans(test.p())) = 0, 'immagini appena caricate considerate orfane';
 end
 $$;
 select test.login('c');
@@ -2506,7 +2533,7 @@ begin
   assert (select count(*) from storage.objects where bucket_id = 'note-immagini') = 2, 'l''advisor non vede le immagini';
   insert into storage.objects (bucket_id, name) values ('note-immagini', current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg');
   perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('note-immagini', 'x/y.jpg')$q$, 'row-level security');
-  assert (select count(*) from public.note_image_orphans(array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
+  assert (select count(*) from public.note_image_orphans(test.p(), array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
 end
 $$;
 select test.login('a', 'aal1');
@@ -2527,53 +2554,53 @@ declare
   v_receipt text;
   m public.items;
 begin
-  perform test.expect_error($q$select public.create_item('expensegroup', '  ', null, '{"currency":"EUR","people":[]}')$q$, 'titolo');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', 'aperto', '{"currency":"EUR","people":[]}')$q$, 'Stato non valido');
-  perform test.expect_error(format($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[]}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"euro","people":[]}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR"}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":"Anna"}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"A B","name":"Anna"}]}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"  "}]}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"Anna","member":"x"}]}')$q$, 'Gruppo di spese non valido');
-  perform test.expect_error($q$select public.create_item('expensegroup', 'G', null, '{"currency":"EUR","people":["Anna"]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', '  ', null, '{"currency":"EUR","people":[]}')$q$, 'titolo');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', 'aperto', '{"currency":"EUR","people":[]}')$q$, 'Stato non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":[]}', %L)$q$, current_setting('test.idea')), 'non può appartenere');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"euro","people":[]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR"}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":"Anna"}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"A B","name":"Anna"}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"  "}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":[{"id":"a","name":"Anna","member":"x"}]}')$q$, 'Gruppo di spese non valido');
+  perform test.expect_error($q$select public.create_item(test.p(), 'expensegroup', 'G', null, '{"currency":"EUR","people":["Anna"]}')$q$, 'Gruppo di spese non valido');
   perform test.expect_error(
-    format($q$select public.create_item('expensegroup', 'G', null, %L)$q$, jsonb_build_object('currency', 'EUR', 'people', (select jsonb_agg(jsonb_build_object('id', 'p' || g, 'name', 'P')) from generate_series(1, 51) g))),
+    format($q$select public.create_item(test.p(), 'expensegroup', 'G', null, %L)$q$, jsonb_build_object('currency', 'EUR', 'people', (select jsonb_agg(jsonb_build_object('id', 'p' || g, 'name', 'P')) from generate_series(1, 51) g))),
     'Gruppo di spese non valido'
   );
-  v_group := (public.create_item('expensegroup', 'Costi', null, jsonb_build_object('currency', 'EUR', 'people', v_people))).id;
+  v_group := (public.create_item(test.p(), 'expensegroup', 'Costi', null, jsonb_build_object('currency', 'EUR', 'people', v_people))).id;
   perform set_config('test.egroup', v_group::text, false);
 
   v_move := jsonb_build_object('group', v_group, 'type', 'spesa', 'amount', 1250, 'currency', 'USD', 'rate', 0.912346, 'date', '2026-10-31', 'paid_by', 'a',
     'split', jsonb_build_object('mode', 'parti', 'shares', jsonb_build_object('a', 1, 'b', 1)), 'category', 'software');
-  m := public.create_item('expense', 'Dominio', null, v_move);
+  m := public.create_item(test.p(), 'expense', 'Dominio', null, v_move);
   assert m.version = 1 and m.idea_id is null, 'movimento non creato';
-  perform test.expect_error(format($q$select public.create_item('expense', '', null, %L)$q$, v_move), 'titolo');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"type":"regalo"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":0}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":12.5}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"amount":"1250"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"currency":"usd"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"rate":0}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"rate":"uno"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"date":"2026-13-01"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"paid_by":"A B"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"tutti","shares":{}}}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"parti","shares":[]}}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"receipt":"https://altro.example/x.jpg"}'), 'Movimento non valido');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || jsonb_build_object('group', current_setting('test.idea'))), 'gruppo di spese non esiste');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move - 'group'), 'gruppo di spese non esiste');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move || '{"group":"non-un-uuid"}'), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', '', null, %L)$q$, v_move), 'titolo');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"type":"regalo"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"amount":0}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"amount":12.5}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"amount":"1250"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"currency":"usd"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"rate":0}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"rate":"uno"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"date":"2026-13-01"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"paid_by":"A B"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"tutti","shares":{}}}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"split":{"mode":"parti","shares":[]}}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"receipt":"https://altro.example/x.jpg"}'), 'Movimento non valido');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || jsonb_build_object('group', current_setting('test.idea'))), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move - 'group'), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move || '{"group":"non-un-uuid"}'), 'gruppo di spese non esiste');
 
   v_receipt := v_group || '/44444444-4444-4444-8444-444444444444.jpg';
   insert into storage.objects (bucket_id, name) values ('note-immagini', v_receipt);
   perform public.save_item(m.id, 1, 'Dominio', null, v_move || jsonb_build_object('receipt', v_receipt), null, 'scontrino');
-  assert (select count(*) from public.note_image_orphans(array[v_receipt])) = 0, 'scontrino di una spesa considerato orfano';
+  assert (select count(*) from public.note_image_orphans(test.p(), array[v_receipt])) = 0, 'scontrino di una spesa considerato orfano';
   perform public.delete_item(m.id, 2, 'nel cestino');
-  assert (select count(*) from public.note_image_orphans(array[v_receipt])) = 0, 'scontrino di una spesa nel cestino considerato orfano';
+  assert (select count(*) from public.note_image_orphans(test.p(), array[v_receipt])) = 0, 'scontrino di una spesa nel cestino considerato orfano';
   perform public.restore_item(m.id, 'ripristino');
   perform public.delete_item(v_group, 1, 'gruppo nel cestino');
-  perform test.expect_error(format($q$select public.create_item('expense', 'X', null, %L)$q$, v_move), 'gruppo di spese non esiste');
+  perform test.expect_error(format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, v_move), 'gruppo di spese non esiste');
   perform public.save_item(m.id, 4, 'Dominio .it', null, v_move || jsonb_build_object('receipt', v_receipt), null, 'stesso gruppo');
   perform public.restore_item(v_group, 'ripristino');
 end
@@ -2582,7 +2609,7 @@ select test.login('c');
 do $$
 begin
   perform test.expect_error(
-    format($q$select public.create_item('expense', 'X', null, %L)$q$, jsonb_build_object('group', current_setting('test.egroup'), 'type', 'spesa', 'amount', 100, 'currency', 'EUR', 'rate', 1, 'date', '2026-10-31', 'paid_by', 'a', 'split', '{"mode":"parti","shares":{"a":1}}'::jsonb)),
+    format($q$select public.create_item(test.p(), 'expense', 'X', null, %L)$q$, jsonb_build_object('group', current_setting('test.egroup'), 'type', 'spesa', 'amount', 100, 'currency', 'EUR', 'rate', 1, 'date', '2026-10-31', 'paid_by', 'a', 'split', '{"mode":"parti","shares":{"a":1}}'::jsonb)),
     'row-level security'
   );
   assert (select count(*) from public.items where kind in ('expensegroup', 'expense')) = 2, 'l''advisor non vede le spese';
@@ -2606,24 +2633,35 @@ end
 $$;
 set role authenticated;
 select test.login('a');
+-- Con i progetti la prima cartella dice il progetto dell'immagine: la cartella di prova (che non era nulla) diventa
+-- quella del questionario «Seconda», che usa una delle immagini come copertina e un'altra per il grazie.
 do $$
 declare
-  v_used text := 'aaaaaaaa-0000-4000-8000-000000000001/bbbbbbbb-0000-4000-8000-000000000002.jpg';
-  v_orphan text := 'aaaaaaaa-0000-4000-8000-000000000001/cccccccc-0000-4000-8000-000000000003.jpg';
-  v_thanks text := 'aaaaaaaa-0000-4000-8000-000000000001/eeeeeeee-0000-4000-8000-000000000005.jpg';
+  v_survey uuid := current_setting('test.survey2')::uuid;
+  v_used text := current_setting('test.survey2') || '/bbbbbbbb-0000-4000-8000-000000000002.jpg';
+  v_orphan text := current_setting('test.survey2') || '/cccccccc-0000-4000-8000-000000000003.jpg';
+  v_thanks text := current_setting('test.survey2') || '/eeeeeeee-0000-4000-8000-000000000005.jpg';
+  s public.items;
 begin
+  select * into s from public.items where id = v_survey;
+  assert public.save_item(v_survey, s.version, s.title, s.status, s.data || jsonb_build_object(
+    'cover', jsonb_build_object('path', v_used), 'thanks_image', jsonb_build_object('path', v_thanks)
+  ), s.idea_id) ->> 'status' = 'ok', 'immagini del questionario non salvate';
   insert into storage.objects (bucket_id, name) values ('questionari-immagini', v_used), ('questionari-immagini', v_orphan), ('questionari-immagini', v_thanks);
-  assert (select count(*) from public.survey_image_orphans(array[v_thanks])) = 0, 'immagine del grazie considerata orfana';
+  assert (select count(*) from public.survey_image_orphans(test.p(), array[v_thanks])) = 0, 'immagine del grazie considerata orfana';
   perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', 'cartella/foto.png')$q$, 'row-level security');
-  assert (select array_agg(x) from public.survey_image_orphans(array[v_used, v_orphan]) x) = array[v_orphan], 'immagine in uso considerata orfana';
-  assert (select count(*) from public.survey_image_orphans()) = 0, 'immagini appena caricate considerate orfane';
+  assert (select array_agg(x) from public.survey_image_orphans(test.p(), array[v_used, v_orphan]) x) = array[v_orphan], 'immagine in uso considerata orfana';
+  assert (select count(*) from public.survey_image_orphans(test.p())) = 0, 'immagini appena caricate considerate orfane';
 end
 $$;
 select test.login('c');
 do $$
 begin
-  perform test.expect_error($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', 'aaaaaaaa-0000-4000-8000-000000000001/dddddddd-0000-4000-8000-000000000004.jpg')$q$, 'row-level security');
-  assert (select count(*) from public.survey_image_orphans(array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
+  perform test.expect_error(
+    format($q$insert into storage.objects (bucket_id, name) values ('questionari-immagini', %L)$q$, current_setting('test.survey2') || '/dddddddd-0000-4000-8000-000000000004.jpg'),
+    'row-level security'
+  );
+  assert (select count(*) from public.survey_image_orphans(test.p(), array['x'])) = 0, 'l''advisor cerca immagini da cancellare';
 end
 $$;
 
@@ -2637,10 +2675,10 @@ declare
   v_msg uuid;
 begin
   assert v_general is not null, 'manca la chat Generale';
-  insert into public.chats (title, is_general, idea_id) values ('  Nutrizione  ', true, current_setting('test.idea')::uuid) returning id into v_topic;
+  insert into public.chats (project_id, title, is_general, idea_id) values (test.p(), '  Nutrizione  ', true, current_setting('test.idea')::uuid) returning id into v_topic;
   assert (select count(*) from public.chats where is_general) = 1, 'creata una seconda chat Generale';
   assert (select title from public.chats where id = v_topic) = 'Nutrizione', 'titolo non ripulito';
-  perform test.expect_error(format($q$insert into public.chats (title, idea_id) values ('x', %L)$q$, v_topic), 'solo a un''idea');
+  perform test.expect_error(format($q$insert into public.chats (project_id, title, idea_id) values (test.p(), 'x', %L)$q$, v_topic), 'solo a un''idea');
   update public.chats set archived_at = now() where id = v_general;
   assert (select archived_at from public.chats where id = v_general) is null, 'archiviata la chat Generale';
   insert into public.chat_messages (chat_id, body, author_id) values (v_topic, 'Ciao', test.uid('c')) returning id into v_msg;
@@ -2678,10 +2716,10 @@ declare
   v_topic uuid := current_setting('test.topic')::uuid;
   v_img text := current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg';
 begin
-  assert (select unread from public.chat_overview() where chat_id = v_topic) = 2, 'non letti sbagliati';
+  assert (select unread from public.chat_overview(test.p()) where chat_id = v_topic) = 2, 'non letti sbagliati';
   perform public.mark_chat_read(v_topic);
-  assert (select unread from public.chat_overview() where chat_id = v_topic) = 0, 'lettura non registrata';
-  assert (select count(*) from public.note_image_orphans(array[v_img])) = 0, 'immagine di un messaggio considerata orfana';
+  assert (select unread from public.chat_overview(test.p()) where chat_id = v_topic) = 0, 'lettura non registrata';
+  assert (select count(*) from public.note_image_orphans(test.p(), array[v_img])) = 0, 'immagine di un messaggio considerata orfana';
 end
 $$;
 select test.login('c');
@@ -2695,7 +2733,7 @@ $$;
 select test.login('a');
 do $$
 begin
-  assert (select count(*) from public.note_image_orphans(array[current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg'])) = 1, 'immagine di un messaggio eliminato non considerata orfana';
+  assert (select count(*) from public.note_image_orphans(test.p(), array[current_setting('test.idea') || '/33333333-3333-4333-8333-333333333333.jpg'])) = 1, 'immagine di un messaggio eliminato non considerata orfana';
   update public.chats set archived_at = now() where id = current_setting('test.topic')::uuid;
   perform test.expect_error(format($q$insert into public.chat_messages (chat_id, body) values (%L, 'tardi')$q$, current_setting('test.topic')), 'archiviata');
 end
@@ -2728,10 +2766,10 @@ do $$
 begin
   assert (select count(*) from public.mentions where source = 'chat') = 1, 'menzione in chat mancante';
   assert (select excerpt from public.mentions where source = 'chat') = 'Ciao @Admin, guarda [immagine] e @Nessuno e @Advisor', 'estratto sbagliato';
-  perform public.mark_mentions_read();
+  perform public.mark_mentions_read(test.p());
   assert (select read_at from public.mentions where source = 'chat') is not null, 'menzione non segnata come letta';
   insert into public.comments (item_id, body) values (current_setting('test.idea')::uuid, 'Avviso @[tutti]');
-  perform public.create_item('note', 'Riunione', null, '{"body":"Riunione\n\n@[Advisor] porta i dati"}'::jsonb, current_setting('test.idea')::uuid, null);
+  perform public.create_item(test.p(), 'note', 'Riunione', null, '{"body":"Riunione\n\n@[Advisor] porta i dati"}'::jsonb, current_setting('test.idea')::uuid, null);
   assert (select count(*) from public.mentions where source <> 'chat') = 0, 'menzionato da se stesso';
 end
 $$;
@@ -2780,16 +2818,17 @@ begin
   assert (select count(*) from public.email_prefs) = 1, 'la propria riga non si vede';
 end
 $$;
+-- Senza 2FA o senza progetto il rifiuto è il codice not_allowed (docs/PROGETTI.md, «Errori»), non più una frase.
 select test.login('a', 'aal1');
 do $$
 begin
-  perform test.expect_error('select public.set_email_prefs(true, true)', 'verifica in due passaggi');
+  perform test.expect_error('select public.set_email_prefs(true, true)', 'not_allowed');
 end
 $$;
 select test.login('d');
 do $$
 begin
-  perform test.expect_error('select public.set_email_prefs(true, true)', 'verifica in due passaggi');
+  perform test.expect_error('select public.set_email_prefs(true, true)', 'not_allowed');
 end
 $$;
 reset role;
@@ -2815,8 +2854,8 @@ declare
 begin
   foreach f in array array[
     'public.notify_recipients()', 'public.notify_pending_mentions(timestamptz)', 'public.notify_claim_mentions(bigint[])',
-    'public.notify_release_mentions(bigint[])', 'public.notify_claim_weekly(uuid, date)', 'public.notify_release_weekly(uuid, date)',
-    'public.notify_weekly_data(timestamptz)'
+    'public.notify_release_mentions(bigint[])', 'public.notify_claim_weekly(uuid, uuid, date)', 'public.notify_release_weekly(uuid, uuid, date)',
+    'public.notify_weekly_data(uuid, timestamptz)'
   ] loop
     assert not has_function_privilege('anon', f, 'execute'), f || ' eseguibile da anon';
     assert not has_function_privilege('authenticated', f, 'execute'), f || ' eseguibile da authenticated';
@@ -2864,12 +2903,12 @@ $$;
 \echo 'ok - riepilogo settimanale: uno per persona e per settimana, si può riprovare solo dopo un rifiuto'
 do $$
 begin
-  assert public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'primo riepilogo non segnato';
-  assert not public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'riepilogo segnato due volte';
-  assert public.notify_claim_weekly(test.uid('b'), '2026-11-02'), 'il riepilogo di un altro blocca';
-  perform public.notify_release_weekly(test.uid('a'), '2026-11-02');
-  assert public.notify_claim_weekly(test.uid('a'), '2026-11-02'), 'dopo un rifiuto non si riprova';
-  assert public.notify_claim_weekly(test.uid('a'), '2026-11-09'), 'la settimana dopo non parte';
+  assert public.notify_claim_weekly(test.uid('a'), test.p(), '2026-11-02'), 'primo riepilogo non segnato';
+  assert not public.notify_claim_weekly(test.uid('a'), test.p(), '2026-11-02'), 'riepilogo segnato due volte';
+  assert public.notify_claim_weekly(test.uid('b'), test.p(), '2026-11-02'), 'il riepilogo di un altro blocca';
+  perform public.notify_release_weekly(test.uid('a'), test.p(), '2026-11-02');
+  assert public.notify_claim_weekly(test.uid('a'), test.p(), '2026-11-02'), 'dopo un rifiuto non si riprova';
+  assert public.notify_claim_weekly(test.uid('a'), test.p(), '2026-11-09'), 'la settimana dopo non parte';
   assert (select count(*) from public.email_weekly where user_id = test.uid('a')) = 2, 'storico degli invii sbagliato';
 end
 $$;
@@ -2878,10 +2917,10 @@ $$;
 reset role;
 set role authenticated;
 select test.login('a');
-select set_config('test.done_before', (public.create_item('interview', 'Intervista vecchia', 'fatta', '{}')).id::text, false);
-select public.create_item('interview', 'Intervista nuova', 'fatta', '{"commitment":"pilota","source":"campo"}');
-select public.create_item('interview', 'Intervista da fare', 'da_fare', '{}');
-select public.create_item('contact', 'Persona da sentire', 'da_contattare', jsonb_build_object('owner', test.uid('a'), 'next_date', '2026-11-03', 'role', 'Ruolo di prova'), current_setting('test.idea')::uuid);
+select set_config('test.done_before', (public.create_item(test.p(), 'interview', 'Intervista vecchia', 'fatta', '{}')).id::text, false);
+select public.create_item(test.p(), 'interview', 'Intervista nuova', 'fatta', '{"commitment":"pilota","source":"campo"}');
+select public.create_item(test.p(), 'interview', 'Intervista da fare', 'da_fare', '{}');
+select public.create_item(test.p(), 'contact', 'Persona da sentire', 'da_contattare', jsonb_build_object('owner', test.uid('a'), 'next_date', '2026-11-03', 'role', 'Ruolo di prova'), current_setting('test.idea')::uuid);
 reset role;
 update public.revisions set created_at = now() - interval '10 days' where item_id = current_setting('test.done_before')::uuid;
 set role authenticated;
@@ -2891,7 +2930,7 @@ reset role;
 set role service_role;
 do $$
 declare
-  d jsonb := public.notify_weekly_data(now() - interval '7 days');
+  d jsonb := public.notify_weekly_data(test.p(), now() - interval '7 days');
   v_reached text[] := (select array_agg(x ->> 'title') from jsonb_array_elements(d -> 'reached') x);
 begin
   assert d ?& array['ideas', 'contacts', 'experiments', 'new_ideas', 'busy_ideas', 'reached', 'unread'], 'sezioni mancanti: ' || d::text;
@@ -2977,6 +3016,60 @@ begin
   perform test.expect_error($q$select public.notify_call('tutto')$q$, 'sconosciuto');
 end
 $$;
+
+reset role;
+select set_config('request.jwt.claims', '', false);
+\if :has_dblink
+\echo 'ok - ultimo admin: con due connessioni vere, due admin che si tolgono il ruolo insieme non lasciano il progetto senza admin'
+-- Un progetto con due admin, scritto prima della prova: le due connessioni vedono solo quello che è già confermato.
+insert into public.projects (name) values ('Concorrenza');
+insert into public.members (project_id, user_id, role)
+select p.id, u.id, 'admin' from public.projects p cross join (values (test.uid('a')), (test.uid('b'))) u (id) where p.name = 'Concorrenza';
+create extension dblink schema test;
+do $$
+declare
+  v_conn text := format('host=127.0.0.1 port=%s dbname=%s user=%s', current_setting('port'), current_database(), session_user);
+  v_project uuid := (select id from public.projects where name = 'Concorrenza');
+  v_pid int;
+  v_status text;
+  v_error text;
+  i int := 0;
+begin
+  -- Due admin dal sito, ognuno con il suo token.
+  perform test.dblink_connect('a', v_conn);
+  perform test.dblink_connect('b', v_conn);
+  perform test.dblink_exec('a', format($q$set role authenticated; set request.jwt.claims = %L$q$,
+    json_build_object('sub', test.uid('a'), 'aal', 'aal2', 'role', 'authenticated')));
+  perform test.dblink_exec('b', format($q$set role authenticated; set statement_timeout = '5s'; set request.jwt.claims = %L$q$,
+    json_build_object('sub', test.uid('b'), 'aal', 'aal2', 'role', 'authenticated')));
+  select p into v_pid from test.dblink('b', 'select pg_backend_pid()') as d(p int);
+  -- Il primo admin si toglie il ruolo e tiene la fila del progetto fino al commit.
+  perform test.dblink_exec('a', 'begin');
+  perform test.dblink_exec('a', format($q$update public.members set role = 'member' where project_id = %L and user_id = %L$q$, v_project, test.uid('a')));
+  -- Intanto il secondo fa lo stesso: deve aspettare la fila, poi vedere che l'altro admin non c'è più.
+  perform test.dblink_send_query('b', format($q$update public.members set role = 'member' where project_id = %L and user_id = %L$q$, v_project, test.uid('b')));
+  while not exists (select 1 from pg_locks where locktype = 'advisory' and pid = v_pid and not granted) loop
+    i := i + 1;
+    assert i < 200, 'il secondo cambio di ruolo non aspetta la fila del progetto';
+    perform pg_sleep(0.01);
+  end loop;
+  perform test.dblink_exec('a', 'commit');
+  begin
+    select x into v_status from test.dblink_get_result('b') as d(x text);
+  exception when others then
+    v_error := sqlerrm;
+  end;
+  perform test.dblink_disconnect('a');
+  perform test.dblink_disconnect('b');
+  assert v_error like '%last_project_admin%', 'due admin si sono tolti il ruolo insieme: ' || coalesce(v_error, v_status, 'nessuna risposta');
+  assert (select count(*) from public.members where project_id = v_project and role = 'admin') = 1, 'il progetto non ha più esattamente un admin';
+  assert (select role from public.members where project_id = v_project and user_id = test.uid('b')) = 'admin', 'il secondo admin ha perso il ruolo';
+end
+$$;
+drop extension dblink;
+\else
+\echo 'saltato - manca dblink: niente prova sull ultimo admin con due connessioni vere'
+\endif
 
 reset role;
 \echo 'tutti i test del database sono passati'

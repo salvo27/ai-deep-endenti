@@ -32,7 +32,10 @@ create schema realtime;
 grant usage on schema realtime to authenticated;
 create table realtime.messages (id bigserial primary key, topic text, extension text, payload jsonb);
 alter table realtime.messages enable row level security;
-create function realtime.topic() returns text language sql stable as $$ select 'board' $$;
+-- Il canale a cui ci si sta collegando: si sceglie con set realtime.topic, senza scelta è il vecchio canale "board".
+create function realtime.topic() returns text language sql stable as $$
+  select coalesce(nullif(current_setting('realtime.topic', true), ''), 'board')
+$$;
 
 create publication supabase_realtime;
 
