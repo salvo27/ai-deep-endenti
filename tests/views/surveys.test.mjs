@@ -1,4 +1,4 @@
-import { test, before, beforeEach, afterEach } from 'node:test';
+import { test, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText, typeInto } from '../setup/dom.mjs';
 import { ADVISOR, IDS, ME, OTHER, XSS, boardItems, item, members } from '../setup/fixtures.mjs';
@@ -667,6 +667,30 @@ test('the CSV export has one row per response, readable columns and emails only 
     assert.match(withEmail.split('\r\n')[0], /;Email;Da ricontattare;Segnalazioni$/);
     assert.match(withEmail, /;persona1@esempio\.it;sì;/);
   } finally {
+    window.HTMLAnchorElement.prototype.click = click;
+  }
+});
+
+test('the CSV file is named with the local date, not the UTC one, just after midnight', async () => {
+  const names = [];
+  URL.createObjectURL = () => 'blob:test';
+  URL.revokeObjectURL = () => {};
+  const click = window.HTMLAnchorElement.prototype.click;
+  window.HTMLAnchorElement.prototype.click = function save() {
+    names.push(this.download);
+  };
+  const tz = process.env.TZ;
+  try {
+    await visit(`#/questionario/${S.open}/risposte`);
+    process.env.TZ = 'Europe/Rome';
+    mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-27T23:30:00Z') });
+    byText(outlet, 'button', 'Scarica CSV').click();
+    await answerDialog('Scarica');
+    assert.deepEqual(names, ['questionario-turni-in-corsia-2026-11-28.csv'], 'a Roma sono le 0:30 del 28');
+  } finally {
+    mock.timers.reset();
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
     window.HTMLAnchorElement.prototype.click = click;
   }
 });

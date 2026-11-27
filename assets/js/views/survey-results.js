@@ -1,7 +1,7 @@
 // i18n: da tradurre
 import { busy, confirmDialog, h, mount, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { downloadFile, fmtDate, fmtDateTime, plural, slugFile } from '../lib/format.js';
+import { dayKey, downloadFile, fmtDate, fmtDateTime, plural, slugFile } from '../lib/format.js';
 import { api } from '../lib/api.js';
 import { createItem, itemsOf } from '../store.js';
 import {
@@ -182,7 +182,7 @@ function openCsvDialog(item, rows, flags) {
         kind: 'primary',
         onClick: () => {
           const csv = responsesCsv(item.data, rows, { includeEmail: withEmail.checked, flags });
-          downloadFile(`questionario-${slugFile(item.title)}-${new Date().toISOString().slice(0, 10)}.csv`, `﻿${csv}`, 'text/csv;charset=utf-8');
+          downloadFile(`questionario-${slugFile(item.title)}-${dayKey(new Date())}.csv`, `﻿${csv}`, 'text/csv;charset=utf-8');
           return false;
         },
       },
