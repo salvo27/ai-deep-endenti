@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api } from './lib/api.js';
 import { h } from './lib/dom.js';
 import { fmtDate } from './lib/format.js';

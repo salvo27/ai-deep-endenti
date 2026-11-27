@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Controlli mentre si scrive un questionario, dal manuale e dalla ricerca: solo avvisi con una forma migliore, mai blocchi.
 import { estimateMinutes } from './public/survey-time.js';
 

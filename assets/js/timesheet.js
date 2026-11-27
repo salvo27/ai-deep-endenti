@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { cleanLine } from './lib/validate.js';
 import { DAY_KEYS, addDays, dayName, isMonday } from './availability.js';
 

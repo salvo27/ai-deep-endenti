@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Modello di partenza di un questionario, secondo il manuale e la ricerca: introduzione con scopo e privacy,
 // poche domande su chi risponde, domande sul problema al passato, un episodio concreto, email facoltativa, ringraziamento.
 import { shortId } from './lib/format.js';

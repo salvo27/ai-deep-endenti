@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, openModal } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { CHAPTERS, VERIFIED_ON, conceptByKey } from '../concepts.js';

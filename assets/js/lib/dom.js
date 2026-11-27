@@ -1,3 +1,4 @@
+// i18n: da tradurre
 const PROPERTIES = new Set([
   'value',
   'checked',

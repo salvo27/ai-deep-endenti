@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { PREFER_NOT } from './survey-api.js';
 import { minutesLabel, questionWords } from './survey-time.js';
 import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';

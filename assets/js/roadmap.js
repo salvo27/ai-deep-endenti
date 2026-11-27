@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Roadmap di ogni idea: tutti i passi in ordine, dalla squadra alla società, per non saltare nulla e ridurre il rischio.
 // Segue il percorso del manuale (Customer Development, Lean Startup, team, finanza, aspetti legali, deep tech).
 // Un passo è fatto solo quando lo segna qualcuno (data.roadmap); i controlli sui dati della board sono solo suggerimenti.

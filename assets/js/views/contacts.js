@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, toast } from '../lib/dom.js';
 import { snapshotOf } from '../lib/diff.js';
 import { daysUntil, fmtDate, plural } from '../lib/format.js';

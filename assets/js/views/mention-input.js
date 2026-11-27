@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { ALL, mentionQuery, mentionToken } from '../lib/mentions.js';
 import { state } from '../store.js';

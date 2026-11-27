@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import {
   LIMITS,
   cleanLine,

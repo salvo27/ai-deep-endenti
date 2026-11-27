@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
 import { estimateMinutes } from './survey-time.js';
 import {

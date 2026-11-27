@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { dayKey } from './lib/format.js';
 import { isIsoDate } from './lib/validate.js';
 

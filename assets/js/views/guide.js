@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { ROADMAP, ROADMAP_STEPS } from '../roadmap.js';

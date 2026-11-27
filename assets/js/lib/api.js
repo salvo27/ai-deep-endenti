@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { supabase, authFlags } from './supabase.js';
 import { CONFIG } from '../config.js';
 import { isUuid } from './validate.js';

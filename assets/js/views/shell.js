@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { claimPopup, confirmDialog, h, mount, onOtherPopup } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { truncate } from '../lib/format.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { PHOTO_MAX_CHARS, isPhotoDataUrl } from './validate.js';
 
 export const PHOTO_SIZE = 256;

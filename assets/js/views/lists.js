@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { daysUntil, fmtDate, plural, truncate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';

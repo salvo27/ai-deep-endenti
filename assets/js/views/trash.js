@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, busy } from '../lib/dom.js';
 import { canWrite, deletedItems, getItem, memberName, on } from '../store.js';
 import { restoreWithToast } from './actions.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api, AppError } from './lib/api.js';
 import { KINDS, sanitizeSnapshot, snapshotProblem } from './schema.js';
 import { stepByKey } from './roadmap.js';

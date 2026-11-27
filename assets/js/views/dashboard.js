@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { daysUntil, fmtDate, plural } from '../lib/format.js';
 import { KINDS, STRONG_COMMITMENTS, isHeldConversation } from '../schema.js';

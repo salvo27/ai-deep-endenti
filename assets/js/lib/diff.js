@@ -1,3 +1,4 @@
+// i18n: da tradurre
 const MAX_LCS_CELLS = 2_000_000;
 
 export function isPlainObject(value) {

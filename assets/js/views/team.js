@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, busy, confirmDialog, toast } from '../lib/dom.js';
 import { api } from '../lib/api.js';
 import { fmtDateTime, plural } from '../lib/format.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { runAuthGate } from './auth.js';
 import { startApp } from './app.js';
 import { applyDocumentLanguage } from './i18n/index.js';

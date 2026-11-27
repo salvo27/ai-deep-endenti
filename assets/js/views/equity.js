@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { fmtPercent, shortId } from '../lib/format.js';

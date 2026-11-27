@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Spese condivise: importi in unità minime della valuta (centesimi), funzioni pure tranne il cambio, chiesto alla BCE.
 import { csvCell } from './lib/format.js';
 import { cleanLine, cleanText, isIsoDate, isUuid } from './lib/validate.js';

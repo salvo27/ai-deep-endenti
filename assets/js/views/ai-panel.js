@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { append, h, mount, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { api } from '../lib/api.js';

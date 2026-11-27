@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Statistiche delle risposte a un questionario: funzioni pure, nessun accesso ai dati.
 // Le segnalazioni di qualità non cancellano mai nulla: servono solo a escludere, a scelta, le risposte sospette.
 import { SURVEY_PREFER_NOT } from './schema.js';

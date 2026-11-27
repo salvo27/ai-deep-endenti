@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, autoGrow } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { CANVAS_BLOCKS } from '../schema.js';

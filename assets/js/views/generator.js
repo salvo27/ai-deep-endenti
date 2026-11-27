@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, autoGrow, busy, confirmDialog, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { snapshotOf } from '../lib/diff.js';

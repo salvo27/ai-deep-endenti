@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, busy, toast } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { icon } from '../lib/icons.js';

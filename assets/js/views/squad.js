@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { KINDS, TEAM_BLOCKS } from '../schema.js';
 import { canWrite, on, singleton } from '../store.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, openModal, toast } from '../lib/dom.js';
 import { merge3, resolveConflicts, snapshotOf, diffWords } from '../lib/diff.js';
 import { describePath, fieldOf, formatValue } from '../schema.js';

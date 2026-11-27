@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount, svg, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual } from '../lib/diff.js';

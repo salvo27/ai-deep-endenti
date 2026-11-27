@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Idee di esempio, una per stato, ispirate alla storia di startup note.
 // Stanno solo nel codice: sono in sola lettura e non entrano in statistiche, valutazione, ricerca o backup.
 

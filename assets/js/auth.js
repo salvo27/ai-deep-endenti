@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api } from './lib/api.js';
 import { h, mount, busy, toast } from './lib/dom.js';
 import { icon } from './lib/icons.js';

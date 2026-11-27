@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h } from '../lib/dom.js';
 import { isPhotoDataUrl } from '../lib/validate.js';
 import { icon } from '../lib/icons.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { busy, confirmDialog, h, mount, openModal, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { downloadFile, fmtDate, fmtDateTime, plural, slugFile } from '../lib/format.js';

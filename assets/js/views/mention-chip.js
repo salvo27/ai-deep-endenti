@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h } from '../lib/dom.js';
 import { ALL } from '../lib/mentions.js';
 import { state } from '../store.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h } from './dom.js';
 
 // Un tag nel testo è @[Nome Cognome] o @[tutti]; nella pagina si vede come «@Nome Cognome».

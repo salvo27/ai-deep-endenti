@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { claimPopup, h, mount, onOtherPopup, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { on } from '../store.js';

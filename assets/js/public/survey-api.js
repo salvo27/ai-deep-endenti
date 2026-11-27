@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { CONFIG } from '../config.js';
 

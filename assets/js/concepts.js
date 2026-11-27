@@ -1,3 +1,4 @@
+// i18n: da tradurre
 // Concetti di «Il manuale dello startupper» (Boceda, D'Amato, De Martino) e del capitolo aggiunto sul deep tech.
 // Spiegazioni scritte per questa board: non riprendono il testo del libro. Le norme sono verificate al 17 ottobre 2026.
 

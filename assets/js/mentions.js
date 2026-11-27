@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api } from './lib/api.js';
 import { toast } from './lib/dom.js';
 import { browserAlert } from './notifications.js';

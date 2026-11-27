@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { CHAPTERS, CONCEPTS, VERIFIED_ON } from '../concepts.js';
 import { KINDS } from '../schema.js';

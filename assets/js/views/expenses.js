@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api } from '../lib/api.js';
 import { busy, confirmDialog, h, mount, openModal, svg, toast } from '../lib/dom.js';
 import { dayKey, downloadFile, fmtDate, plural, shortId, slugFile } from '../lib/format.js';

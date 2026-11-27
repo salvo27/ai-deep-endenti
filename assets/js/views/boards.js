@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, svg } from '../lib/dom.js';
 import { fmtMoney, fmtPercent, truncate } from '../lib/format.js';
 import { TRL, fieldOf, optionLabel, routeFor } from '../schema.js';

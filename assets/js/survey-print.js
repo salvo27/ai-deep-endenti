@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h } from './lib/dom.js';
 import { plural } from './lib/format.js';
 import { statusLabel } from './schema.js';

@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, busy, confirmDialog, mount, toast } from '../lib/dom.js';
 import { renderMentions } from '../lib/mentions.js';
 import { mentionChip } from './mention-chip.js';

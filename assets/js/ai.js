@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api, AppError } from './lib/api.js';
 import { CANVAS_BLOCKS, KINDS, optionLabel, statusLabel } from './schema.js';
 import { fmtDate, fmtMoney } from './lib/format.js';

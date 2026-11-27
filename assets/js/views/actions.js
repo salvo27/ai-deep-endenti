@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { confirmDialog, toast } from '../lib/dom.js';
 import { snapshotOf } from '../lib/diff.js';
 import { KINDS, statusLabel } from '../schema.js';

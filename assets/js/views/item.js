@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { BOARD_KINDS, KINDS } from '../schema.js';

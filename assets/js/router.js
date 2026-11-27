@@ -1,3 +1,4 @@
+// i18n: da tradurre
 const routes = [];
 let outlet = null;
 let current = { path: null, key: null, cleanup: null };

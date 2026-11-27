@@ -1,3 +1,4 @@
+// i18n: da tradurre
 import { api } from './lib/api.js';
 import { routeFor, statusLabel } from './schema.js';
 import { emit, getItem, memberName, on, readLocal, state, timesheetsOf, writeLocal } from './store.js';
