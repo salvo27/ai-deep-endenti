@@ -27,6 +27,7 @@ import { profile } from './profile.js';
 import { projects } from './projects.js';
 import { roadmap } from './roadmap.js';
 import { scoring } from './scoring.js';
+import { serverErrors } from './server-errors.js';
 import { shell } from './shell.js';
 import { squad } from './squad.js';
 import { surveyEditor } from './survey-editor.js';
@@ -35,4 +36,4 @@ import { team } from './team.js';
 import { timesheet } from './timesheet.js';
 import { trash } from './trash.js';
 
-export const it = Object.freeze({ ai, analysis, auth, availability, boards, chat, common, concepts, contacts, dashboard, editor, errors, examples, expenses, exporting, generator, guide, history, idea, ideas, lists, mentions, notes, notifications, profile, projects, roadmap, scoring, shell, squad, surveyEditor, surveys, team, timesheet, trash });
+export const it = Object.freeze({ ai, analysis, auth, availability, boards, chat, common, concepts, contacts, dashboard, editor, errors, examples, expenses, exporting, generator, guide, history, idea, ideas, lists, mentions, notes, notifications, profile, projects, roadmap, scoring, serverErrors, shell, squad, surveyEditor, surveys, team, timesheet, trash });
