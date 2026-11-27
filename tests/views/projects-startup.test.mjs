@@ -330,15 +330,19 @@ describe('amministratore della piattaforma', () => {
 });
 
 describe('lingua del profilo', () => {
-  // [lingua salvata nel profilo, cosa si salva con il sito in italiano]
-  for (const [saved, expected] of [
-    ['en', { language: 'it' }],
-    [null, { language: 'it' }],
-    ['it', null],
+  // [scelta su questo dispositivo, lingua salvata nel profilo, cosa si salva con il sito in italiano]
+  // A device left on automatic does not overwrite a language chosen on another device: emails and Claude keep it.
+  for (const [choice, saved, expected] of [
+    ['auto', null, { language: 'it' }],
+    ['auto', 'it', null],
+    ['auto', 'en', null],
+    ['it', 'en', { language: 'it' }],
+    ['it', null, { language: 'it' }],
+    ['it', 'it', null],
   ]) {
-    it(`con il profilo in ${saved} ${expected ? 'salva l italiano' : 'non salva niente'}`, async () => {
+    it(`scelta ${choice} con il profilo in ${saved}: ${expected ? 'salva l italiano' : 'non salva niente'}`, async () => {
       api.myProfile = async () => ({ user_id: ME, language: saved });
-      assert.equal(await app.syncProfileLanguage(), Boolean(expected));
+      assert.equal(await app.syncProfileLanguage('it', choice), Boolean(expected));
       assert.deepEqual(profileUpdates, expected ? [expected] : []);
     });
   }
@@ -349,8 +353,8 @@ describe('lingua del profilo', () => {
     assert.deepEqual(profileUpdates, []);
   });
 
-  it('all avvio salva la lingua in uso nel profilo, così email e Claude la seguono', async () => {
-    api.myProfile = async () => ({ user_id: ME, language: 'en' });
+  it('all avvio salva la lingua in uso nel profilo che non ne ha una, così email e Claude la seguono', async () => {
+    api.myProfile = async () => ({ user_id: ME, language: null });
     assert.equal(await app.startApp(root), true);
     await flush();
     assert.deepEqual(profileUpdates, [{ language: 'it' }]);
@@ -369,7 +373,7 @@ describe('lingua del profilo', () => {
   }
 
   it('un errore nel salvare la lingua non ferma l avvio', async () => {
-    api.myProfile = async () => ({ user_id: ME, language: 'en' });
+    api.myProfile = async () => ({ user_id: ME, language: null });
     api.updateProfile = async () => {
       throw new Error('offline');
     };

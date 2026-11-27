@@ -60,6 +60,7 @@ export const profile = {
     to: (email) => `They go to ${email}.`,
     toYou: 'They go to your email.',
     unreadable: 'I cannot read your preferences. Try again later.',
+    noProject: 'Emails start once you are in a project.',
   },
   sessions: {
     title: 'Sessions and usage',

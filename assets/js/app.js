@@ -2,7 +2,7 @@ import { api } from './lib/api.js';
 import { h, mount, toast } from './lib/dom.js';
 import { isUuid } from './lib/validate.js';
 import { CONFIG } from './config.js';
-import { language, tx } from './i18n/index.js';
+import { language, languageChoice, tx } from './i18n/index.js';
 import { notMemberScreen, errorScreen } from './auth.js';
 import {
   currentProjectId,
@@ -180,11 +180,13 @@ export async function switchProject(id, reload = reloadPage, { route = '#/' } = 
   return true;
 }
 
-// Emails and the answers of Claude follow the language of the person: the one in use is saved in the profile.
-// Best effort: whatever happens, the site does not wait for it.
-export async function syncProfileLanguage(current = language) {
+// Emails and the answers of Claude follow the language of the person, saved in the profile. A language chosen on this
+// device is saved; a device left on automatic only fills a profile that has none, so it never overwrites the choice
+// made on another device. Best effort: whatever happens, the site does not wait for it.
+export async function syncProfileLanguage(current = language, choice = languageChoice) {
   const profile = await api.myProfile();
   if (!profile || profile.language === current) return false;
+  if (choice === 'auto' && profile.language) return false;
   await api.updateProfile({ language: current });
   return true;
 }

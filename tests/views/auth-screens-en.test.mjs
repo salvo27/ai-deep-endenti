@@ -145,12 +145,20 @@ describe('avvio in inglese', () => {
     router.stopRouter();
   });
 
-  it('salva l inglese nel profilo di chi usa il sito in inglese', async () => {
+  it('salva l inglese nel profilo di chi usa il sito in inglese e non ha ancora una lingua', async () => {
     const saved = [];
-    api.myProfile = async () => ({ user_id: ME, language: 'it' });
+    api.myProfile = async () => ({ user_id: ME, language: null });
     api.updateProfile = async (patch) => saved.push(patch);
     assert.equal(await app.syncProfileLanguage(), true);
     assert.deepEqual(saved, [{ language: 'en' }]);
+  });
+
+  it('un dispositivo in automatico non sovrascrive l italiano scelto su un altro dispositivo', async () => {
+    const saved = [];
+    api.myProfile = async () => ({ user_id: ME, language: 'it' });
+    api.updateProfile = async (patch) => saved.push(patch);
+    assert.equal(await app.syncProfileLanguage(), false);
+    assert.deepEqual(saved, []);
   });
 
   it('il segnaposto della pagina Progetti è in inglese', async () => {

@@ -134,7 +134,26 @@ describe('Profilo senza un progetto aperto', () => {
     assert.equal(card(outlet).querySelector('input[type="text"]').value, 'Anna dal profilo');
     assert.equal(card(outlet).querySelector('input[type="color"]').value, '#123456');
     assert.equal(text(card(outlet).querySelector('.profile-role')), 'anna@test.it · Nessun progetto aperto · Amministratore della piattaforma');
-    assert.match(text(outlet), /Arrivano a anna@test\.it\./, 'le email arrivano all indirizzo dell account');
+  });
+
+  // The database keeps email preferences only for whoever is in a project: switches here could only fail.
+  it('le email non offrono interruttori: dice che partono quando si entra in un progetto', async () => {
+    api.emailPrefs = record('emailPrefs', { mentions: true, weekly: true });
+    api.setEmailPrefs = record('setEmailPrefs', null);
+    const outlet = await open();
+    const emails = [...outlet.querySelectorAll('section.card')].find((s) => text(s.querySelector('h2')) === 'Email');
+    assert.equal(emails.querySelectorAll('input[type="checkbox"]').length, 0);
+    assert.match(text(emails), /Le email partono quando entri in un progetto\./);
+    assert.deepEqual(named('emailPrefs'), []);
+  });
+
+  it('quando la pagina Progetti mi ha già aggiunto a un progetto le email si scelgono', async () => {
+    store.setProjects([projects()[0]]);
+    api.emailPrefs = record('emailPrefs', { mentions: true, weekly: false });
+    const outlet = await open();
+    const emails = [...outlet.querySelectorAll('section.card')].find((s) => text(s.querySelector('h2')) === 'Email');
+    assert.equal(emails.querySelectorAll('input[type="checkbox"]').length, 2);
+    assert.match(text(emails), /Arrivano a anna@test\.it\./, 'le email arrivano all indirizzo dell account');
   });
 
   it('salva nel profilo senza rileggere membri che non ci sono', async () => {

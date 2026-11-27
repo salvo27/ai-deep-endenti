@@ -236,8 +236,12 @@ const EMAIL_OPTIONS = [
   ['weekly', t.emails.weekly, t.emails.weeklyHelp],
 ];
 
+// The database keeps the preferences only for whoever is in a project: a platform admin in none reads when emails start.
+const inSomeProject = () => Boolean(state.project || state.me || state.projects.length);
+
 function emailCard() {
   const e = t.emails;
+  if (!inSomeProject()) return h('section', { class: 'card card-stack' }, h('h2', null, e.title), h('p', { class: 'muted small' }, e.noProject));
   const status = h('p', { class: 'muted small' }, tx.common.states.loading);
   const boxes = {};
   const setAll = (prefs) => {
