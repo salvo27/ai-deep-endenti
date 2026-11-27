@@ -32,6 +32,11 @@ const seen = new Set();
 // Letture singole (clic su una notifica), oltre al «segna tutte come lette» che sposta lastRead.
 let readIds = new Set();
 
+// What was read is kept per project: reading everything in one project says nothing about the others.
+const LAST_READ = 'notificheLette';
+const READ_IDS = 'notificheLetteSingole';
+const readKey = (name) => `${name}:${currentProjectId()}`;
+
 const routeOf = (kind, id) => routeFor({ kind, id });
 const quoted = (title) => `«${title || 'senza titolo'}»`;
 
@@ -160,7 +165,7 @@ export const notifications = ({ includeRead = false } = {}) => (includeRead ? it
 export const unreadCount = () => items.filter(isUnread).length;
 
 function saveReadIds() {
-  writeLocal('notificheLetteSingole', [...readIds].slice(-200));
+  writeLocal(readKey(READ_IDS), [...readIds].slice(-200));
 }
 
 export function markRead(id) {
@@ -175,7 +180,7 @@ export function markAllRead() {
   const latest = items.reduce((max, note) => (note.at > max ? note.at : max), newest || '');
   lastRead = latest || new Date().toISOString();
   readIds = new Set();
-  writeLocal('notificheLette', lastRead);
+  writeLocal(readKey(LAST_READ), lastRead);
   saveReadIds();
   emit('notifications', { note: null, live: false });
 }
@@ -197,8 +202,8 @@ let offs = [];
 
 export async function startNotifications() {
   stopNotifications();
-  lastRead = readLocal('notificheLette', null);
-  const stored = readLocal('notificheLetteSingole', []);
+  lastRead = readLocal(readKey(LAST_READ), null);
+  const stored = readLocal(readKey(READ_IDS), []);
   readIds = new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
   await refreshNotifications();
   if (!lastRead) markAllRead();

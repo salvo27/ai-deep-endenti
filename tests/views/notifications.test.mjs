@@ -1,7 +1,10 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text } from '../setup/dom.mjs';
-import { IDS, ME, OTHER, boardItems, members } from '../setup/fixtures.mjs';
+import { IDS, ME, OTHER, PROJECT, boardItems, members } from '../setup/fixtures.mjs';
+
+// What was read is remembered per project.
+const READ = `notificheLette:${PROJECT}`;
 
 let api;
 let store;
@@ -21,6 +24,7 @@ before(async () => {
 beforeEach(() => {
   store.resetStore();
   store.state.user = { id: ME };
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   boardItems().forEach((i) => store.applyItem(i));
   localStorage.clear();
@@ -60,7 +64,7 @@ test('comments and saved Claude answers are announced, edits are not', () => {
 
 test('the feed keeps only what others did, counts unread and remembers what was read', async () => {
   localStorage.clear();
-  store.writeLocal('notificheLette', '2026-10-18T09:00:00Z');
+  store.writeLocal(READ, '2026-10-18T09:00:00Z');
   api.activityFeed = async () => ({
     revisions: [rev({ id: 2, op: 'create', created_at: '2026-10-18T10:00:00Z' }), rev({ id: 3, op: 'create', author_id: ME, created_at: '2026-10-18T10:05:00Z' }), rev({ id: 4, op: 'create', created_at: '2026-10-18T08:00:00Z' })],
     comments: [],
@@ -71,7 +75,7 @@ test('the feed keeps only what others did, counts unread and remembers what was 
   assert.equal(notes.unreadCount(), 1);
   notes.markAllRead();
   assert.equal(notes.unreadCount(), 0);
-  assert.equal(store.readLocal('notificheLette'), '2026-10-18T10:00:00Z');
+  assert.equal(store.readLocal(READ), '2026-10-18T10:00:00Z');
 });
 
 test('on first use the old activity is not dumped as unread', async () => {
@@ -82,7 +86,7 @@ test('on first use the old activity is not dumped as unread', async () => {
 });
 
 test('the bell shows live notifications, opens the list and marks them read', async () => {
-  store.writeLocal('notificheLette', '2026-10-18T09:00:00Z');
+  store.writeLocal(READ, '2026-10-18T09:00:00Z');
   api.activityFeed = async () => ({ revisions: [], comments: [] });
   const bell = bellView.notificationBell();
   document.body.append(bell);
@@ -103,7 +107,7 @@ test('the bell shows live notifications, opens the list and marks them read', as
 });
 
 test('read notifications leave the list, one by one or all together', async () => {
-  store.writeLocal('notificheLette', '2026-10-18T09:00:00Z');
+  store.writeLocal(READ, '2026-10-18T09:00:00Z');
   api.activityFeed = async () => ({
     revisions: [rev({ id: 11, op: 'create', title: 'Prima', created_at: '2026-10-18T10:00:00Z' }), rev({ id: 12, op: 'create', title: 'Seconda', created_at: '2026-10-18T11:00:00Z' }), rev({ id: 13, op: 'create', title: 'Terza', created_at: '2026-10-18T12:00:00Z' })],
     comments: [],
@@ -137,7 +141,7 @@ test('read notifications leave the list, one by one or all together', async () =
 });
 
 test('notifications missed while offline arrive with the next sync', async () => {
-  store.writeLocal('notificheLette', '2026-10-18T09:00:00Z');
+  store.writeLocal(READ, '2026-10-18T09:00:00Z');
   let calls = 0;
   api.activityFeed = async () => {
     calls += 1;
