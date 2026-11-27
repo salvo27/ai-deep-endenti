@@ -31,6 +31,7 @@ const S = {
   missing: 'eeeeeeee-0000-4000-8000-000000000099',
 };
 const IDEA3 = '11111111-1111-4111-8111-111111111113';
+const CONTACT = 'eeeeeeee-0000-4000-8000-000000000010';
 const TOKEN = 'TokenOfTheOpenSurvey01';
 const LOOK = { theme: 'automatico', accent: '#3b4bc8' };
 const freq = { points: 5, min_label: 'Never', max_label: 'Always', labels: ['Never', 'Rarely', 'Sometimes', 'Often', 'Always'] };
@@ -53,6 +54,7 @@ function surveyItems() {
     item({ id: S.open, kind: 'survey', title: 'Shifts on the ward', status: 'aperto', idea_id: IDS.idea, data: data({ token: TOKEN, questions: QUESTIONS }) }),
     item({ id: S.draft, kind: 'survey', title: 'Draft about shifts', status: 'bozza', idea_id: IDS.idea, data: data({ questions: QUESTIONS.slice(0, 2) }) }),
     item({ id: S.other, kind: 'survey', title: 'Beta poll', status: 'chiuso', idea_id: IDS.idea2, data: data({ token: 'TokenOfTheClosedSurvey', questions: [] }) }),
+    item({ id: CONTACT, kind: 'contact', title: 'Already heard', status: 'contattata', idea_id: IDS.idea, data: { contact: 'known@example.com' } }),
   ];
 }
 
@@ -76,7 +78,7 @@ function responses() {
     r(1, { answers: { role: 'a', last: 'week', f1: 4, f2: 4, f3: 4, times: 3, story: 'I swapped shifts three times in one week.' }, email: 'person1@example.com', recontact: true }),
     r(2, { answers: { role: 'b', last: 'month', f1: 2, f2: 3, f3: 5, times: 0, story: 'The ward was short and I stayed until the evening.' }, email: 'PERSON1@example.com', recontact: true, device: 'computer', duration_seconds: 400 }),
     r(3, { answers: { 'role:altro': 'Technician', last: 'week', f1: 5, f2: 1, f3: 2, times: 8, story: 'Ok' }, email: 'known@example.com', recontact: true }),
-    r(4, { answers: { role: 'a', last: 'month', f1: 1, f2: 2, f3: 3, times: 1, story: 'I asked a colleague to swap.' }, email: 'person4@example.com', recontact: false }),
+    r(4, { answers: { role: 'a', last: 'month', f1: 1, f2: 2, f3: 3, times: 1, story: 'I asked a colleague to swap.' }, email: 'person4@example.com', recontact: false, device: null }),
     r(5, { answers: { role: 'a', last: 'week' }, completed: false, duration_seconds: null }),
     r(6, { answers: { role: 'b' }, completed: false, duration_seconds: null, device: null }),
   ];
@@ -164,8 +166,8 @@ function choose(input) {
 // Italian words in the parts of a page that only the survey pages write: headings, field names, help, reasons, badges
 // and the labels read by screen readers. Option names, statuses and warnings come from other modules.
 const OWN = '.tabs, h2, .field-label, .field-help, .sv-reason, legend, .badge-ok, .save-bar, .sv-count, .sv-sample, .empty, .banner';
-// The colour names, the concept buttons and the header of a dialog come from other modules.
-const FOREIGN = '.sv-swatch, .concept-btn, .modal-header';
+// The colour names, the concept buttons, the header of a dialog and the quality flags come from other modules.
+const FOREIGN = '.sv-swatch, .concept-btn, .modal-header, .sv-response summary';
 function ownItalian(root = outlet) {
   const parts = [...root.querySelectorAll(OWN)].map((el) => {
     const copy = el.cloneNode(true);
@@ -700,6 +702,192 @@ describe('scheda Aspetto e impostazioni in inglese', () => {
   });
 });
 
+const rows = (root) => [...root.querySelectorAll('.sv-bar-row')].map(text);
+const question = (id) => outlet.querySelector(`.sv-question[data-id="${id}"]`);
+
+// A survey of its own for the cases the main one does not have: several answers, decimals and nobody answering.
+function useSpecialSurvey(questions, answers) {
+  store.applyItem(item({ ...store.getItem(S.draft), version: 2, status: 'aperto', data: { ...store.getItem(S.draft).data, token: 'TokenOfTheDraftSurvey1', questions } }));
+  api.listSurveyResponses = async () =>
+    answers.map((over, i) => ({ id: `ffffffff-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`, survey_id: S.draft, answers: {}, email: null, recontact: false, duration_seconds: 100, device: 'computer', completed: true, created_at: `2026-11-0${i + 1}T09:00:00Z`, ...over }));
+}
+
+describe('scheda Risposte in inglese', () => {
+  it('imbuto, nota sul campione e strumenti sono in inglese, con il numero accanto a ogni percentuale', async () => {
+    await visit(`#/questionario/${S.open}/risposte`);
+    assert.equal(text(outlet.querySelector('.sv-sample')), 'People who answer a shared link are not a representative sample: these numbers describe who answered, not everyone in your target. They are mostly for finding people to interview.');
+    for (const label of ['Refresh', 'Download CSV', 'Delete all responses']) assert.ok(byText(outlet, '.toolbar button', label), label);
+    const funnel = outlet.querySelector('.sv-funnel');
+    assert.equal(text(funnel.querySelector('h2')), 'Funnel');
+    assert.deepEqual([...funnel.querySelectorAll('.sv-bar-value')].map(text), ['100% (20 of 20)', '45% (9 of 20)', '10% (2 of 20)', '20% (4 of 20)']);
+    assert.equal(text(funnel.querySelector('p.small')), 'Completion: 44% (4 completed out of 9 started). Percentages are based on the larger of visits and starts. Visits are counted once for each device.');
+    assert.deepEqual(ownItalian(), []);
+    assertNoItalianSentence('risposte');
+  });
+
+  it('ogni domanda dice quanti hanno risposto, quanti si sono fermati e le mediane in inglese', async () => {
+    await visit(`#/questionario/${S.open}/risposte`);
+    assert.equal(text(question('role').querySelector('h3')), 'Q1. What is your job?');
+    assert.equal(text(question('role').querySelector('p.muted')), '6 of 6 who got this far answered · no answer 0% (0 of 6) · 1 stopped here');
+    assert.deepEqual(rows(question('role')), ['Nurse 50% (3 of 6)', 'Doctor 33% (2 of 6)', 'Other 17% (1 of 6)', 'Prefer not to say 0% (0 of 6)']);
+    assert.equal(text(question('role').querySelector('.sv-other summary')), 'Texts for “Other” (1)');
+    assert.deepEqual(rows(question('f1')), ['1 Never 25% (1 of 4)', '2 Rarely 25% (1 of 4)', '3 Sometimes 0% (0 of 4)', '4 Often 25% (1 of 4)', '5 Always 25% (1 of 4)']);
+    assert.match(text(question('f1')), /Median: 3 \(Sometimes\) · n = 4/);
+    assert.match(text(question('times')), /Median 2 · from 0 to 8 · n = 4/);
+    assert.match(text(question('mail')), /Emails left: 4, 3 of them asking to be contacted again\./);
+    const story = question('story');
+    const search = story.querySelector('input[type="search"]');
+    assert.equal(search.getAttribute('placeholder'), 'Search the responses');
+    assert.equal(search.getAttribute('aria-label'), 'Search the responses: Tell us about the last time');
+    typeInto(search, 'colleague');
+    assert.deepEqual([...story.querySelectorAll('.sv-texts li')].filter((li) => !li.hidden).map(text), ['Response 4: I asked a colleague to swap.']);
+  });
+
+  it('tempo di compilazione, qualità e singole risposte sono in inglese', async () => {
+    await visit(`#/questionario/${S.open}/risposte`);
+    const body = text(outlet);
+    assert.match(body, /Completion time/);
+    assert.match(body, /Median: 4 min \(n = 4 complete responses\)/);
+    assert.equal([...outlet.querySelectorAll('.sv-devices li')].map(text).at(-1), 'Device not given: 4 min (n = 1)');
+    const quality = outlet.querySelector('.sv-quality');
+    assert.equal(text(quality.querySelector('h2')), 'Response quality');
+    assert.equal(text(quality.querySelector('label.check')), 'Exclude flagged responses (2)');
+    assert.match(text(quality), /Flags never delete anything: look at the responses and decide for yourselves\. Speed is compared with the median only from 20 complete responses up\. A question is “too fast” if it was answered in less than 0\.3 seconds for each word: times for each question exist only in newer responses\./);
+    assert.ok(byText(outlet, 'h2', 'Questions (6 responses)'));
+    assert.ok(byText(outlet, 'h2', 'Individual responses (6)'));
+    const first = outlet.querySelector('.sv-response[data-n="1"]');
+    assert.match(text(first.querySelector('summary')), /^Response 1 · .+ · complete · 4 min · /);
+    assert.match(text(outlet.querySelector('.sv-response[data-n="5"] summary')), /^Response 5 · .+ · unfinished/);
+    assert.deepEqual([...first.querySelectorAll('dt')].map(text).at(-1), 'Contact again');
+    assert.equal(text([...first.querySelectorAll('dd')].at(-1)), 'yes');
+    assert.equal(text([...outlet.querySelector('.sv-response[data-n="4"]').querySelectorAll('dd')].at(-1)), 'no');
+    assert.ok(byText(first, 'button', 'Delete this response'));
+
+    choose(quality.querySelector('input[type="checkbox"]'));
+    await flush();
+    assert.ok(byText(outlet, 'h2', 'Questions (4 responses, without the flagged ones)'));
+  });
+
+  it('le risposte troppo veloci sono segnate in inglese', async () => {
+    const list = responses();
+    list[0].question_seconds = { role: 0.4, last: 0.5, f1: 0.3, f2: 4, f3: 4, times: 5, story: 40 };
+    list[1].question_seconds = { role: 5, last: 6, f1: 4, f2: 4, f3: 4, times: 5, story: 40 };
+    api.listSurveyResponses = async () => list;
+    await visit(`#/questionario/${S.open}/risposte`);
+    const rushed = question('role').querySelector('.sv-rushed');
+    assert.equal(text(rushed), '· 1 answered too fast');
+    assert.equal(rushed.getAttribute('title'), 'Less than 0.3 seconds for each word of the question: hard to have read it');
+    const badge = outlet.querySelector('.sv-response[data-n="1"] .sv-rushed-badge');
+    assert.equal(text(badge), 'too fast');
+    assert.equal(badge.getAttribute('title'), 'Less than 0.3 seconds for each word of the question');
+  });
+
+  it('più risposte possibili, decimali e domande senza risposte si leggono in inglese', async () => {
+    const many = { id: 'many', type: 'scelte', label: 'Which tools do you use?', role: 'problema', options: [{ id: 'x', label: 'Paper' }, { id: 'y', label: 'Spreadsheet' }] };
+    const level = { id: 'level', type: 'scala', label: 'How hard is it?', role: 'problema', scale: { points: 5, labels: ['', '', '', '', ''] } };
+    const amount = { id: 'amount', type: 'numero', label: 'How much do you spend?', role: 'problema' };
+    const unused = { id: 'unused', type: 'numero', label: 'How many people?', role: 'problema' };
+    const note = { id: 'note', type: 'breve', label: 'Anything else?', role: 'altro' };
+    useSpecialSurvey([many, level, amount, unused, note], [{ answers: { many: ['x', 'y'], level: 3, amount: 1000 } }, { answers: { many: ['x'], level: 4, amount: 1469 } }]);
+    await visit(`#/questionario/${S.draft}/risposte`);
+    assert.match(text(question('many')), /More than one answer allowed: percentages do not add up to 100\./);
+    assert.match(text(question('level')), /Median: 3\.5 · n = 2/);
+    assert.match(text(question('amount')), /Median 1,234\.5 · from 1,000 to 1,469 · n = 2/);
+    assert.match(text(question('unused')), /No answers\./);
+    assert.match(text(question('note')), /No answers\./);
+    assert.match(text(outlet), /No flagged responses\./);
+  });
+
+  it('senza durate e senza risposte lo dice in inglese', async () => {
+    useSpecialSurvey([QUESTIONS[0]], [{ answers: { role: 'a' }, completed: false, duration_seconds: null }]);
+    await visit(`#/questionario/${S.draft}/risposte`);
+    assert.match(text(outlet), /No complete responses with a duration yet\./);
+    assert.ok(byText(outlet, 'h2', 'Questions (1 response)'));
+    api.listSurveyResponses = async () => [];
+    await visit(`#/questionario/${S.draft}/risposte`);
+    assert.equal(text(outlet.querySelector('.survey-results .empty')), 'No responses yet. Open the survey and share the link from the Share tab.');
+  });
+
+  it('il CSV ha nome, dialogo e separatore in inglese', async () => {
+    const downloads = [];
+    URL.createObjectURL = (blob) => {
+      downloads.push(blob);
+      return 'blob:test';
+    };
+    URL.revokeObjectURL = () => {};
+    const click = window.HTMLAnchorElement.prototype.click;
+    window.HTMLAnchorElement.prototype.click = function save() {
+      downloads.push(this.download);
+    };
+    try {
+      await visit(`#/questionario/${S.open}/risposte`);
+      byText(outlet, 'button', 'Download CSV').click();
+      await flush(2);
+      assert.equal(dialog().getAttribute('aria-label'), 'Download the responses');
+      const body = text(dialog().querySelector('.modal-body'));
+      assert.match(body, /^A CSV file with 6 rows, one for each response, that opens in Excel, Numbers or Google Sheets\./);
+      assert.match(body, /Include the emails/);
+      assert.match(body, /Emails are personal data: include them only if you need them and do not share the file\./);
+      await answerDialog('Download');
+      assert.match(downloads[1], /^survey-shifts-on-the-ward-\d{4}-\d{2}-\d{2}\.csv$/);
+      const lines = (await downloads[0].text()).split('\r\n');
+      assert.equal(lines.length, 7);
+      assert.ok(lines[0].includes(',What is your job?,"The last time it happened, when was it?",How often do you swap shifts?,'), lines[0]);
+      assert.match(lines[3], /^3,/);
+      assert.doesNotMatch(lines[0], /;What is your job\?;/);
+    } finally {
+      window.HTMLAnchorElement.prototype.click = click;
+    }
+  });
+
+  it('chi chiede di essere ricontattato diventa un contatto con testi in inglese', async () => {
+    await visit(`#/questionario/${S.open}/risposte`);
+    const box = () => outlet.querySelector('.sv-contacts');
+    assert.equal(text(box().querySelector('h2')), 'People to contact again');
+    assert.match(text(box()), /2 people left an email to be contacted again; 1 already in Contacts\./);
+    assert.ok(byText(box(), '.badge-ok', 'already in Contacts'));
+    assert.match(text(box()), /Each person becomes a contact of the idea with the status To contact, along with their email and the survey they came from\./);
+    byText(box(), 'button', 'Add to Contacts (1)').click();
+    await flush(5);
+    assert.equal(created.length, 1);
+    const [contact] = created;
+    assert.equal(contact.title, 'Nurse (response 1)');
+    assert.equal(contact.status, 'da_contattare', 'lo stato salvato resta lo stesso');
+    assert.equal(contact.data.purpose, 'cliente');
+    assert.equal(contact.data.via, 'Survey “Shifts on the ward”');
+    assert.match(contact.data.notes, /^The person asked to be contacted again in response 1 of .+\.$/);
+    assert.equal(contact.message, 'From the survey “Shifts on the ward”');
+    assert.match(toasts(), /1 person added to Contacts\./);
+  });
+
+  it('una sola persona senza risposta su di sé ha un titolo in inglese', async () => {
+    useSpecialSurvey([QUESTIONS[0], QUESTIONS[7]], [{ answers: {}, email: 'solo@example.com', recontact: true }]);
+    await visit(`#/questionario/${S.draft}/risposte`);
+    assert.match(text(outlet.querySelector('.sv-contacts')), /1 person left an email to be contacted again\./);
+    byText(outlet, '.sv-contacts button', 'Add to Contacts (1)').click();
+    await flush(5);
+    assert.equal(created[0].title, 'Response 1 to the survey');
+  });
+
+  it('cancellare una o tutte le risposte chiede conferma in inglese', async () => {
+    await visit(`#/questionario/${S.open}/risposte`);
+    byText(outlet.querySelector('.sv-response[data-n="2"]'), 'button', 'Delete this response').click();
+    await flush(2);
+    assert.equal(dialog().getAttribute('aria-label'), 'Delete the response?');
+    assert.equal(text(dialog().querySelector('.modal-body')), 'Response 2 will be deleted for good.');
+    await answerDialog('Delete');
+    assert.match(toasts(), /Response deleted\./);
+
+    byText(outlet, 'button', 'Delete all responses').click();
+    await flush(2);
+    assert.equal(dialog().getAttribute('aria-label'), 'Delete all responses?');
+    assert.equal(text(dialog().querySelector('.modal-body')), 'All 6 responses will be deleted for good, along with the count of visits and starts.');
+    await answerDialog('Delete all');
+    assert.deepEqual(deleted.at(-1), [S.open, null]);
+    assert.match(toasts(), /6 responses deleted\./);
+  });
+});
+
 describe('testi dei questionari in inglese, uno per uno', () => {
   it('domande e avvisi si contano al singolare e al plurale', () => {
     const { list } = i18n.tx.surveyEditor;
@@ -712,5 +900,56 @@ describe('testi dei questionari in inglese, uno per uno', () => {
       assert.equal(list.questions(n), questions);
       assert.equal(list.warnings(n), warnings);
     }
+  });
+
+  it('righe, persone e risposte cancellate si contano al singolare e al plurale', () => {
+    const { results } = i18n.tx.surveyEditor;
+    for (const [n, rowsText, added, deletedText, title] of [
+      [0, 'A CSV file with 0 rows', '0 people added to Contacts.', '0 responses deleted.', 'Questions (0 responses)'],
+      [1, 'A CSV file with 1 row,', '1 person added to Contacts.', '1 response deleted.', 'Questions (1 response)'],
+      [2, 'A CSV file with 2 rows', '2 people added to Contacts.', '2 responses deleted.', 'Questions (2 responses)'],
+      [25, 'A CSV file with 25 rows', '25 people added to Contacts.', '25 responses deleted.', 'Questions (25 responses)'],
+    ]) {
+      assert.ok(results.csvIntro(n).startsWith(rowsText), results.csvIntro(n));
+      assert.equal(results.added(n), added);
+      assert.equal(results.deleted(n), deletedText);
+      assert.equal(results.questionsTitle(n, false), title);
+    }
+    assert.equal(results.questionsTitle(3, true), 'Questions (3 responses, without the flagged ones)');
+  });
+
+  it('chi ha lasciato l email si conta al singolare e al plurale, con chi è già nei Contatti', () => {
+    const { results } = i18n.tx.surveyEditor;
+    for (const [total, already, sentence] of [
+      [1, 0, '1 person left an email to be contacted again.'],
+      [1, 1, '1 person left an email to be contacted again; 1 already in Contacts.'],
+      [2, 0, '2 people left an email to be contacted again.'],
+      [25, 3, '25 people left an email to be contacted again; 3 already in Contacts.'],
+    ]) assert.equal(results.leftEmail(total, already), sentence);
+  });
+
+  it('cancellare tutte le risposte quando ce n è una sola non dice tutte', () => {
+    const { results } = i18n.tx.surveyEditor;
+    assert.equal(results.deleteAllText(1), 'The only response will be deleted for good, along with the count of visits and starts.');
+    assert.equal(results.deleteAllText(2), 'All 2 responses will be deleted for good, along with the count of visits and starts.');
+  });
+
+  it('i testi con un numero dentro mettono le parole nell ordine dell inglese', () => {
+    const { questions, results, settings, page } = i18n.tx.surveyEditor;
+    for (const [actual, expected] of [
+      [questions.moveUp(questions.questionRef(3)), 'Move question 3 up'],
+      [questions.moveDown(questions.sectionRef('About you')), 'Move the section “About you” down'],
+      [questions.optionUp(2), 'Move option 2 up'],
+      [questions.pointsOption(7), '7 points'],
+      [questions.maxQuestions(40), 'At most 40 questions.'],
+      [settings.previewCounter(3, 10), 'Question 3 of 10'],
+      [results.stoppedHere(2), '2 stopped here'],
+      [results.rushed(4), '4 answered too fast'],
+      [results.answered(5, 9), '5 of 9 who got this far answered'],
+      [page.comments(0), 'Comments'],
+      [page.comments(12), 'Comments (12)'],
+      [i18n.tx.surveyEditor.questionNumber(9), 'Q9'],
+    ]) assert.equal(actual, expected);
+    assert.equal(questions.onlyOneEmail, 'There can be only one email question.');
   });
 });
