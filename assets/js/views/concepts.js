@@ -1,13 +1,15 @@
-// i18n: da tradurre
 import { h, mount } from '../lib/dom.js';
 import { CHAPTERS, CONCEPTS, VERIFIED_ON } from '../concepts.js';
 import { KINDS } from '../schema.js';
+import { tx } from '../i18n/index.js';
 import { emptyState } from './components.js';
 import { conceptBody } from './concept-help.js';
 
+const t = tx.concepts;
 const normalize = (text) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const ADDED_CHAPTER = 11;
 
-export const CONCEPTS_INTRO = `I concetti di «Il manuale dello startupper» e del capitolo sul deep tech, spiegati in breve e collegati agli strumenti della board. Norme e dati verificati il ${VERIFIED_ON}: ricontrollali prima di decidere.`;
+export const CONCEPTS_INTRO = t.intro(VERIFIED_ON);
 
 // Seconda scheda della Guida: filtri ed elenco dei concetti, con in evidenza quello aperto da un link.
 export function conceptsPanel(focus) {
@@ -36,7 +38,7 @@ export function conceptsPanel(focus) {
             return h(
               'section',
               { class: 'concept-chapter' },
-              h('h2', null, n === 11 ? 'Deep tech (capitolo aggiunto)' : `${n}. ${label}`),
+              h('h2', null, n === ADDED_CHAPTER ? t.addedChapter(label) : `${n}. ${label}`),
               h(
                 'div',
                 { class: 'cards' },
@@ -51,15 +53,15 @@ export function conceptsPanel(focus) {
               ),
             );
           })
-        : emptyState('Nessun concetto con questi filtri.'),
+        : emptyState(t.panel.noMatch),
     );
   };
 
   const searchInput = h('input', {
     class: 'input',
     type: 'search',
-    placeholder: 'Cerca un concetto',
-    'aria-label': 'Cerca un concetto',
+    placeholder: t.panel.search,
+    'aria-label': t.panel.search,
     onInput: (event) => {
       search = event.target.value.trim();
       render();
@@ -67,21 +69,21 @@ export function conceptsPanel(focus) {
   });
   const chapterSelect = h(
     'select',
-    { class: 'input', 'aria-label': 'Capitolo', onChange: (event) => { chapter = Number(event.target.value); render(); } },
-    h('option', { value: 0 }, 'Tutti i capitoli'),
-    CHAPTERS.map(([n, label]) => h('option', { value: n }, n === 11 ? 'Deep tech' : `${n}. ${label}`)),
+    { class: 'input', 'aria-label': t.panel.chapter, onChange: (event) => { chapter = Number(event.target.value); render(); } },
+    h('option', { value: 0 }, t.panel.allChapters),
+    CHAPTERS.map(([n, label]) => h('option', { value: n }, n === ADDED_CHAPTER ? label : `${n}. ${label}`)),
   );
   const phaseSelect = h(
     'select',
-    { class: 'input', 'aria-label': 'Fase dell\'idea', onChange: (event) => { phase = event.target.value; render(); } },
-    h('option', { value: '' }, 'Tutte le fasi'),
+    { class: 'input', 'aria-label': t.panel.phase, onChange: (event) => { phase = event.target.value; render(); } },
+    h('option', { value: '' }, t.panel.allPhases),
     KINDS.idea.statuses.map(([value, label]) => h('option', { value }, label)),
   );
   const minorToggle = h(
     'label',
     { class: 'check' },
     h('input', { type: 'checkbox', checked: true, onChange: (event) => { showMinor = event.target.checked; render(); } }),
-    'Mostra anche i temi secondari',
+    t.panel.showMinor,
   );
 
   render();
