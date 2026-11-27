@@ -1,4 +1,4 @@
-import { test, before, beforeEach, afterEach } from 'node:test';
+import { describe, it, test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText } from '../setup/dom.mjs';
 import { IDS, ME, OTHER, PROJECT, boardItems, members } from '../setup/fixtures.mjs';
@@ -11,6 +11,7 @@ let chat;
 let mentions;
 let shell;
 let comments;
+let chips;
 let original;
 let outlet;
 
@@ -28,6 +29,7 @@ before(async () => {
   mentions = await import('../../assets/js/mentions.js');
   shell = await import('../../assets/js/views/shell.js');
   comments = await import('../../assets/js/views/comments.js');
+  chips = await import('../../assets/js/views/mention-chip.js');
   original = { ...api };
   router.clearRoutes();
   app.registerRoutes();
@@ -180,4 +182,30 @@ test('on a phone a tap picks the person, and the list opens above when the keybo
   option.click();
   assert.equal(area.value, 'Per @[Chiara] ');
   panel.remove();
+});
+
+// A member without a profile (added from the SQL Editor, say) comes from members_overview with no name.
+describe('persone del progetto senza nome', () => {
+  const NAMELESS = '00000000-0000-4000-8000-0000000000ff';
+  const withNameless = () => store.setMembers([{ user_id: NAMELESS, display_name: null, role: 'member', color: null }, ...members()]);
+
+  it('i tag nei testi si leggono lo stesso', () => {
+    withNameless();
+    assert.equal(chips.mentionChip('Bruno').textContent, '@Bruno');
+    assert.equal(chips.mentionChip('Nessuno così'), '@Nessuno così');
+    assert.equal(chips.mentionsMe('Ciao @[Anna]'), true);
+  });
+
+  it('scrivendo @ si suggeriscono le persone con un nome, senza errori', async () => {
+    withNameless();
+    api.listComments = async () => [];
+    const panel = comments.commentsPanel(store.getItem(IDS.idea));
+    document.body.append(panel);
+    await flush(3);
+    const area = panel.querySelector('textarea');
+    type(area, 'Per @');
+    const names = [...panel.querySelectorAll('.mention-menu .mention-option')].map((o) => text(o.firstElementChild.nextElementSibling));
+    assert.deepEqual(names, ['Bruno', 'Chiara', 'avvisa tutta la squadra']);
+    panel.remove();
+  });
 });

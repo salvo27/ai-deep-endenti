@@ -34,7 +34,7 @@ export function attachMentions(textarea, { above = false } = {}) {
   const candidates = (query) => {
     const q = query.toLowerCase();
     const people = state.members
-      .filter((m) => m.user_id !== state.user?.id && m.display_name.toLowerCase().includes(q))
+      .filter((m) => m.user_id !== state.user?.id && typeof m.display_name === 'string' && m.display_name.toLowerCase().includes(q))
       .map((m) => ({ name: m.display_name, id: m.user_id }));
     return [...people, ...(ALL.startsWith(q) ? [{ name: ALL, all: true }] : [])].slice(0, 6);
   };

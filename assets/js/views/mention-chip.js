@@ -5,7 +5,8 @@ import { state } from '../store.js';
 
 // «@Nome» evidenziato se è un membro (o «tutti»), con un colore diverso se riguarda chi legge.
 export function mentionChip(name) {
-  const member = state.members.find((m) => m.display_name.toLowerCase() === name.toLowerCase());
+  // A member without a profile has no name: nobody can tag them.
+  const member = state.members.find((m) => typeof m.display_name === 'string' && m.display_name.toLowerCase() === name.toLowerCase());
   const everyone = name.toLowerCase() === ALL;
   if (!member && !everyone) return `@${name}`;
   const me = everyone || member.user_id === state.user?.id;
