@@ -1,11 +1,13 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setupDom, flush } from '../setup/dom.mjs';
 import { IDS, ME, boardItems, members, revision, XSS } from '../setup/fixtures.mjs';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+// fileURLToPath and not .pathname: on Windows the pathname starts with /C:/ and the files are not found.
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((name) => {
@@ -102,7 +104,8 @@ test('no source file builds HTML from strings or evaluates code', () => {
 test('views fill elements through the null-safe helpers', () => {
   for (const file of sourceFiles(join(ROOT, 'assets/js'))) {
     const source = readFileSync(file, 'utf8');
-    if (!file.endsWith('lib/dom.js') && !file.endsWith('router.js')) assert.doesNotMatch(source, /\.replaceChildren\(/, `${file}: usa mount()`);
+    const name = file.split(sep).join('/');
+    if (!name.endsWith('lib/dom.js') && !name.endsWith('router.js')) assert.doesNotMatch(source, /\.replaceChildren\(/, `${file}: usa mount()`);
   }
 });
 
