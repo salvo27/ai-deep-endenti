@@ -54,7 +54,7 @@ function roleLine() {
 }
 
 // Name and colour live in the profile and hold in every project. Inside a project the members list already has them;
-// without one (a platform administrator in no project) they are read from the profile.
+// without one (a platform admin in no project) they are read from the profile.
 function profileCard() {
   const c = t.card;
   const name = h('input', { class: 'input', type: 'text', maxlength: LIMITS.displayName, value: state.me?.display_name || '' });
@@ -302,7 +302,7 @@ function sessionCard() {
   );
 }
 
-// Open to whoever is signed in, with or without a project: the menu of a platform administrator in no project offers it.
+// Open to whoever is signed in, with or without a project: the menu of a platform admin in no project offers it.
 export function profileView(outlet) {
   if (!state.user) {
     mount(outlet, errorBox({ message: t.unavailable }));

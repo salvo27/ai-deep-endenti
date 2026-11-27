@@ -63,7 +63,7 @@ const PROJECTS_PATH = '/progetti';
 const PROFILE_PATH = '/profilo'; // i18n-ignore: address
 
 // A project is open when the store has one, or the members of one: they are read only for the open project.
-// app.js starts a platform administrator who is in no project without either.
+// app.js starts a platform admin who is in no project without either.
 const projectOpen = () => Boolean(state.project || state.me);
 
 export function searchItems(query, limit = 8) {
@@ -265,7 +265,7 @@ export function buildShell(root, { onSignOut, onSwitchProject = () => false }) {
     menuButton.classList.toggle('has-unread', n > 0);
   };
   const switcher = projectSwitch(onSwitchProject);
-  // Only for platform administrators; it follows the Projects page, which can add or remove one.
+  // Only for platform admins; it follows the Projects page, which can add or remove one.
   const projectsLink = h('a', { class: 'nav-link', href: `#${PROJECTS_PATH}`, dataset: { path: PROJECTS_PATH } }, icon('columns', 18), h('span', null, t.nav.projects));
   const projectBox = h('div', { class: 'project-box' });
   const renderProjectBox = () => mount(projectBox, switcher.box, isPlatformAdmin() ? projectsLink : null);

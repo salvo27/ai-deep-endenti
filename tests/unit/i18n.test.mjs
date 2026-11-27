@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { en } from '../../assets/js/i18n/en/index.js';
 import { it as italiano } from '../../assets/js/i18n/it/index.js';
 import {
@@ -17,6 +17,24 @@ import {
 import { applyDocumentLanguage, language, locale, saveLanguageChoice, storedChoice, textsFor, tx } from '../../assets/js/i18n/index.js';
 
 const ALL = { it: italiano, en };
+
+// One word for one role: the glossary says "platform admin", and so do every English text of the site, of the public
+// survey page and of the Edge Functions.
+describe('un nome solo per chi amministra la piattaforma', () => {
+  const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
+  const files = [
+    ...readdirSync(new URL('../../assets/js/i18n/en/', import.meta.url)).map((name) => `assets/js/i18n/en/${name}`),
+    'assets/js/public/texts.js',
+    'supabase/functions/claude/texts.js',
+    'supabase/functions/claude/prompts.js',
+    'supabase/functions/notify/texts.js',
+  ];
+  for (const file of files) {
+    it(`${file} dice platform admin, mai platform administrator`, () => {
+      assert.doesNotMatch(read(file), /platform administrator/i);
+    });
+  }
+});
 
 // Before main.js sets the language, and without JavaScript, the page says what it says in English, the default, and in
 // Italian: screen readers and translators read the right language, and an Italian visitor is not left without words.

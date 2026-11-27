@@ -29,7 +29,7 @@ export function cleanProjectName(value) {
 const invalidName = () => ({ message: tx.serverErrors.invalid_project_name });
 
 // My projects and my role on the platform, as the menu shows them: they change when I add or remove myself, rename or
-// archive one of mine, or stop being a platform administrator. The menu hears it from the 'projects' event.
+// archive one of mine, or stop being a platform admin. The menu hears it from the 'projects' event.
 async function refreshMine() {
   try {
     setProjects(await api.myProjects());
@@ -127,7 +127,7 @@ function addPersonForm(project, onAdded) {
   return form;
 }
 
-// The people of one project, from members_overview: the platform administrator reads them even without being a member.
+// The people of one project, from members_overview: the platform admin reads them even without being a member.
 function peoplePanel(initial, { onClose, onChanged }) {
   const p = t.people;
   let project = initial;

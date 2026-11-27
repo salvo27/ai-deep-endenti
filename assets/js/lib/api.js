@@ -190,7 +190,7 @@ export const api = {
     await unwrap(supabase.auth.mfa.unenroll({ factorId }), t.failed.unenroll);
   },
 
-  // Projects: the ones of the person, and for the platform administrator all of them.
+  // Projects: the ones of the person, and for the platform admin all of them.
   async myProjects() {
     return (await unwrap(supabase.rpc('my_projects'))) || [];
   },
@@ -222,7 +222,7 @@ export const api = {
     return unwrap(supabase.rpc('unarchive_project', { p_project: project }), t.failed.restore);
   },
 
-  // The platform administrators with the name of their profile (null for whoever has none yet).
+  // The platform admins with the name of their profile (null for whoever has none yet).
   async platformAdmins() {
     const admins = (await unwrap(supabase.from('platform_admins').select('user_id,created_at').order('created_at'))) || [];
     if (!admins.length) return [];
@@ -465,7 +465,7 @@ export const api = {
   },
 
   // { projectId, limit }: a project (the open one when missing) or, with projectId null, the whole platform, as the
-  // platform administrator reads it. A number alone is the limit, as the pages written before the projects pass it.
+  // platform admin reads it. A number alone is the limit, as the pages written before the projects pass it.
   async auditLog(options = {}) {
     const { projectId: project, limit = 100 } = typeof options === 'number' ? { limit: options } : options || {};
     let query = supabase.from('audit_log').select('*');
