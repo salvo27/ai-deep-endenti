@@ -1,2 +1,63 @@
 // Testi in italiano: è la lingua di riferimento, l'inglese ne segue la forma.
-export const generator = {};
+// Generatore: una griglia che incrocia le competenze del team (righe) con i settori (colonne).
+export const generator = {
+  title: 'Generatore',
+  subtitle: 'Righe: cosa sa fare il team, con chi ha quella competenza. Colonne: settori, con chi li conosce. Ogni cella è uno spunto; quelle promettenti diventano idee.',
+  empty: 'Incrocia le capacità del team con i settori per trovare idee nuove.',
+  createDefault: 'Crea la griglia predefinita',
+  // La griglia che il sito crea, nella lingua di chi la crea. «Machine learning» è uguale in ogni lingua: sta nel codice.
+  defaults: {
+    itemTitle: 'Generatore di idee',
+    message: 'Griglia iniziale',
+    agents: 'Agenti LLM',
+    optimisation: 'Ottimizzazione',
+    health: 'Sanità',
+    finance: 'Finanza',
+    industry: 'Industria',
+  },
+  addRow: 'Riga',
+  addColumn: 'Colonna',
+  editAxis: (label) => `Modifica ${label}`,
+  removeAxis: (label) => `Togli ${label}`,
+  cellLabel: (row, col) => `${row} per ${col}`,
+  ideasCount: (n) => `${n} idee`,
+  cell: {
+    notes: 'Spunti',
+    placeholder: 'Spunti, clienti possibili, paper collegati',
+    potentials: ['Potenziale: nessuna valutazione', 'Potenziale: basso', 'Potenziale: medio', 'Potenziale: alto'],
+    skill: (row) => `Competenza (${row})`,
+    sector: (col) => `Settore (${col})`,
+    askClaude: 'Chiedi idee a Claude',
+    addToNotes: 'Aggiungi agli spunti',
+    createIdea: 'Crea un\'idea da questa cella',
+    born: 'Idee nate da questa cella',
+    save: 'Salva la cella',
+    message: (row, col) => `Generatore: ${row} × ${col}`,
+    saved: 'Cella salvata.',
+  },
+  // Riga e colonna hanno ognuna le sue frasi: in italiano cambiano articolo e accordo.
+  rows: {
+    newTitle: 'Nuova riga',
+    editTitle: 'Modifica la riga',
+    who: 'Chi nel team ha questa competenza',
+    others: 'Altre persone con questa competenza',
+    added: (name) => `Generatore: nuova riga «${name}»`,
+    edited: (name) => `Generatore: modificata riga «${name}»`,
+  },
+  cols: {
+    newTitle: 'Nuova colonna',
+    editTitle: 'Modifica la colonna',
+    who: 'Chi nel team conosce questo settore',
+    others: 'Altre persone che conoscono il settore',
+    added: (name) => `Generatore: nuova colonna «${name}»`,
+    edited: (name) => `Generatore: modificata colonna «${name}»`,
+  },
+  axis: {
+    name: 'Nome',
+    othersPlaceholder: 'Per esempio un docente o un partner esterno',
+    noMembers: 'Nessun membro nel team.',
+    removeQuestion: (label) => `Togliere «${label}» dalla griglia? Le celle collegate restano nello storico.`,
+    remove: 'Togli',
+    removed: (label) => `Generatore: tolta «${label}»`,
+  },
+};
