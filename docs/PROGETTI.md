@@ -38,7 +38,9 @@ Tutto richiede la verifica in due passaggi (`aal2` nel token), come prima. Un pr
 - `add_member(p_project, p_email, p_display_name, p_role)`: crea il profilo se manca, senza mai rinominare chi ne ha già uno. Ruolo e uscita dal progetto si cambiano su `members` con le regole di accesso (solo `can_manage`) e il trigger dell'ultimo admin.
 - `members_overview(p_project)`: come prima (nome, colore, ruolo, email, ultimo accesso, 2FA), ma solo per quel progetto e con l'ultima attività calcolata sui dati di quel progetto.
 - `create_item(p_project, p_kind, p_title, p_status, p_data, p_idea, p_message)`; le altre operazioni sugli elementi ricavano il progetto dall'elemento.
-- `chat_overview(p_project)`; `note_image_orphans(p_project, p_paths)` e `survey_image_orphans(p_project, p_paths)` guardano solo le immagini di quel progetto.
+- `chat_overview(p_project)`; `mark_mentions_read(p_project, p_ids)` segna lette solo le menzioni di quel progetto («Segna tutte come lette» non tocca gli altri); `note_image_orphans(p_project, p_paths)` e `survey_image_orphans(p_project, p_paths)` guardano solo le immagini di quel progetto.
+- Gli identificativi di elementi e chat li sceglie il database quando li crea il sito: nessuno può dare a un elemento nuovo l'id di una chat o di un'idea di un altro progetto.
+- Un'unica istruzione che cambia o toglie membri di più progetti viene rifiutata (`not_allowed`): si lavora un progetto alla volta.
 - Menzioni: `@[tutti]` e `@[Nome]` cercano solo tra i membri del progetto del testo.
 - Email: i dati per la funzione `notify` portano progetto, nome del progetto e lingua di chi riceve; il riepilogo del lunedì è uno per persona e per progetto.
 
@@ -61,8 +63,10 @@ Le regole di accesso sulle tabelle rifiutano con il `42501` di Postgres.
 
 ### Storage e tempo reale
 
-- Le immagini restano dove sono: la prima cartella del percorso è un'idea, un questionario, un gruppo di spese o una chat, e `storage_project(name)` ne ricava il progetto. Leggere, caricare e cancellare seguono i ruoli di quel progetto, come prima. Nessun file va spostato.
+- Le immagini restano dove sono: la prima cartella del percorso è un'idea, un questionario, un gruppo di spese o una chat, e `storage_project(name)` ne ricava il progetto (solo per chi quel progetto lo può leggere). Leggere, caricare e cancellare seguono i ruoli di quel progetto, come prima. Nessun file va spostato.
 - La presenza online usa un canale per progetto, `board:<id del progetto>`, autorizzato da `can_read` di quel progetto. Gli aggiornamenti dal vivo delle tabelle passano già dalle regole di accesso, quindi ognuno riceve solo quelli dei suoi progetti.
+- `members` e `profiles` non mandano più aggiornamenti dal vivo: le cancellazioni arriverebbero a tutti i collegati, di ogni progetto. Il sito rilegge i membri entrando nelle pagine e a intervalli, come fa già con gli elementi.
+- L'ultima attività in `members_overview` conta accessi e sessioni solo per chi ha un solo progetto: per chi ne ha più di uno conta solo quello che ha fatto in quel progetto, così un admin non vede cosa fa una persona negli altri.
 
 ### Aggiornamento dei dati esistenti
 
