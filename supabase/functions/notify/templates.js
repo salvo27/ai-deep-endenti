@@ -1,12 +1,23 @@
-// Testi delle email in italiano semplice. Tutto ciò che scrivono gli utenti passa da escapeHtml.
-export const APP_NAME = 'ai-deep-endenti';
+// Le email, una per persona e progetto, nella lingua di chi riceve (texts.js). Tutto ciò che scrivono gli utenti passa da escapeHtml.
+import { APP_NAME, LOCALES, TEXTS, languageOf } from './texts.js';
+
+export { APP_NAME };
 export const MAX_LIST = 5;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-const dayFormat = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-const timeFormat = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+const formats = new Map();
+function format(language, kind) {
+  const key = `${language}:${kind}`;
+  if (!formats.has(key)) {
+    const options = kind === 'day'
+      ? { day: 'numeric', month: 'short', timeZone: 'UTC' }
+      : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' };
+    formats.set(key, new Intl.DateTimeFormat(LOCALES[languageOf(language)], options));
+  }
+  return formats.get(key);
+}
 
 export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ENTITIES[c]);
@@ -22,29 +33,34 @@ export function isIsoDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
 
-export const fmtDay = (iso) => (isIsoDate(iso) ? dayFormat.format(new Date(`${iso}T00:00:00Z`)) : '');
+export const fmtDay = (iso, language) => (isIsoDate(iso) ? format(language, 'day').format(new Date(`${iso}T00:00:00Z`)) : '');
 
-export function fmtTime(value) {
+export function fmtTime(value, language) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : timeFormat.format(date);
+  return Number.isNaN(date.getTime()) ? '' : format(language, 'time').format(date);
 }
 
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const quoted = (title, fallback = 'senza titolo') => `«${oneLine(title, 80) || fallback}»`;
 const uuid = (value) => (UUID.test(String(value ?? '')) ? String(value) : null);
+const quoted = (t, title, fallback = t.untitled) => t.quote(oneLine(title, 80) || fallback);
+// Il nome del progetto lo scrivono le persone: una riga, mai vuota.
+const projectName = (project) => oneLine(project?.name, 80) || APP_NAME;
 
-export function siteLink(siteUrl, route = '') {
+// Ogni link porta il progetto dell'email (?progetto=<id>), così il sito apre quello giusto.
+export function siteLink(siteUrl, route = '', project = null) {
   const base = siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
-  return route ? `${base}#/${route}` : base;
+  const id = uuid(project);
+  if (!id) return route ? `${base}#/${route}` : base;
+  return `${base}#/${route}${route.includes('?') ? '&' : '?'}progetto=${id}`;
 }
 
 export const itemRoute = (kind, id) => (uuid(id) ? (kind === 'idea' ? `idea/${id}` : `elemento/${id}`) : '');
 
 // Come mentions.js nel sito: dove si è stati taggati e il link al punto esatto.
-export function mentionWhere(m) {
-  if (m.source === 'chat') return `in ${quoted(m.chat_title, 'chat')}`;
-  if (m.source === 'note') return `nella nota ${quoted(m.item_title, 'nota')}`;
-  return `in un commento su ${quoted(m.item_title, 'una scheda')}`;
+export function mentionWhere(m, language) {
+  const t = TEXTS[languageOf(language)];
+  if (m.source === 'chat') return t.mentions.inChat(quoted(t, m.chat_title, t.mentions.chat));
+  if (m.source === 'note') return t.mentions.inNote(quoted(t, m.item_title, t.mentions.note));
+  return t.mentions.inComment(quoted(t, m.item_title, t.mentions.card));
 }
 
 export function mentionRoute(m) {
@@ -54,14 +70,12 @@ export function mentionRoute(m) {
   return m.item_kind === 'idea' ? `idea/${m.item_id}/commenti` : `elemento/${m.item_id}/commenti`;
 }
 
-const authorName = (m) => oneLine(m.author_name, 80) || 'Qualcuno';
-export const greeting = (name) => (oneLine(name, 80) ? `Ciao ${oneLine(name, 80)},` : 'Ciao,');
-export const WEEKLY_INTRO = 'ecco il riepilogo del lunedì.';
-export const WEEKLY_SUBJECT = `La tua settimana su ${APP_NAME}`;
+export const greeting = (name, language) => TEXTS[languageOf(language)].hello(oneLine(name, 80));
+export const weeklySubject = (project, language) => TEXTS[languageOf(language)].weekly.subject(projectName(project));
 
 // Una riga è fatta di pezzi: testo semplice oppure testo con link.
-const t = (text) => ({ text });
-const a = (text, href) => ({ text, href });
+const plain = (text) => ({ text });
+const linked = (text, href) => ({ text, href });
 
 function htmlParts(parts) {
   return parts.map((p) => (p.href ? `<a href="${escapeHtml(p.href)}" style="color:#3b47b8;">${escapeHtml(p.text)}</a>` : escapeHtml(p.text))).join('');
@@ -69,34 +83,42 @@ function htmlParts(parts) {
 
 const textParts = (parts) => parts.map((p) => p.text).join('');
 
-function layout({ title, hello, body, siteUrl }) {
-  const profile = siteLink(siteUrl, 'profilo');
+function layout({ title, hello, body, siteUrl, project, language }) {
+  const t = TEXTS[language];
+  const name = projectName(project);
   return [
     '<!doctype html>',
-    '<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`,
     `<title>${escapeHtml(title)}</title></head>`,
     '<body style="margin:0;padding:0;background:#f4f5f9;">',
     '<div style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2330;">',
     `<p style="margin:0 0 16px;">${escapeHtml(hello)}</p>`,
     body,
-    `<p style="margin:24px 0;"><a href="${escapeHtml(siteLink(siteUrl))}" style="display:inline-block;padding:10px 18px;background:#4f5bd5;color:#ffffff;border-radius:6px;text-decoration:none;font-weight:600;">Apri ${APP_NAME}</a></p>`,
-    `<p style="margin:0;font-size:13px;color:#6b7080;">Ricevi questa email perché fai parte del team di ${APP_NAME}. Puoi spegnerla dal <a href="${escapeHtml(profile)}" style="color:#6b7080;">tuo profilo</a>.</p>`,
+    `<p style="margin:24px 0;"><a href="${escapeHtml(siteLink(siteUrl, '', project?.id))}" style="display:inline-block;padding:10px 18px;background:#4f5bd5;color:#ffffff;border-radius:6px;text-decoration:none;font-weight:600;">${escapeHtml(t.open(name))}</a></p>`,
+    `<p style="margin:0;font-size:13px;color:#6b7080;">${escapeHtml(t.why(name))} ${escapeHtml(t.turnOff)}<a href="${escapeHtml(siteLink(siteUrl, 'profilo', project?.id))}" style="color:#6b7080;">${escapeHtml(t.profile)}</a>.</p>`,
     '</div></body></html>',
   ].join('\n');
 }
 
-const textFooter = (siteUrl) => [`Apri ${APP_NAME}: ${siteLink(siteUrl)}`, `Ricevi questa email perché fai parte del team di ${APP_NAME}. Puoi spegnerla dal tuo profilo: ${siteLink(siteUrl, 'profilo')}`];
+function textFooter({ siteUrl, project, language }) {
+  const t = TEXTS[language];
+  const name = projectName(project);
+  return [`${t.open(name)}: ${siteLink(siteUrl, '', project?.id)}`, `${t.why(name)} ${t.turnOff}${t.profile}: ${siteLink(siteUrl, 'profilo', project?.id)}`];
+}
 
-export function mentionsEmail({ name, mentions, siteUrl }) {
+export function mentionsEmail({ name, mentions, siteUrl, project, language }) {
+  const lang = languageOf(language);
+  const t = TEXTS[lang];
   const n = mentions.length;
-  const hello = greeting(name);
-  const intro = n === 1 ? 'c\'è una menzione che non hai ancora letto.' : `ci sono ${n} menzioni che non hai ancora letto.`;
-  const subject = n === 1 ? `${authorName(mentions[0])} ti ha taggato su ${APP_NAME}` : `Hai ${n} menzioni da leggere su ${APP_NAME}`;
+  const author = (m) => oneLine(m.author_name, 80) || t.someone;
+  const hello = greeting(name, lang);
+  const intro = t.mentions.intro(n);
+  const subject = n === 1 ? t.mentions.subjectOne(author(mentions[0]), projectName(project)) : t.mentions.subjectMany(n, projectName(project));
   const entries = mentions.map((m) => ({
-    line: `${authorName(m)} ti ha taggato ${mentionWhere(m)}`,
-    when: fmtTime(m.created_at),
+    line: t.mentions.line(author(m), mentionWhere(m, lang)),
+    when: fmtTime(m.created_at, lang),
     excerpt: oneLine(m.excerpt, 200),
-    href: siteLink(siteUrl, mentionRoute(m)),
+    href: siteLink(siteUrl, mentionRoute(m), project?.id),
   }));
 
   const body = [
@@ -107,7 +129,7 @@ export function mentionsEmail({ name, mentions, siteUrl }) {
         `<div style="font-weight:600;">${escapeHtml(e.line)}</div>`,
         e.when ? `<div style="font-size:13px;color:#6b7080;">${escapeHtml(e.when)}</div>` : '',
         e.excerpt ? `<div style="margin:8px 0;padding-left:10px;border-left:3px solid #c9cdf2;color:#3a3f52;">${escapeHtml(e.excerpt)}</div>` : '',
-        `<a href="${escapeHtml(e.href)}" style="color:#3b47b8;">Apri dove ti hanno taggato</a>`,
+        `<a href="${escapeHtml(e.href)}" style="color:#3b47b8;">${escapeHtml(t.mentions.open)}</a>`,
         '</div>',
       ].join(''),
     ),
@@ -118,97 +140,106 @@ export function mentionsEmail({ name, mentions, siteUrl }) {
     intro,
     '',
     ...entries.flatMap((e) => [`- ${e.line}${e.when ? ` (${e.when})` : ''}`, ...(e.excerpt ? [`  "${e.excerpt}"`] : []), `  ${e.href}`, '']),
-    ...textFooter(siteUrl),
+    ...textFooter({ siteUrl, project, language: lang }),
   ].join('\n');
 
-  return { subject, html: layout({ title: subject, hello, body, siteUrl }), text };
+  return { subject, html: layout({ title: subject, hello, body, siteUrl, project, language: lang }), text };
+}
+
+// Il contesto di una sezione: testi della lingua, link del progetto, date nella lingua.
+function sectionContext(siteUrl, project, language) {
+  const t = TEXTS[language];
+  return { t, w: t.weekly, link: (route) => siteLink(siteUrl, route, project?.id), day: (iso) => fmtDay(iso, language), q: (title) => quoted(t, title) };
 }
 
 // Elenco breve di titoli con link: i primi tre, poi «e altri N».
-function titleList(entries, siteUrl, max = 3) {
+function titleList(entries, ctx, max = 3) {
   const parts = [];
   entries.slice(0, max).forEach((e, i) => {
-    if (i) parts.push(t(', '));
+    if (i) parts.push(plain(', '));
     const route = itemRoute(e.kind, e.id);
-    parts.push(route ? a(quoted(e.title), siteLink(siteUrl, route)) : t(quoted(e.title)));
+    parts.push(route ? linked(ctx.q(e.title), ctx.link(route)) : plain(ctx.q(e.title)));
   });
-  if (entries.length > max) parts.push(t(` e altri ${entries.length - max}`));
+  if (entries.length > max) parts.push(plain(ctx.w.others(entries.length - max)));
   return parts;
 }
 
-function todoLines(todo, siteUrl) {
+function todoLines(todo, ctx) {
+  const { w, link, day, q } = ctx;
   const lines = [];
   const add = (prefix, entry, kind, note) => {
     const route = itemRoute(kind, entry.id);
-    const title = quoted(entry.title);
-    lines.push({ parts: [t(prefix), route ? a(title, siteLink(siteUrl, route)) : t(title), t(note)], href: route ? siteLink(siteUrl, route) : '' });
+    const title = q(entry.title);
+    lines.push({ parts: [plain(prefix), route ? linked(title, link(route)) : plain(title), plain(note)], href: route ? link(route) : '' });
   };
+  const forIdea = (title) => (title ? w.forIdea(q(title)) : '');
   // Dei contatti esterni solo il ruolo: il nome resta nel sito.
   for (const c of todo.contacts.slice(0, MAX_LIST)) {
     const route = itemRoute('contact', c.id);
-    const role = oneLine(c.role, 80);
-    const label = role ? `Contatto (${role})` : 'Contatto';
-    const note = c.late ? `: in ritardo, era previsto il ${fmtDay(c.date)}` : c.isToday ? ': da sentire oggi' : `: da sentire il ${fmtDay(c.date)}`;
-    lines.push({
-      parts: [route ? a(label, siteLink(siteUrl, route)) : t(label), t(`${c.ideaTitle ? ` per l'idea ${quoted(c.ideaTitle)}` : ''}${note}`)],
-      href: route ? siteLink(siteUrl, route) : '',
-    });
+    const label = w.contact(oneLine(c.role, 80));
+    const note = c.late ? w.contactLate(day(c.date)) : c.isToday ? w.contactToday : w.contactOn(day(c.date));
+    lines.push({ parts: [route ? linked(label, link(route)) : plain(label), plain(`${forIdea(c.ideaTitle)}${note}`)], href: route ? link(route) : '' });
   }
   for (const e of todo.experiments.slice(0, MAX_LIST)) {
     const note = {
-      late: `: scaduto il ${fmtDay(e.date)}`,
-      overdue_start: `: doveva iniziare il ${fmtDay(e.date)}`,
-      starts: `: inizia il ${fmtDay(e.date)}`,
-      planned: ': ancora da avviare',
-    }[e.state];
-    add('Esperimento ', e, 'experiment', `${e.ideaTitle ? ` per l'idea ${quoted(e.ideaTitle)}` : ''}${note}`);
+      late: () => w.experimentLate(day(e.date)),
+      overdue_start: () => w.experimentOverdueStart(day(e.date)),
+      starts: () => w.experimentStarts(day(e.date)),
+      planned: () => w.experimentPlanned,
+    }[e.state]();
+    add(w.experiment, e, 'experiment', `${forIdea(e.ideaTitle)}${note}`);
   }
-  for (const i of todo.ideas.slice(0, MAX_LIST)) add('Idea ', i, 'idea', ': manca il prossimo passo');
+  for (const i of todo.ideas.slice(0, MAX_LIST)) add(w.idea, i, 'idea', w.ideaNoNextStep);
   const hidden = Math.max(0, todo.contacts.length - MAX_LIST) + Math.max(0, todo.experiments.length - MAX_LIST) + Math.max(0, todo.ideas.length - MAX_LIST);
-  if (hidden) lines.push({ parts: [t(`E altre ${hidden} cose: le trovi nella dashboard.`)], href: siteLink(siteUrl) });
+  if (hidden) lines.push({ parts: [plain(w.hidden(hidden))], href: link('') });
   return lines;
 }
 
-function teamLines(team, siteUrl) {
+function teamLines(team, ctx) {
+  const { w, link, q } = ctx;
   const lines = [];
-  if (team.newIdeas.length) lines.push({ parts: [t(`Nuove idee: ${team.newIdeas.length} (`), ...titleList(team.newIdeas.map((x) => ({ ...x, kind: 'idea' })), siteUrl), t(')')] });
+  const counted = (label, entries) => ({ parts: [plain(`${label} (`), ...titleList(entries, ctx), plain(')')] });
+  if (team.newIdeas.length) lines.push(counted(w.newIdeas(team.newIdeas.length), team.newIdeas.map((x) => ({ ...x, kind: 'idea' }))));
   if (team.busyIdeas.length) {
-    const parts = [t('Idee con più modifiche: ')];
+    const parts = [plain(w.busyIdeas)];
     team.busyIdeas.forEach((b, i) => {
-      if (i) parts.push(t(', '));
+      if (i) parts.push(plain(', '));
       const route = itemRoute('idea', b.id);
-      parts.push(route ? a(quoted(b.title), siteLink(siteUrl, route)) : t(quoted(b.title)), t(` (${b.changes})`));
+      parts.push(route ? linked(q(b.title), link(route)) : plain(q(b.title)), plain(` (${b.changes})`));
     });
     lines.push({ parts });
   }
-  if (team.interviews) {
-    const strong = team.commitments ? `, di cui ${team.commitments} con un impegno concreto (pilota o pagamento)` : '';
-    lines.push({ parts: [t(`Interviste fatte: ${team.interviews}${strong}`)] });
-  }
-  if (team.experiments.length) lines.push({ parts: [t(`Esperimenti conclusi: ${team.experiments.length} (`), ...titleList(team.experiments, siteUrl), t(')')] });
-  if (team.decisions.length) lines.push({ parts: [t(`Decisioni prese: ${team.decisions.length} (`), ...titleList(team.decisions, siteUrl), t(')')] });
+  if (team.interviews) lines.push({ parts: [plain(w.interviews(team.interviews, team.commitments))] });
+  if (team.experiments.length) lines.push(counted(w.experimentsDone(team.experiments.length), team.experiments));
+  if (team.decisions.length) lines.push(counted(w.decisions(team.decisions.length), team.decisions));
   return lines;
 }
 
-function unreadLines(unread, siteUrl) {
+function unreadLines(unread, ctx) {
+  const { w, link } = ctx;
   const lines = [];
-  if (unread.mentions) lines.push({ parts: [a(plural(unread.mentions, 'menzione non letta', 'menzioni non lette'), siteLink(siteUrl))], href: siteLink(siteUrl) });
-  if (unread.chat) lines.push({ parts: [a(plural(unread.chat, 'messaggio non letto in chat', 'messaggi non letti in chat'), siteLink(siteUrl, 'chat'))], href: siteLink(siteUrl, 'chat') });
+  if (unread.mentions) lines.push({ parts: [linked(w.unreadMentions(unread.mentions), link(''))], href: link('') });
+  if (unread.chat) lines.push({ parts: [linked(w.unreadChat(unread.chat), link('chat'))], href: link('chat') });
   return lines;
 }
 
-export function weeklySections(report, siteUrl) {
+export function weeklySections(report, siteUrl, project, language) {
+  const ctx = sectionContext(siteUrl, project, languageOf(language));
   return [
-    { title: 'Da fare questa settimana', lines: todoLines(report.todo, siteUrl) },
-    { title: 'Nel team negli ultimi 7 giorni', lines: teamLines(report.team, siteUrl) },
-    { title: 'Da leggere', lines: unreadLines(report.unread, siteUrl) },
+    { title: ctx.w.todo, lines: todoLines(report.todo, ctx) },
+    { title: ctx.w.team, lines: teamLines(report.team, ctx) },
+    { title: ctx.w.unread, lines: unreadLines(report.unread, ctx) },
   ].filter((s) => s.lines.length);
 }
 
-export function weeklyEmail({ name, report, siteUrl, intro = WEEKLY_INTRO }) {
-  const subject = WEEKLY_SUBJECT;
-  const hello = greeting(name);
-  const sections = weeklySections(report, siteUrl);
+// manual: inviato a mano dal sito, con l'introduzione «della settimana» invece di quella «del lunedì».
+export function weeklyEmail({ name, report, siteUrl, project, language, manual = false }) {
+  const lang = languageOf(language);
+  const w = TEXTS[lang].weekly;
+  const subject = weeklySubject(project, lang);
+  const hello = greeting(name, lang);
+  const intro = manual ? w.manualIntro : w.intro;
+  const sections = weeklySections(report, siteUrl, project, lang);
 
   const body = [
     `<p style="margin:0 0 16px;">${escapeHtml(intro)}</p>`,
@@ -227,8 +258,8 @@ export function weeklyEmail({ name, report, siteUrl, intro = WEEKLY_INTRO }) {
     intro,
     ...sections.flatMap((s) => ['', s.title.toUpperCase(), ...s.lines.flatMap((l) => [`- ${textParts(l.parts)}`, ...(l.href ? [`  ${l.href}`] : [])])]),
     '',
-    ...textFooter(siteUrl),
+    ...textFooter({ siteUrl, project, language: lang }),
   ].join('\n');
 
-  return { subject, html: layout({ title: subject, hello, body, siteUrl }), text };
+  return { subject, html: layout({ title: subject, hello, body, siteUrl, project, language: lang }), text };
 }
