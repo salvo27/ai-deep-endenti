@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { addDays, shortDate, thisMonday, weekLabel } from '../../assets/js/availability.js';
+import { pinNavigator } from '../setup/language.mjs';
+
+// The week labels these tests expect are worked out here, in Node, which takes the language of the computer running
+// the tests: English on GitHub's Linux runner. They must match the browser, which speaks Italian, so Node is pinned to
+// Italian before the site's module is loaded.
+pinNavigator(globalThis.navigator, 'it');
+const { addDays, shortDate, thisMonday, weekLabel } = await import('../../assets/js/availability.js');
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
 const SURVEY = 'eeeeeeee-0000-4000-8000-000000000001';
