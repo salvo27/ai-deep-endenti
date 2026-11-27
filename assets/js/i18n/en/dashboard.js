@@ -1,2 +1,36 @@
 // Same entries as ../it/dashboard.js, which is the reference: tests/unit/i18n.test.mjs checks it.
-export const dashboard = {};
+const days = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
+
+export const dashboard = {
+  late: (n) => `overdue by ${days(n)}`,
+  dueToday: 'due today',
+  dueIn: (n) => `due in ${days(n)}`,
+  hello: (name) => `Hello, ${name}`,
+  subtitle: 'The team’s ideas, the experiments running and what has changed.',
+  newIdea: 'New idea',
+  empty: 'The board is empty. Create the first idea, or start from the generator.',
+  openGenerator: 'Open the generator',
+  stats: {
+    activeIdeas: (n) => (n === 1 ? 'active idea' : 'active ideas'),
+    running: (n) => (n === 1 ? 'experiment running' : 'experiments running'),
+    interviews: (n) => (n === 1 ? 'interview in the last 30 days' : 'interviews in the last 30 days'),
+    commitments: (n) => (n === 1 ? 'firm commitment (pilot)' : 'firm commitments (pilots)'),
+  },
+  ranking: 'Ranking',
+  disagreementsHint: 'Criteria the team does not agree on',
+  disagreements: (n) => (n === 1 ? '1 disagreement' : `${n} disagreements`),
+  noVotes: 'No votes yet.',
+  voteIdeas: 'Score the ideas',
+  pipeline: 'Ideas pipeline',
+  running: 'Running experiments',
+  noRunning: 'No experiments running.',
+  todo: 'Your to-do list',
+  nothingPending: 'Nothing pending.',
+  unowned: (n) => `${n} ${n === 1 ? 'person' : 'people'} without an owner`,
+  chooseOwner: ': choose who takes care of them.',
+  newsSince: 'New since your last visit',
+  latest: 'Latest changes',
+  noNewsSince: 'Nothing new from the others since your last visit.',
+  noChanges: 'No changes yet.',
+  fullHistory: 'Open the full history',
+};

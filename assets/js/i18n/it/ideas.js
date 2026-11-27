@@ -1,2 +1,31 @@
 // Testi in italiano: è la lingua di riferimento, l'inglese ne segue la forma.
-export const ideas = {};
+export const ideas = {
+  title: 'Idee',
+  scoreHint: 'Punteggio del team (0-100)',
+  counters: {
+    experiments: 'Esperimenti',
+    interviews: 'Interviste',
+    comments: 'Commenti',
+  },
+  example: 'Esempio',
+  columns: 'Colonne',
+  table: 'Tabella',
+  examples: 'Esempi',
+  hideExamples: 'Nascondi le idee di esempio',
+  showExamples: 'Mostra le idee di esempio',
+  none: 'Nessuna idea ancora.',
+  createFirst: 'Crea la prima idea',
+  headers: {
+    idea: 'Idea',
+    status: 'Stato',
+    sector: 'Settore',
+    owner: 'Responsabile',
+    score: 'Punteggio',
+    experiments: 'Esperimenti',
+    interviews: 'Interviste',
+    updated: 'Aggiornata',
+  },
+  dragHint: 'Per cambiare lo stato trascina una scheda in un\'altra colonna, oppure usa il menu nella pagina dell\'idea.',
+  examplesHint: 'Le schede tratteggiate sono esempi da startup note: mostrano come si compila un\'idea in ogni stato.',
+  newIdea: 'Nuova idea',
+};
