@@ -111,7 +111,7 @@ describe('roadmap dell idea in inglese', () => {
     const idea = setup(englishIdea({ data: { roadmap: { 'team-canvas': `done|${ME}|${AT}`, deeptech: `skip|${ME}|${AT}` } } }));
     const el = panel(idea);
     assert.equal(text(stepEl(el, 'Fill in the Team Canvas').querySelector('.rm-status')), 'Done, marked by Anna on 20 Oct 2026.');
-    const skipped = stepEl(el, 'If it comes from research, open the deep tech card');
+    const skipped = stepEl(el, 'If it comes from research, open the deep tech sheet');
     assert.equal(text(skipped.querySelector('.rm-status')), 'Not needed, marked by Anna on 20 Oct 2026.');
     assert.ok([...skipped.querySelectorAll('button')].some((b) => b.textContent === 'Reopen the step'));
   });

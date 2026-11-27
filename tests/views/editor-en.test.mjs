@@ -80,7 +80,7 @@ describe('editor in inglese', () => {
   });
 
   for (const [name, setup, params, expected] of [
-    ['un advisor', () => store.setMembers(members().map((m) => (m.user_id === ME ? { ...m, role: 'advisor' } : m))), { kind: 'idea' }, 'Only team members can edit the boards. Advisors can comment and vote.'],
+    ['un advisor', () => store.setMembers(members().map((m) => (m.user_id === ME ? { ...m, role: 'advisor' } : m))), { kind: 'idea' }, 'Only team members can edit the boards. Advisors can comment and give scores.'],
     ['una scheda archiviata', () => {}, { id: IDS.trashed }, 'This item is archived: restore it from the trash to edit it.'],
     ['una scheda che non esiste', () => {}, { id: '00000000-0000-4000-8000-000000000999' }, 'Item not found.'],
     ['un esempio', () => {}, { id: 'example' }, 'Examples are read-only: create a new idea and use them as a guide.'],

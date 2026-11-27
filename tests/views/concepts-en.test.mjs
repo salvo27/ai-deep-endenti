@@ -35,6 +35,30 @@ function search(host, value) {
 
 beforeEach(() => document.body.querySelectorAll('dialog').forEach((d) => d.remove()));
 
+// "Where" points at a field of a board by its label: the label must be the one the board shows, in each language.
+describe('i campi indicati dai concetti esistono', () => {
+  const labels = (texts, out = new Set()) => {
+    if (texts && typeof texts === 'object') for (const [key, value] of Object.entries(texts)) key === 'label' && typeof value === 'string' ? out.add(value) : labels(value, out);
+    return out;
+  };
+  const wheres = (texts, out = []) => {
+    if (texts && typeof texts === 'object') for (const [key, value] of Object.entries(texts)) key === 'where' && typeof value === 'string' ? out.push(value) : wheres(value, out);
+    return out;
+  };
+  // English: "the <label> field"; Italian: "campo <label>", which can go on ("campo In una frase dell'idea").
+  for (const [lang, texts, pattern, fits] of [
+    ['en', en, /(?:^|[,;] )the ([^,;]+?) field/g, (name, all) => all.has(name)],
+    ['it', italiano, /campo ([^,;]+)/g, (name, all) => [...all].some((label) => name.startsWith(label))],
+  ]) {
+    it(`in ${lang} ogni campo nominato è un etichetta di una scheda`, () => {
+      const all = labels(texts.boards);
+      const named = wheres(texts.concepts).flatMap((where) => [...where.matchAll(pattern)].map((m) => [m[1], where]));
+      assert.ok(named.length > 5);
+      assert.deepEqual(named.filter(([name]) => !fits(name, all)), []);
+    });
+  }
+});
+
 describe('concetti in inglese', () => {
   it('i capitoli hanno il nome inglese, e Lean Startup e Deep tech restano come sono', () => {
     assert.deepEqual(concepts.CHAPTERS, [
@@ -188,7 +212,7 @@ describe('aiuto sui concetti in inglese', () => {
     const modal = help.openConcept('spin-off');
     const body = text(modal.dialog);
     assert.equal(modal.dialog.getAttribute('aria-label'), 'University spin-off');
-    assert.match(body, /On the board: Deep tech sheet, the Company form field/);
+    assert.match(body, /On the board: Deep tech sheet, the Type of company field/);
     assert.match(body, /Added chapter on deep tech/);
     assert.match(body, / · rules and figures checked on 17 October 2026/);
     const link = modal.dialog.querySelector('a[href="#/guida/concetti?c=spin-off"]');

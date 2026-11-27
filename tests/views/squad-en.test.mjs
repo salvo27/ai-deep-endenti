@@ -78,7 +78,7 @@ const founders = [
 describe('pagina Squadra in inglese', () => {
   it('intestazione e schede hanno nomi inglesi e indirizzi invariati', async () => {
     const body = await visit('#/squadra');
-    assert.equal(text(outlet.querySelector('h1')), 'Team');
+    assert.equal(text(outlet.querySelector('h1')), 'Our team');
     assert.match(body, /The team building the company: who we are, how we work, when we're free, how many hours we give and how we split the equity\./);
     const tabs = [...outlet.querySelectorAll('.tabs .tab')];
     assert.deepEqual(tabs.map(text), ['Team Canvas', 'Equity split', 'Availability', 'Hours worked']);

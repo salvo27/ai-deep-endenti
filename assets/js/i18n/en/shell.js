@@ -18,7 +18,7 @@ export const shell = {
     chat: 'Chat',
     generator: 'Generator',
     guide: 'Guide',
-    squad: 'Team',
+    squad: 'Our team',
     members: 'Members',
     expenses: 'Expenses',
     history: 'History',

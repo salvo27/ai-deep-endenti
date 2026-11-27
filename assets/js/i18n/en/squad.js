@@ -1,6 +1,6 @@
 // Same entries as ../it/squad.js, which is the reference: tests/unit/i18n.test.mjs checks it.
 export const squad = {
-  title: 'Team',
+  title: 'Our team',
   subtitle: "The team building the company: who we are, how we work, when we're free, how many hours we give and how we split the equity.",
   tabs: {
     equity: 'Equity split',

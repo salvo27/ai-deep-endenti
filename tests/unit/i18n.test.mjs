@@ -18,6 +18,28 @@ import { applyDocumentLanguage, language, locale, saveLanguageChoice, storedChoi
 
 const ALL = { it: italiano, en };
 
+// One word for one thing. The marks from 1 to 5 are "scores" in English, on the Scoring page as on the idea, the
+// dashboard and the roadmap ("voting rights" of shares is another thing). A group of the menu and its pages do not
+// share a name: "Team" with a "Team" inside reads as a mistake.
+describe('una parola per ogni cosa', () => {
+  it('in inglese i voti da 1 a 5 si chiamano scores, mai votes', () => {
+    // A text written by a function is read by calling it, with one and with more, so its argument names do not count.
+    const said = (fn) => [[1, 1, 1], [2, 2, 2], ['X', 'Y', 'Z']].map((args) => { try { return String(fn(...args)); } catch { return ''; } }).join(' ');
+    const found = entries(en)
+      .filter(([, value]) => typeof value === 'string' || typeof value === 'function')
+      .map(([path, value]) => [path, typeof value === 'function' ? said(value) : value])
+      .filter(([, value]) => /\bvot(e|es|ed|ing|ers?)\b/i.test(value.replace(/voting rights/gi, '')));
+    assert.deepEqual(found, []);
+  });
+
+  for (const [lang, texts] of Object.entries(ALL)) {
+    it(`in ${lang} nessuna voce del menu ha il nome di un gruppo`, () => {
+      const groups = new Set(Object.values(texts.shell.groups));
+      assert.deepEqual(Object.values(texts.shell.nav).filter((name) => groups.has(name)), []);
+    });
+  }
+});
+
 // One word for one role: the glossary says "platform admin", and so do every English text of the site, of the public
 // survey page and of the Edge Functions.
 describe('un nome solo per chi amministra la piattaforma', () => {

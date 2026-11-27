@@ -381,7 +381,7 @@ export const concepts = {
     brevetto: {
       term: 'Patent',
       text: 'An exclusive right to an invention for 20 years (10 for a utility model), valid only in the countries where it is granted. The application becomes public 18 months after filing; filing online in Italy costs a few tens of euros in fees, but a patent written with an attorney costs thousands.',
-      where: 'Deep tech sheet, the What to protect field',
+      where: 'Deep tech sheet, the To protect field',
     },
     'novita-assoluta': {
       term: 'Patent before you publish',
@@ -420,7 +420,7 @@ export const concepts = {
     'spin-off': {
       term: 'University spin-off',
       text: 'A company born from research with professors or researchers taking part. Ministerial Decree 168/2011 requires approval by the university’s board of governors, after the academic senate has given its opinion, a project with a plan and rules on intellectual property, and bars people with certain university roles from management positions. Each university has its own rules.',
-      where: 'Deep tech sheet, the Company form field',
+      where: 'Deep tech sheet, the Type of company field',
     },
     'invenzioni-universitarie': {
       term: 'Inventions made at university',
@@ -434,7 +434,7 @@ export const concepts = {
     'ai-act': {
       term: 'The AI Act and AI rules',
       text: 'The European AI regulation bans some uses, places obligations on general-purpose models and strict rules on high-risk systems (postponed to 2027-2028). Diagnostic software is generally a medical device; health data is a special category under the GDPR; assessing people’s creditworthiness is a high-risk use.',
-      where: 'Deep tech sheet, the Rules to follow field',
+      where: 'Deep tech sheet, the Rules to comply with field',
     },
     'primi-90-giorni': {
       term: 'First 90 days checklist',

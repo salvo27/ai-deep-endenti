@@ -161,9 +161,9 @@ describe('numeri nei testi della roadmap', () => {
     ['it', 0, '0 voti completi'],
     ['it', 1, '1 voto completo'],
     ['it', 2, '2 voti completi'],
-    ['en', 0, '0 complete votes'],
-    ['en', 1, '1 complete vote'],
-    ['en', 2, '2 complete votes'],
+    ['en', 0, '0 people scored every criterion'],
+    ['en', 1, '1 person scored every criterion'],
+    ['en', 2, '2 people scored every criterion'],
   ]) {
     it(`${lang}: ${n} voti completi si dice «${expected}»`, () => {
       assert.equal(rm[lang].progress.fullVoters(n), expected);

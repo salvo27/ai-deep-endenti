@@ -98,7 +98,7 @@ describe('dashboard in inglese', () => {
     const body = await visit('#/');
     assert.match(body, /The board is empty\. Create the first idea, or start from the generator\./);
     assert.ok(byText(outlet, 'a', 'Open the generator'));
-    assert.match(body, /No votes yet\. Score the ideas/);
+    assert.match(body, /No scores yet\. Score the ideas/);
     assert.match(body, /No experiments running\./);
     assert.match(body, /Nothing pending\./);
   });

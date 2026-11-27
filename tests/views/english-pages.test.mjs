@@ -198,8 +198,8 @@ function englishItems() {
     item({ id: ID.survey, kind: 'survey', title: 'Shifts on the ward', status: 'aperto', idea_id: ID.idea, data: surveyData({ token: 'TokenOfTheOpenSurvey01' }) }),
     item({ id: ID.draft, kind: 'survey', title: 'Draft about breaks', status: 'bozza', idea_id: ID.idea, data: surveyData({ questions: QUESTIONS.slice(0, 3) }) }),
     item({ id: ID.criteria, kind: 'criteria', title: 'Criteria', data: { criteria } }),
-    item({ id: ID.score, kind: 'score', title: 'Votes of Ben', created_by: OTHER, updated_by: OTHER, data: { scores: { [ID.idea]: { customer: 5, market: 2 }, [ID.idea2]: { customer: 2, market: 4 } } } }),
-    item({ id: ID.myScore, kind: 'score', title: 'Votes of Alice', created_by: ME, updated_by: ME, data: { scores: { [ID.idea]: { customer: 2, market: 3 } }, notes: { [ID.idea]: 'Not sure about the market' } } }),
+    item({ id: ID.score, kind: 'score', title: 'Scores of Ben', created_by: OTHER, updated_by: OTHER, data: { scores: { [ID.idea]: { customer: 5, market: 2 }, [ID.idea2]: { customer: 2, market: 4 } } } }),
+    item({ id: ID.myScore, kind: 'score', title: 'Scores of Alice', created_by: ME, updated_by: ME, data: { scores: { [ID.idea]: { customer: 2, market: 3 } }, notes: { [ID.idea]: 'Not sure about the market' } } }),
     item({
       id: ID.photo,
       kind: 'scoresnap',

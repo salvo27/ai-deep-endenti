@@ -1,7 +1,7 @@
 // Same entries as ../it/team.js, which is the reference: tests/unit/i18n.test.mjs checks it.
 export const team = {
   title: 'Members',
-  subtitle: 'Admin: manages the team. Member: creates and edits the boards. Advisor: reads, comments and votes.',
+  subtitle: 'Admin: manages the team. Member: creates and edits the boards. Advisor: reads, comments and gives scores.',
   export: 'Export a backup of the project',
   columns: {
     person: 'Person',

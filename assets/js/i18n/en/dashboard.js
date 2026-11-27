@@ -19,7 +19,7 @@ export const dashboard = {
   ranking: 'Ranking',
   disagreementsHint: 'Criteria the team does not agree on',
   disagreements: (n) => (n === 1 ? '1 disagreement' : `${n} disagreements`),
-  noVotes: 'No votes yet.',
+  noVotes: 'No scores yet.',
   voteIdeas: 'Score the ideas',
   pipeline: 'Ideas pipeline',
   running: 'Running experiments',

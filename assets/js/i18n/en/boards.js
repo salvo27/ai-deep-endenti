@@ -437,7 +437,7 @@ export const boards = {
     availability: { label: 'Busy hours', plural: 'Availability' },
     timesheet: { label: 'Hours worked', plural: 'Hours worked' },
     criteria: { label: 'Scoring criteria', plural: 'Criteria' },
-    score: { label: 'Votes', plural: 'Votes' },
+    score: { label: 'Scores', plural: 'Scores' },
     scoresnap: { label: 'Snapshot', plural: 'Snapshots', titleLabel: 'Name' },
     generator: { label: 'Generator', plural: 'Generator' },
     expensegroup: {
@@ -478,7 +478,7 @@ export const boards = {
     linkedIdea: 'Linked idea',
     order: 'order',
     notes: 'Notes',
-    votes: 'Votes',
+    votes: 'Scores',
     criteria: 'Criteria',
     criterionParts: { label: 'Name', description: 'Description', weight: 'Weight' },
     rows: 'Rows',
@@ -493,7 +493,7 @@ export const boards = {
       us: 'Our position on the chart',
     },
     equity: { factors: 'Factors and weights', founders: 'Founders', scores: 'Scores' },
-    snapshot: { criteria: 'Criteria', ideas: 'Ideas', votes: 'Votes', names: 'Names' },
+    snapshot: { criteria: 'Criteria', ideas: 'Ideas', votes: 'Scores', names: 'Names' },
     questions: 'Questions',
     questionParts: {
       label: 'text',

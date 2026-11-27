@@ -5,14 +5,14 @@ export const roadmap = {
     squadra: {
       title: 'The team',
       goal: 'Agree on the people before the numbers: who is in, how much time they give, what they want out of it.',
-      note: 'Each idea can have a different team: these steps are for the people working on this idea. If it is the site team, use the Team and Equity pages.',
+      note: 'Each idea can have a different team: these steps are for the people working on this idea. If it is the site team, use the Our team page and its Equity split tab.',
       gate: 'Move on when everyone has clearly stated their role, time and goals, and no personal constraint blocks the project. Problems between co-founders are among the leading causes of failure.',
       skipRisk: 'Without clear agreements, disagreements arrive just when the idea starts to work.',
     },
     scelta: {
       title: 'Why this idea',
       goal: 'Do not fall in love with the first idea: compare it with the alternatives and choose it with criteria set in advance.',
-      gate: 'Move on only if the idea has been voted on with criteria set in advance and passes the scalability test. Otherwise park it and work on another one.',
+      gate: 'Move on only if the idea has been scored on criteria set in advance and passes the scalability test. Otherwise park it and work on another one.',
       skipRisk: 'You risk spending months on your favourite idea instead of the best one.',
     },
     ipotesi: {
@@ -103,7 +103,7 @@ export const roadmap = {
       how: [
         'Look among lecturers, entrepreneurs in the sector, incubators and former founders; ask people you know for introductions.',
         'Make a precise request: one meeting a month for 6 months, on questions you prepare.',
-        'Add them to the People list, with the purpose “Mentor or advisor”.',
+        'Add them to the Contacts list, with the purpose “Mentor or advisor”.',
       ],
       done: 'At least one mentor has said yes and the first meeting is booked or done.',
       mistake: 'Looking for someone who agrees with you, or offering equity straight away without knowing how much they will help.',
@@ -112,7 +112,7 @@ export const roadmap = {
       title: 'Talk about equity and vesting',
       what: 'A first open discussion on how to split the equity, before the idea is worth anything: later it is much harder.',
       how: [
-        'Use the Equity page (Demmler method) as a starting point for discussion, not as a verdict.',
+        'Use the Equity split tab of the Our team page (Demmler method) as a starting point for discussion, not as a verdict.',
         'Agree on vesting: shares are earned over time, often over 4 years with a one-year cliff.',
         'Write the agreement down even if it is informal; the final one comes with the shareholders\' agreement.',
       ],
@@ -142,8 +142,8 @@ export const roadmap = {
       mistake: 'Calling a consultancy or a shop a startup: funding, timelines and risks are different.',
     },
     criteri: {
-      title: 'Set the criteria before voting',
-      what: 'Criteria and weights are chosen before seeing the votes, otherwise you end up justifying your favourite idea.',
+      title: 'Set the criteria before scoring',
+      what: 'Criteria and weights are chosen before seeing the scores, otherwise you end up justifying your favourite idea.',
       how: [
         'Start from the criteria on the Scoring page and adapt the weights to your situation.',
         'Always keep access to customers, access to data, sector expertise and time to first revenue.',
@@ -153,15 +153,15 @@ export const roadmap = {
       mistake: 'Adjusting the criteria until the idea you already liked wins.',
     },
     voti: {
-      title: 'Vote on the idea, each on your own',
-      what: 'Everyone votes alone, before talking about it, so nobody sways the others.',
+      title: 'Score the idea, each on your own',
+      what: 'Everyone scores alone, before talking about it, so nobody sways the others.',
       how: [
-        'Vote on all the ideas in the same session, to compare them on the same scale.',
-        'Where the votes differ a lot (the site flags them), talk it through: there is an assumption to clear up.',
-        'Write a note for the lowest votes: it is your first list of risks.',
+        'Score all the ideas in the same session, to compare them on the same scale.',
+        'Where the scores differ a lot (the site flags them), talk it through: there is an assumption to clear up.',
+        'Write a note for the lowest scores: it is your first list of risks.',
       ],
-      done: 'At least two people have voted on the idea for every criterion.',
-      mistake: 'Voting together out loud: whoever speaks first or loudest wins.',
+      done: 'At least two people have scored the idea on every criterion.',
+      mistake: 'Scoring together out loud: whoever speaks first or loudest wins.',
     },
     scelta: {
       title: 'Choose to explore it',
@@ -230,14 +230,14 @@ export const roadmap = {
       mistake: 'Finding out after building the product that you need a certification that takes a year.',
     },
     deeptech: {
-      title: 'If it comes from research, open the deep tech card',
+      title: 'If it comes from research, open the deep tech sheet',
       what: 'For ideas born from research: how mature the technology is, what is already published, who owns the intellectual property.',
       how: [
         'State the current TRL and the next milestone.',
         'Before publishing anything else (papers, theses, code), talk to the technology transfer office.',
         'Make clear early on whether the university has rights to the results.',
       ],
-      done: 'The deep tech card is filled in.',
+      done: 'The deep tech sheet is filled in.',
       mistake: 'Publishing a paper that makes the technology no longer patentable.',
     },
     'traccia-interviste': {
@@ -425,7 +425,7 @@ export const roadmap = {
         'Find design partners who try the prototype on their own data.',
         'Look for grants that fit that milestone.',
       ],
-      done: 'The deep tech card states the next TRL milestone and the design partners.',
+      done: 'The deep tech sheet states the next TRL milestone and the design partners.',
       mistake: 'Chasing a higher TRL without a customer waiting for the result.',
     },
     decisione: {
@@ -551,7 +551,7 @@ export const roadmap = {
   },
   progress: {
     count: (done, total) => `${done} of ${total}`,
-    fullVoters: (count) => (count === 1 ? '1 complete vote' : `${count} complete votes`),
+    fullVoters: (count) => (count === 1 ? '1 person scored every criterion' : `${count} people scored every criterion`),
   },
   page: {
     saved: {

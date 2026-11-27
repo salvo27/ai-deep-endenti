@@ -50,7 +50,7 @@ export const projects = {
   },
   people: {
     title: (name) => `People of “${name}”`,
-    roles: 'Admin: manages the people of the project. Member: creates and edits the boards. Advisor: reads, comments and votes.',
+    roles: 'Admin: manages the people of the project. Member: creates and edits the boards. Advisor: reads, comments and gives scores.',
     archived: 'The project is archived: reactivate it before adding people.',
     empty: 'Nobody belongs to this project: add at least one admin.',
     columns: {

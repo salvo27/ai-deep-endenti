@@ -60,7 +60,7 @@ describe('schede di un idea in inglese', () => {
   for (const [group, label, sections] of [
     ['analisi', 'Analysis', ['Lean Canvas', 'Customers', 'Market', 'Deep tech']],
     ['validazione', 'Validation', ['Experiments', 'People and interviews', 'Surveys']],
-    ['discussione', 'Discussion', ['Comments', 'Votes', 'History']],
+    ['discussione', 'Discussion', ['Comments', 'Scores', 'History']],
   ]) {
     it(`la scheda ${label} ha le sezioni ${sections.join(', ')}`, async () => {
       await visit(`#/idea/${IDS.idea}/${group}`);
@@ -215,16 +215,16 @@ describe('validazione di un idea in inglese', () => {
 describe('discussione di un idea in inglese', () => {
   it('i voti hanno punteggio, votanti e medie con il punto decimale', async () => {
     await visit(`#/idea/${IDS.idea}/voti`);
-    assert.match(text(tabBody().querySelector('p')), /^Team score: \d+\/100 · 1 voter$/);
-    assert.deepEqual([...tabBody().querySelectorAll('th')].map((t) => text(t)), ['Criterion', 'Weight', 'Votes', 'Average']);
+    assert.match(text(tabBody().querySelector('p')), /^Team score: \d+\/100 · scored by 1 person$/);
+    assert.deepEqual([...tabBody().querySelectorAll('th')].map((t) => text(t)), ['Criterion', 'Weight', 'Scores', 'Average']);
     assert.deepEqual([...tabBody().querySelectorAll('tbody tr')].map((r) => text(r.lastChild)), ['5.0', '2.0']);
-    assert.ok(byText(tabBody(), '.btn', 'Vote in the matrix'));
+    assert.ok(byText(tabBody(), '.btn', 'Score in the matrix'));
   });
 
   it('due votanti in disaccordo si vedono, con la media a un decimale', async () => {
     store.applyItem(item({ id: 'dddddddd-0000-4000-8000-000000000001', kind: 'score', title: 'Anna', created_by: ME, updated_by: ME, data: { scores: { [IDS.idea]: { cliente: 1, mercato: 5 } } } }));
     await visit(`#/idea/${IDS.idea}/voti`);
-    assert.match(text(tabBody().querySelector('p')), / · 2 voters$/);
+    assert.match(text(tabBody().querySelector('p')), / · scored by 2 people$/);
     const cells = [...tabBody().querySelectorAll('tbody tr')].map((r) => text(r.lastChild));
     assert.deepEqual(cells, ['3.0disagreement', '3.5disagreement']);
   });
@@ -234,7 +234,7 @@ describe('discussione di un idea in inglese', () => {
     store.state.user = { id: ME };
     store.setMembers(members());
     boardItems().filter((i) => i.kind !== 'score').forEach((i) => store.applyItem(i));
-    assert.match(await visit(`#/idea/${IDS.idea}/voti`), /Team score: no votes · 0 voters/);
+    assert.match(await visit(`#/idea/${IDS.idea}/voti`), /Team score: no scores · scored by 0 people/);
     store.resetStore();
     store.state.user = { id: ME };
     store.setMembers(members());

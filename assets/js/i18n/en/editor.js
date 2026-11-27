@@ -47,7 +47,7 @@ export const editor = {
     clearScale: 'clear',
     unsupported: 'Unsupported field',
     notFound: 'Item not found.',
-    advisorsCannot: 'Only team members can edit the boards. Advisors can comment and vote.',
+    advisorsCannot: 'Only team members can edit the boards. Advisors can comment and give scores.',
     examplesReadOnly: 'Examples are read-only: create a new idea and use them as a guide.',
     archivedItem: 'This item is archived: restore it from the trash to edit it.',
     messagePlaceholder: 'Describe the change (optional), like a commit message',

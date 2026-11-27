@@ -103,9 +103,9 @@ describe('avanzamento dei passi in inglese', () => {
     ['concorrenti', { competitors: [{ data: { rivals: times(2) } }] }, '2 of 3'],
     ['impegni', { interviews: times(4, () => talk('fatta', { commitment: 'pilota' })) }, '3 of 3'],
     ['canvas-validato', { canvases: [{ data: { validated: { problem: true } } }] }, '1 of 3'],
-    ['voti', { fullVoters: 0 }, '0 complete votes'],
-    ['voti', { fullVoters: 1 }, '1 complete vote'],
-    ['voti', { fullVoters: 2 }, '2 complete votes'],
+    ['voti', { fullVoters: 0 }, '0 people scored every criterion'],
+    ['voti', { fullVoters: 1 }, '1 person scored every criterion'],
+    ['voti', { fullVoters: 2 }, '2 people scored every criterion'],
   ];
   for (const [key, ctx, expected] of CASES) {
     it(`${key} con ${JSON.stringify(ctx).slice(0, 60)} dice «${expected}»`, () => {
@@ -131,5 +131,28 @@ describe('testi della roadmap nelle due lingue', () => {
 
   it('i testi dei passi non sono rimasti in italiano', () => {
     for (const key of STEP_KEYS) assert.notEqual(en.steps[key].title, it_.steps[key].title, key);
+  });
+});
+
+// The roadmap points at sheets, lists and pages of the site: by the names they have in English, not by others.
+describe('nomi di schede, elenchi e pagine nella roadmap in inglese', () => {
+  const all = textsFor('en');
+  const text = JSON.stringify(all.roadmap);
+
+  for (const [wrong, why] of [
+    [/deep tech card/i, 'the kind is the deep tech sheet'],
+    [/People list/, 'the list is Contacts'],
+    [/Equity page/, 'equity is a tab of the team page'],
+    [/Team and Equity pages/, 'equity is a tab of the team page'],
+  ]) {
+    it(`non dice ${wrong}: ${why}`, () => {
+      assert.doesNotMatch(text, wrong);
+    });
+  }
+
+  it('i nomi che usa sono quelli del sito', () => {
+    for (const name of [all.boards.kinds?.deeptech?.label ?? 'Deep tech sheet', all.shell.nav.contacts, all.squad.tabs.equity, all.shell.nav.squad]) {
+      assert.ok(text.toLowerCase().includes(name.toLowerCase()), name);
+    }
   });
 });

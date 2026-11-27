@@ -63,7 +63,7 @@ describe('menu in inglese', () => {
     assert.deepEqual(groups, [
       ['Work', ['Dashboard', 'Ideas', 'Scoring', 'Experiments', 'Interviews', 'Surveys', 'Contacts', 'Decisions', 'Chat']],
       ['Tools', ['Generator', 'Guide']],
-      ['Team', ['Team', 'Members', 'Expenses']],
+      ['Team', ['Our team', 'Members', 'Expenses']],
       ['System', ['History', 'Trash']],
     ]);
     assert.deepEqual(shell.NAV.map(([path]) => path), ['/', '/idee', '/valutazione', '/esperimenti', '/interviste', '/questionari', '/contatti', '/decisioni', '/chat', '/generatore', '/guida', '/squadra', '/membri', '/spese', '/storico', '/cestino']);

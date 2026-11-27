@@ -61,9 +61,9 @@ describe('esportazione in Markdown in inglese', () => {
   });
 
   for (const [voters, expected] of [
-    [[], 'Score: no votes (0 voters)'],
-    [[[ME, 5]], 'Score: 100/100 (1 voter)'],
-    [[[ME, 5], [OTHER, 1]], /Score: \d+\/100 \(2 voters\)/],
+    [[], 'Score: no scores (scored by 0 people)'],
+    [[[ME, 5]], 'Score: 100/100 (scored by 1 person)'],
+    [[[ME, 5], [OTHER, 1]], /Score: \d+\/100 \(scored by 2 people\)/],
   ]) {
     it(`la valutazione si legge in inglese (votanti: ${voters.length})`, () => {
       store.applyItem(item({ id: id(10), kind: 'criteria', title: 'Criteria', data: { criteria: [{ key: 'customer', label: 'Customer', description: '', weight: 1 }] } }));
