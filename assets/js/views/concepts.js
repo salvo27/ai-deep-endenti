@@ -11,6 +11,16 @@ const ADDED_CHAPTER = 11;
 
 export const CONCEPTS_INTRO = t.intro(VERIFIED_ON);
 
+// The book keeps its Italian title in every language: marked as Italian, screen readers and translators read it as such.
+export const BOOK_TITLE = 'Il manuale dello startupper'; // i18n-ignore: the title of a book
+
+/** The introduction of the concepts, with the title of the book marked as Italian. */
+export function conceptsIntro() {
+  const [before, ...after] = CONCEPTS_INTRO.split(BOOK_TITLE);
+  if (!after.length) return CONCEPTS_INTRO;
+  return h('span', null, before, h('span', { lang: 'it' }, BOOK_TITLE), after.join(BOOK_TITLE));
+}
+
 // Seconda scheda della Guida: filtri ed elenco dei concetti, con in evidenza quello aperto da un link.
 export function conceptsPanel(focus) {
   let search = '';

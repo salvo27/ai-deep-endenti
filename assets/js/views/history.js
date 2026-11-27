@@ -189,6 +189,10 @@ export function lineDiffView(before, after) {
 
 const isPhotoPath = (kind, path) => fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image';
 
+// A value stored as a code (a status, a choice, a person) is compared in words, before and after: word by word the
+// codes would be shown as they are saved, in Italian.
+const isCoded = (kind, change) => [change.before, change.after].some((value) => value !== undefined && displayValue(kind, change.path, value) !== value);
+
 // Una foto si confronta guardandola, non come testo base64.
 function photoChange(before, after) {
   const side = (src, cls) => (src ? h('span', { class: cls }, photoView(src, { alt: t.diff.photo, size: 48 })) : h('span', { class: 'muted small' }, t.diff.noPhoto));
@@ -203,7 +207,7 @@ export function changeView(kind, change) {
     body = h('div', { class: 'diff-inline' }, change.before ? h(DEL.tag, null, displayValue(kind, change.path, change.before)) : t.diff.todo, ' → ', change.after ? h('ins', null, displayValue(kind, change.path, change.after)) : t.diff.todo);
   } else if (change.kind === 'text') {
     body = lineDiffView(change.before, change.after);
-  } else if (change.kind === 'inline') {
+  } else if (change.kind === 'inline' && !isCoded(kind, change)) {
     body = h(
       'div',
       { class: 'diff-inline text-block' },

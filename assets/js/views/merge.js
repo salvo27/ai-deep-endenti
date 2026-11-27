@@ -12,7 +12,8 @@ function renderValue(kind, path, value, base) {
   if (fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image') return photoView(value, { alt: tx.editor.components.photo, size: 64 });
   if (kind === 'idea' && path.startsWith('data.roadmap.')) return h('span', null, String(formatValue(kind, path, value, labelContext)));
   const shown = formatValue(kind, path, value, labelContext);
-  if (typeof value === 'string' && typeof base === 'string') {
+  // Only free text is compared word by word: a value stored as a code (a status, a choice) is shown in words.
+  if (typeof value === 'string' && typeof base === 'string' && shown === value) {
     return h(
       'div',
       { class: 'text-block diff-inline' },

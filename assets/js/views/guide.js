@@ -4,7 +4,7 @@ import { ROADMAP, ROADMAP_STEPS } from '../roadmap.js';
 import { exampleIdeas, ideas } from '../store.js';
 import { tx } from '../i18n/index.js';
 import { emptyState, itemLink, pageHeader, statusPill, tabs } from './components.js';
-import { CONCEPTS_INTRO, conceptsPanel } from './concepts.js';
+import { conceptsIntro, conceptsPanel } from './concepts.js';
 import { ideaRoadmap, phaseSection } from './roadmap.js';
 
 const t = tx.guide;
@@ -96,7 +96,7 @@ export function guideView(outlet, params, query) {
   const concepts = tab === 'concetti';
   mount(
     outlet,
-    pageHeader({ title: t.title, subtitle: concepts ? CONCEPTS_INTRO : t.subtitle }),
+    pageHeader({ title: t.title, subtitle: concepts ? conceptsIntro() : t.subtitle }),
     tabs(TABS, tab, (key) => (key === 'roadmap' ? '#/guida' : `#/guida/${key}`)), // i18n-ignore: addresses
     h('div', { class: 'tab-body stack' }, concepts ? conceptsPanel(query.get('c')) : roadmapGuide()),
   );
