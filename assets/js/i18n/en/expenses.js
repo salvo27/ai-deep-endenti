@@ -90,6 +90,8 @@ export const expenses = {
     over: (amount) => `The shares are ${amount} over the total.`,
   },
   csv: {
+    // The comma: what a spreadsheet in English expects, where the decimal separator is the point (as the survey export).
+    separator: ',',
     date: 'Date',
     type: 'Type',
     description: 'Description',

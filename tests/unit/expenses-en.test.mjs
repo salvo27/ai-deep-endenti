@@ -275,7 +275,9 @@ describe('persone e statistiche, in inglese', () => {
 });
 
 describe('CSV in inglese', () => {
-  it('intestazioni, tipi, categorie e numeri sono in inglese, i dati restano quelli scritti', () => {
+  // An English spreadsheet splits columns on the comma, as the survey export already does: a cell with a comma is quoted,
+  // a semicolon is just text.
+  it('intestazioni, tipi, categorie e numeri sono in inglese, le colonne divise dalla virgola, i dati restano quelli scritti', () => {
     const movements = [
       equal(1000, 'a', ['a', 'b', 'c'], { category: 'software', date: '2026-10-02', note: '=SUM(A1)' }),
       move({ type: 'rimborso', amount: 333, paid_by: 'b', date: '2026-10-03', split: { mode: 'parti', shares: { a: 1 } } }, { title: 'Refund' }),
@@ -283,11 +285,16 @@ describe('CSV in inglese', () => {
       move({ type: 'entrata', amount: 123456, paid_by: 'z', date: '2026-10-04', split: { mode: 'parti', shares: { a: 1 } } }, { title: 'Grant' }),
     ];
     const lines = movementsCsv(group(), movements).split('\r\n');
-    assert.equal(lines[0], 'Date;Type;Description;Category;Amount;Currency;Rate;Amount in EUR;Paid by;Split between;Note');
-    assert.equal(lines[1], '2026-10-01;Expense;"Taxi; airport";Travel and transport;50.00;USD;0.9;45.00;Bruno;"Anna 22.50; Bruno 22.50";');
-    assert.equal(lines[2], "2026-10-02;Expense;Expense;Software and online services;10.00;EUR;;10.00;Anna;\"Anna 3.34; Bruno 3.33; Carla 3.33\";'=SUM(A1)");
-    assert.equal(lines[3], '2026-10-03;Refund;Refund;;3.33;EUR;;3.33;Bruno;Anna;');
-    assert.equal(lines[4], '2026-10-04;Income;Grant;;1234.56;EUR;;1234.56;Person removed from the group;Anna 1234.56;');
+    assert.equal(lines[0], 'Date,Type,Description,Category,Amount,Currency,Rate,Amount in EUR,Paid by,Split between,Note');
+    assert.equal(lines[1], '2026-10-01,Expense,Taxi; airport,Travel and transport,50.00,USD,0.9,45.00,Bruno,Anna 22.50; Bruno 22.50,');
+    assert.equal(lines[2], "2026-10-02,Expense,Expense,Software and online services,10.00,EUR,,10.00,Anna,Anna 3.34; Bruno 3.33; Carla 3.33,'=SUM(A1)");
+    assert.equal(lines[3], '2026-10-03,Refund,Refund,,3.33,EUR,,3.33,Bruno,Anna,');
+    assert.equal(lines[4], '2026-10-04,Income,Grant,,1234.56,EUR,,1234.56,Person removed from the group,Anna 1234.56,');
+  });
+
+  it('una cella con la virgola resta una cella sola', () => {
+    const lines = movementsCsv(group(), [equal(1000, 'a', ['a', 'b'], { date: '2026-10-02', note: 'Lunch, team' })]).split('\r\n');
+    assert.match(lines[1], /,"Lunch, team"$/);
   });
 });
 

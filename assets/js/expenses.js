@@ -370,7 +370,8 @@ export function sortMovements(movements) {
   );
 }
 
-export function movementsCsv(group, movements, { separator = ';' } = {}) {
+// The columns are split as a spreadsheet in the language in use expects them, as the survey export does.
+export function movementsCsv(group, movements, { separator = t.csv.separator } = {}) {
   const currency = group.data.currency;
   const name = (id) => personName(group, id);
   const c = t.csv;

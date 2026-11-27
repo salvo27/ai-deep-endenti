@@ -90,6 +90,8 @@ export const expenses = {
     over: (amount) => `Le parti superano il totale di ${amount}.`,
   },
   csv: {
+    // Il punto e virgola: è quello che si aspetta un foglio di calcolo in italiano, dove la virgola è il separatore dei decimali.
+    separator: ';',
     date: 'Data',
     type: 'Tipo',
     description: 'Descrizione',

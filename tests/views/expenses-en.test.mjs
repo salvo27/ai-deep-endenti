@@ -315,8 +315,9 @@ describe('movimenti di un gruppo in inglese', () => {
       assert.equal(names.length, 1);
       assert.equal(names[0], `expenses-startup-costs-${format.dayKey(new Date())}.csv`);
       const lines = (await blobs[0].text()).replace(/^﻿/, '').split('\r\n');
-      assert.equal(lines[0], 'Date;Type;Description;Category;Amount;Currency;Rate;Amount in EUR;Paid by;Split between;Note');
-      assert.equal(lines[2], '2026-10-10;Expense;Dinner with the mentor;Meals and drinks;60.00;USD;0.9;54.00;Bruno;"Anna 27.00; Bruno 27.00";');
+      // The comma splits the columns, as an English spreadsheet expects.
+      assert.equal(lines[0], 'Date,Type,Description,Category,Amount,Currency,Rate,Amount in EUR,Paid by,Split between,Note');
+      assert.equal(lines[2], '2026-10-10,Expense,Dinner with the mentor,Meals and drinks,60.00,USD,0.9,54.00,Bruno,Anna 27.00; Bruno 27.00,');
     } finally {
       URL.createObjectURL = saved.create;
       URL.revokeObjectURL = saved.revoke;
