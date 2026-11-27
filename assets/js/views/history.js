@@ -1,4 +1,3 @@
-// i18n: da tradurre
 import { h, mount, busy, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { blame, diffLines, diffSnapshots, diffWords, flatten, snapshotOf, snapshotStats } from '../lib/diff.js';
@@ -8,29 +7,21 @@ import { api } from '../lib/api.js';
 import { KINDS, describePath, fieldOf, formatValue, routeFor } from '../schema.js';
 import { canWrite, getItem, ideas, labelContext, memberName, on, revertItem, state } from '../store.js';
 import { navigate } from '../router.js';
+import { tx } from '../i18n/index.js';
 import { avatar, button, emptyState, errorBox, kindBadge, loading, pageHeader, photoView, timeAgo } from './components.js';
 
-export const VERBS = {
-  create: 'ha creato',
-  update: 'ha modificato',
-  delete: 'ha archiviato',
-  restore: 'ha ripristinato',
-  revert: 'ha riportato a una versione precedente',
-};
+const t = tx.history;
+// Nomi per il browser, non testi: l'indirizzo dello storico, il tag e le classi delle parti tolte.
+const LOG_PATH = '/storico'; // i18n-ignore: the address of the page
+const DEL = { tag: 'del', chip: 'chip chip-del', stat: 'del' }; // i18n-ignore: tag and class names
 
-const TOP_LABELS = {
-  score: { scores: 'voti', notes: 'note' },
-  availability: { busy: 'orario tipo', until: 'scadenza dell\'orario tipo', weeks: 'settimane con un orario diverso' },
-  timesheet: { week: 'settimana', pledge: 'ore dichiarate', entries: 'righe' },
-  criteria: { criteria: 'criteri' },
-  generator: { rows: 'righe', cols: 'colonne', cells: 'celle' },
-  canvas: { validated: 'blocchi validati' },
-  survey: { questions: 'domande', appearance: 'aspetto', token: 'link pubblico', show_time: 'durata visibile' },
-};
+export const VERBS = t.verbs;
+const verb = (op) => (Object.hasOwn(VERBS, op) ? VERBS[op] : '');
 
 export function changedLabels(rev) {
   const labels = (rev.changed || []).map((key) => {
-    if (TOP_LABELS[rev.kind]?.[key]) return TOP_LABELS[rev.kind][key];
+    const own = t.fields[rev.kind];
+    if (own && Object.hasOwn(own, key)) return own[key];
     const path = ['title', 'status', 'idea_id'].includes(key) ? key : `data.${key}`;
     return describePath(rev.kind, path, labelContext).toLowerCase();
   });
@@ -39,11 +30,11 @@ export function changedLabels(rev) {
 
 export function revisionSummary(rev) {
   if (rev.message) return rev.message;
-  if (rev.op === 'create') return 'Prima versione';
-  if (rev.op === 'delete') return 'Spostato nel cestino';
-  if (rev.op === 'restore') return 'Ripristinato dal cestino';
+  if (rev.op === 'create') return t.summary.create;
+  if (rev.op === 'delete') return t.summary.delete;
+  if (rev.op === 'restore') return t.summary.restore;
   const labels = changedLabels(rev);
-  return labels.length ? `Modificati: ${labels.join(', ')}` : 'Nessun campo cambiato';
+  return labels.length ? t.summary.changed(labels) : t.summary.nothing;
 }
 
 export function revisionLine(rev) {
@@ -58,14 +49,14 @@ export function revisionLine(rev) {
         'div',
         null,
         h('strong', null, memberName(rev.author_id)),
-        ` ${VERBS[rev.op] || 'ha modificato'} `,
+        ` ${verb(rev.op) || VERBS.update} `,
         kindBadge(rev.kind),
         ' ',
-        h('a', { href: `#/diff/${rev.item_id}/${rev.version}` }, `«${truncate(rev.title, 70)}»`),
+        h('a', { href: `#/diff/${rev.item_id}/${rev.version}` }, t.quoted(truncate(rev.title, 70))),
       ),
       h('div', { class: ['log-message', !rev.message && 'muted'] }, revisionSummary(rev)),
     ),
-    h('div', { class: 'log-side' }, h('a', { class: 'version', href: `#/diff/${rev.item_id}/${rev.version}`, title: 'Vedi le modifiche' }, `v${rev.version}`), timeAgo(rev.created_at)),
+    h('div', { class: 'log-side' }, h('a', { class: 'version', href: `#/diff/${rev.item_id}/${rev.version}`, title: t.seeChanges }, `v${rev.version}`), timeAgo(rev.created_at)),
   );
 }
 
@@ -79,26 +70,29 @@ function groupByDay(revisions) {
   return groups;
 }
 
+// Parametri dell'indirizzo: restano in italiano come gli indirizzi.
+const PARAM = { author: 'autore', kind: 'tipo', idea: 'idea' }; // i18n-ignore: address parameters
+
 export function readLogFilters(query) {
-  const authorId = isUuid(query.get('autore')) ? query.get('autore') : null;
-  const kind = KINDS[query.get('tipo')] ? query.get('tipo') : null;
-  const ideaId = isUuid(query.get('idea')) ? query.get('idea') : null;
+  const authorId = isUuid(query.get(PARAM.author)) ? query.get(PARAM.author) : null;
+  const kind = KINDS[query.get(PARAM.kind)] ? query.get(PARAM.kind) : null;
+  const ideaId = isUuid(query.get(PARAM.idea)) ? query.get(PARAM.idea) : null;
   return { authorId, kind, ideaId };
 }
 
 function filterHref(filters) {
   const params = new URLSearchParams();
-  if (filters.authorId) params.set('autore', filters.authorId);
-  if (filters.kind) params.set('tipo', filters.kind);
-  if (filters.ideaId) params.set('idea', filters.ideaId);
+  if (filters.authorId) params.set(PARAM.author, filters.authorId);
+  if (filters.kind) params.set(PARAM.kind, filters.kind);
+  if (filters.ideaId) params.set(PARAM.idea, filters.ideaId);
   const qs = params.toString();
-  return `/storico${qs ? `?${qs}` : ''}`;
+  return `${LOG_PATH}${qs ? `?${qs}` : ''}`;
 }
 
 export function logView(outlet, params, query) {
   const filters = readLogFilters(query);
   const listHost = h('div', null, loading());
-  const more = h('button', { type: 'button', class: 'btn btn-ghost', hidden: true }, 'Carica altri');
+  const more = h('button', { type: 'button', class: 'btn btn-ghost', hidden: true }, t.log.more);
   let revisions = [];
 
   const select = (label, value, entries, key) =>
@@ -109,14 +103,14 @@ export function logView(outlet, params, query) {
       h(
         'select',
         { class: 'input', onChange: (e) => navigate(filterHref({ ...filters, [key]: e.target.value || null }), { replace: true }) },
-        h('option', { value: '' }, 'Tutti'),
+        h('option', { value: '' }, t.log.all),
         entries.map(([v, l]) => h('option', { value: v, selected: v === value }, l)),
       ),
     );
 
   const render = () => {
     if (!revisions.length) {
-      mount(listHost, emptyState('Nessuna modifica con questi filtri.'));
+      mount(listHost, emptyState(t.log.empty));
       return;
     }
     mount(listHost,
@@ -140,13 +134,13 @@ export function logView(outlet, params, query) {
 
   mount(
     outlet,
-    pageHeader({ title: 'Storico', subtitle: 'Ogni salvataggio è una versione: chi, quando, cosa e perché. Lo storico non si può modificare.' }),
+    pageHeader({ title: t.log.title, subtitle: t.log.subtitle }),
     h(
       'div',
       { class: 'filters' },
-      select('Autore', filters.authorId, state.members.map((m) => [m.user_id, m.display_name]), 'authorId'),
-      select('Tipo', filters.kind, Object.entries(KINDS).map(([k, d]) => [k, d.label]), 'kind'),
-      select('Idea', filters.ideaId, ideas({ includeDeleted: true }).map((i) => [i.id, i.title]), 'ideaId'),
+      select(t.log.author, filters.authorId, state.members.map((m) => [m.user_id, m.display_name]), 'authorId'),
+      select(t.log.type, filters.kind, Object.entries(KINDS).map(([k, d]) => [k, d.label]), 'kind'),
+      select(t.log.idea, filters.ideaId, ideas({ includeDeleted: true }).map((i) => [i.id, i.title]), 'ideaId'),
     ),
     listHost,
     more,
@@ -170,7 +164,8 @@ function displayValue(kind, path, value) {
 }
 
 const CONTEXT_LINES = 2;
-const sameLines = (n) => (n === 1 ? '… 1 riga uguale' : `… ${n} righe uguali`);
+// Il segno davanti a ogni riga del confronto, per tipo di operazione.
+const SIGNS = { add: '+', del: '−', eq: ' ' };
 
 export function lineDiffView(before, after) {
   const ops = diffLines(before ?? '', after ?? '');
@@ -183,13 +178,12 @@ export function lineDiffView(before, after) {
       return;
     }
     if (skipped) {
-      rows.push(h('div', { class: 'diff-line diff-skip' }, sameLines(skipped)));
+      rows.push(h('div', { class: 'diff-line diff-skip' }, t.diff.sameLines(skipped)));
       skipped = 0;
     }
-    const sign = op.t === 'add' ? '+' : op.t === 'del' ? '−' : ' ';
-    rows.push(h('div', { class: ['diff-line', `diff-${op.t}`] }, h('span', { class: 'diff-sign' }, sign), h('span', null, op.v || ' ')));
+    rows.push(h('div', { class: ['diff-line', `diff-${op.t}`] }, h('span', { class: 'diff-sign' }, SIGNS[op.t]), h('span', null, op.v || ' ')));
   });
-  if (skipped) rows.push(h('div', { class: 'diff-line diff-skip' }, sameLines(skipped)));
+  if (skipped) rows.push(h('div', { class: 'diff-line diff-skip' }, t.diff.sameLines(skipped)));
   return h('div', { class: 'diff-lines' }, rows);
 }
 
@@ -197,7 +191,7 @@ const isPhotoPath = (kind, path) => fieldOf(kind, path.replace(/^data\./, '').sp
 
 // Una foto si confronta guardandola, non come testo base64.
 function photoChange(before, after) {
-  const side = (src, cls) => (src ? h('span', { class: cls }, photoView(src, { alt: 'Foto', size: 48 })) : h('span', { class: 'muted small' }, 'nessuna foto'));
+  const side = (src, cls) => (src ? h('span', { class: cls }, photoView(src, { alt: t.diff.photo, size: 48 })) : h('span', { class: 'muted small' }, t.diff.noPhoto));
   return h('div', { class: 'photo-change' }, side(before, 'photo-old'), '→', side(after, 'photo-new'));
 }
 
@@ -206,40 +200,39 @@ export function changeView(kind, change) {
   if (isPhotoPath(kind, change.path)) {
     body = photoChange(change.before, change.after);
   } else if (kind === 'idea' && change.path.startsWith('data.roadmap.')) {
-    body = h('div', { class: 'diff-inline' }, change.before ? h('del', null, displayValue(kind, change.path, change.before)) : 'da fare', ' → ', change.after ? h('ins', null, displayValue(kind, change.path, change.after)) : 'da fare');
+    body = h('div', { class: 'diff-inline' }, change.before ? h(DEL.tag, null, displayValue(kind, change.path, change.before)) : t.diff.todo, ' → ', change.after ? h('ins', null, displayValue(kind, change.path, change.after)) : t.diff.todo);
   } else if (change.kind === 'text') {
     body = lineDiffView(change.before, change.after);
   } else if (change.kind === 'inline') {
     body = h(
       'div',
       { class: 'diff-inline text-block' },
-      diffWords(change.before ?? '', change.after ?? '').map((op) => (op.t === 'eq' ? op.v : h(op.t === 'add' ? 'ins' : 'del', null, op.v))),
+      diffWords(change.before ?? '', change.after ?? '').map((op) => (op.t === 'eq' ? op.v : h(op.t === 'add' ? 'ins' : DEL.tag, null, op.v))),
     );
   } else if (change.kind === 'set') {
     body = h(
       'div',
       { class: 'chips' },
       change.addedItems.map((v) => h('span', { class: 'chip chip-add' }, `+ ${displayValue(kind, change.path, [v])}`)),
-      change.removedItems.map((v) => h('span', { class: 'chip chip-del' }, `− ${displayValue(kind, change.path, [v])}`)),
+      change.removedItems.map((v) => h('span', { class: DEL.chip }, `− ${displayValue(kind, change.path, [v])}`)),
     );
   } else {
     body = h(
       'div',
       { class: 'diff-inline' },
-      change.before !== undefined ? h('del', null, displayValue(kind, change.path, change.before)) : null,
+      change.before !== undefined ? h(DEL.tag, null, displayValue(kind, change.path, change.before)) : null,
       change.before !== undefined && change.after !== undefined ? ' → ' : null,
       change.after !== undefined ? h('ins', null, displayValue(kind, change.path, change.after)) : null,
     );
   }
-  const tag = { added: 'aggiunto', removed: 'rimosso', changed: 'modificato' }[change.type];
-  return h('section', { class: 'change' }, h('h3', null, describePath(kind, change.path, labelContext), h('span', { class: ['change-tag', `tag-${change.type}`] }, tag)), body);
+  return h('section', { class: 'change' }, h('h3', null, describePath(kind, change.path, labelContext), h('span', { class: ['change-tag', `tag-${change.type}`] }, t.diff.tags[change.type])), body);
 }
 
 export async function diffView(outlet, params) {
   mount(outlet, loading());
   const to = Number(params.to);
   if (!isUuid(params.id) || !Number.isInteger(to)) {
-    mount(outlet, errorBox({ message: 'Versione non valida.' }));
+    mount(outlet, errorBox({ message: t.diff.invalidVersion }));
     return null;
   }
   let history;
@@ -251,7 +244,7 @@ export async function diffView(outlet, params) {
   }
   const target = history.find((r) => r.version === to);
   if (!target) {
-    mount(outlet, errorBox({ message: 'Versione non trovata.' }));
+    mount(outlet, errorBox({ message: t.diff.versionNotFound }));
     return null;
   }
   const fromVersion = params.from !== undefined ? Number(params.from) : to - 1;
@@ -259,20 +252,17 @@ export async function diffView(outlet, params) {
   const latest = history[history.length - 1];
   const item = getItem(params.id);
   const changes = diffSnapshots(from ? snapshotOf(from) : {}, snapshotOf(target));
-  const stats = snapshotStats(changes);
+  const { add: added, del: removed } = snapshotStats(changes);
 
   const revertButton = canWrite() && item && !item.deleted_at && target.version !== latest.version
     ? (() => {
-        const b = button(`Ripristina la versione ${target.version}`, { kind: 'primary', iconName: 'restore' });
+        const b = button(t.diff.restore(target.version), { kind: 'primary', iconName: 'restore' });
         b.addEventListener('click', busy(b, async () => {
-          const ok = await confirmDialog(
-            `Il contenuto tornerà com'era nella versione ${target.version}. Verrà creata una nuova versione: nulla di quanto fatto dopo andrà perso dallo storico.`,
-            { title: 'Ripristinare questa versione?', okLabel: 'Ripristina' },
-          );
+          const ok = await confirmDialog(t.diff.restoreConfirm(target.version), { title: t.diff.restoreTitle, okLabel: tx.common.actions.restore });
           if (!ok) return;
           try {
             await revertItem(getItem(params.id), target.version);
-            toast(`Ripristinata la versione ${target.version}.`, { type: 'success' });
+            toast(t.diff.restored(target.version), { type: 'success' });
             navigate(routeFor(getItem(params.id)).slice(1));
           } catch (error) {
             toast(error.message, { type: 'error' });
@@ -285,29 +275,29 @@ export async function diffView(outlet, params) {
   const nav = h(
     'div',
     { class: 'diff-nav' },
-    target.version > 1 ? h('a', { class: 'btn btn-ghost btn-small', href: `#/diff/${params.id}/${target.version - 1}` }, icon('back', 14), 'Versione precedente') : null,
-    target.version < latest.version ? h('a', { class: 'btn btn-ghost btn-small', href: `#/diff/${params.id}/${target.version + 1}` }, 'Versione successiva') : null,
-    h('a', { class: 'btn btn-ghost btn-small', href: `#/storico/${params.id}` }, icon('history', 14), 'Tutte le versioni'),
+    target.version > 1 ? h('a', { class: 'btn btn-ghost btn-small', href: `#/diff/${params.id}/${target.version - 1}` }, icon('back', 14), t.diff.previous) : null,
+    target.version < latest.version ? h('a', { class: 'btn btn-ghost btn-small', href: `#/diff/${params.id}/${target.version + 1}` }, t.diff.next) : null,
+    h('a', { class: 'btn btn-ghost btn-small', href: `#${LOG_PATH}/${params.id}` }, icon('history', 14), t.diff.allVersions),
   );
 
   mount(
     outlet,
     pageHeader({
-      back: { href: `#/storico/${params.id}` },
+      back: { href: `#${LOG_PATH}/${params.id}` },
       eyebrow: kindBadge(target.kind),
       title: target.title,
       subtitle: h(
         'span',
         null,
-        `Versione ${target.version}${from ? ` confrontata con la ${from.version}` : ''} · `,
+        `${t.diff.version(target.version, from?.version)} · `,
         memberName(target.author_id),
-        ` ${VERBS[target.op] || ''} · ${fmtDateTime(target.created_at)}`,
+        ` ${verb(target.op)} · ${fmtDateTime(target.created_at)}`,
       ),
       actions: [revertButton],
     }),
-    h('div', { class: 'commit-box' }, avatar(target.author_id, 32), h('div', null, h('strong', null, revisionSummary(target)), h('div', { class: 'diff-stats' }, h('span', { class: 'add' }, `+${stats.add}`), ' ', h('span', { class: 'del' }, `−${stats.del}`)))),
+    h('div', { class: 'commit-box' }, avatar(target.author_id, 32), h('div', null, h('strong', null, revisionSummary(target)), h('div', { class: 'diff-stats' }, h('span', { class: 'add' }, `+${added}`), ' ', h('span', { class: DEL.stat }, `−${removed}`)))),
     nav,
-    changes.length ? h('div', { class: 'changes' }, changes.map((c) => changeView(target.kind, c))) : emptyState(target.op === 'delete' ? 'L\'elemento è stato spostato nel cestino.' : target.op === 'restore' ? 'L\'elemento è stato ripristinato dal cestino.' : 'Nessuna differenza nel contenuto.'),
+    changes.length ? h('div', { class: 'changes' }, changes.map((c) => changeView(target.kind, c))) : emptyState(target.op === 'delete' ? t.diff.archived : target.op === 'restore' ? t.diff.restoredFromTrash : t.diff.noDifference),
   );
   return null;
 }
@@ -315,7 +305,7 @@ export async function diffView(outlet, params) {
 export async function itemHistoryView(outlet, params) {
   mount(outlet, loading());
   if (!isUuid(params.id)) {
-    mount(outlet, errorBox({ message: 'Elemento non valido.' }));
+    mount(outlet, errorBox({ message: t.versions.invalidItem }));
     return null;
   }
   let history;
@@ -326,7 +316,7 @@ export async function itemHistoryView(outlet, params) {
     return null;
   }
   if (!history.length) {
-    mount(outlet, errorBox({ message: 'Nessuna versione trovata.' }));
+    mount(outlet, errorBox({ message: t.versions.none }));
     return null;
   }
   const latest = history[history.length - 1];
@@ -339,8 +329,8 @@ export async function itemHistoryView(outlet, params) {
     h(
       'tr',
       null,
-      h('td', null, h('input', { type: 'radio', name: 'from', 'aria-label': `Da versione ${rev.version}`, checked: rev.version === fromVersion, onChange: () => (fromVersion = rev.version) })),
-      h('td', null, h('input', { type: 'radio', name: 'to', 'aria-label': `A versione ${rev.version}`, checked: rev.version === toVersion, onChange: () => (toVersion = rev.version) })),
+      h('td', null, h('input', { type: 'radio', name: 'from', 'aria-label': t.versions.from(rev.version), checked: rev.version === fromVersion, onChange: () => (fromVersion = rev.version) })),
+      h('td', null, h('input', { type: 'radio', name: 'to', 'aria-label': t.versions.to(rev.version), checked: rev.version === toVersion, onChange: () => (toVersion = rev.version) })),
       h('td', null, h('a', { class: 'version', href: `#/diff/${rev.item_id}/${rev.version}` }, `v${rev.version}`)),
       h('td', null, avatar(rev.author_id, 22), ' ', memberName(rev.author_id)),
       h('td', { class: ['log-message', !rev.message && 'muted'] }, revisionSummary(rev)),
@@ -356,11 +346,11 @@ export async function itemHistoryView(outlet, params) {
     const owners = blame(history);
     const current = flatten(snapshotOf(latest));
     mount(blameHost,
-      h('h2', null, 'Chi ha scritto cosa'),
+      h('h2', null, t.versions.blame),
       h(
         'table',
         { class: 'table' },
-        h('thead', null, h('tr', null, h('th', null, 'Campo'), h('th', null, 'Contenuto'), h('th', null, 'Ultima modifica'))),
+        h('thead', null, h('tr', null, t.versions.blameColumns.map((label) => h('th', null, label)))),
         h(
           'tbody',
           null,
@@ -385,20 +375,20 @@ export async function itemHistoryView(outlet, params) {
   mount(
     outlet,
     pageHeader({
-      back: { href: item ? routeFor(item) : '#/storico' },
+      back: { href: item ? routeFor(item) : `#${LOG_PATH}` },
       eyebrow: kindBadge(latest.kind),
-      title: `Versioni di «${latest.title}»`,
-      subtitle: history.length === 1 ? '1 versione' : `${history.length} versioni`,
+      title: t.versions.title(latest.title),
+      subtitle: t.versions.count(history.length),
       actions: [
-        button('Confronta le versioni scelte', {
+        button(t.versions.compare, {
           kind: 'primary',
           iconName: 'diff',
           onClick: () => navigate(`/diff/${params.id}/${Math.max(fromVersion, toVersion)}/${Math.min(fromVersion, toVersion)}`),
         }),
-        button('Chi ha scritto cosa', { iconName: 'eye', onClick: toggleBlame }),
+        button(t.versions.blame, { iconName: 'eye', onClick: toggleBlame }),
       ],
     }),
-    h('table', { class: 'table' }, h('thead', null, h('tr', null, h('th', null, 'Da'), h('th', null, 'A'), h('th', null, 'Versione'), h('th', null, 'Autore'), h('th', null, 'Messaggio'), h('th', null, 'Quando'))), h('tbody', null, rows)),
+    h('table', { class: 'table' }, h('thead', null, h('tr', null, t.versions.columns.map((label) => h('th', null, label)))), h('tbody', null, rows)),
     blameHost,
   );
   return null;
