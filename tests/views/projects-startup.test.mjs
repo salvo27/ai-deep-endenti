@@ -142,7 +142,9 @@ describe('avvio del sito con i progetti', () => {
     await flush();
     assert.equal(location.hash, '#/progetti');
     assert.equal(router.currentPath(), '/progetti');
-    assert.match(text(root), new RegExp(tx.projects.placeholder.slice(0, 20)));
+    assert.equal(text(root.querySelector('.content h1')), tx.projects.title);
+    assert.ok(root.querySelector('.project-create'), 'può creare il suo primo progetto');
+    assert.deepEqual([...root.querySelectorAll('.sidebar .nav-link')].map((el) => text(el)), [tx.shell.nav.projects, tx.shell.nav.profile, tx.shell.nav.signOut]);
     assert.equal(store.state.platformAdmin, true);
     assert.deepEqual(subscribed, [], 'senza progetto niente dati dal vivo');
   });
