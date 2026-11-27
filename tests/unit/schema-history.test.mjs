@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CURRENCIES, MOVEMENT_TYPES, SPLIT_MODES } from '../../assets/js/expenses.js';
+import { merge3 } from '../../assets/js/lib/diff.js';
 import {
   KINDS,
   TECH_SUGGESTIONS,
@@ -203,5 +204,41 @@ describe('definizioni delle schede', () => {
     ]);
     const clean = sanitizeSnapshot('equity', { data: { factors: DEFAULT_EQUITY_FACTORS } });
     assert.deepEqual(clean.data.factors, DEFAULT_EQUITY_FACTORS, 'i fattori proposti sono già validi');
+  });
+});
+
+describe('parti dello storico senza un campo proprio', () => {
+  // Lo storico arriva fino alle foglie; un conflitto invece può riguardare un elenco o un oggetto intero.
+  for (const [kind, path, expected] of [
+    ['survey', 'data.cover.path', 'Immagine della schermata iniziale'],
+    ['survey', 'data.cover.alt', 'Immagine della schermata iniziale › descrizione'],
+    ['survey', 'data.cover', 'Immagine della schermata iniziale'],
+    ['survey', 'data.thanks_image.path', 'Immagine del grazie'],
+    ['survey', 'data.thanks_image.alt', 'Immagine del grazie › descrizione'],
+    ['survey', 'data.questions', 'Domande'],
+    ['survey', 'data.questions.#order', 'Domande › ordine'],
+    ['criteria', 'data.criteria', 'Criteri'],
+    ['criteria', 'data.criteria.#order', 'Criteri › ordine'],
+    ['score', `data.scores.${IDEA}`, 'Voti › Idea alfa'],
+    ['canvas', 'data.validated', 'Blocchi validati'],
+    ['idea', 'data.roadmap', 'Roadmap'],
+  ]) {
+    it(`${kind} ${path} si legge «${expected}»`, () => {
+      assert.equal(describePath(kind, path, ctx), expected);
+    });
+  }
+
+  it('un conflitto sui criteri si legge con il nome dell elenco e i nomi dei criteri, non con la chiave e [object Object]', () => {
+    const criteria = (...rows) => sanitizeSnapshot('criteria', { data: { criteria: rows.map(([label, weight]) => ({ label, weight })) } });
+    const { conflicts } = merge3(criteria(['Mercato', 2]), criteria(['Mercato', 3]), criteria(['Mercato', 2], ['Squadra', 1]));
+    assert.deepEqual(conflicts.map((c) => c.path), ['data.criteria']);
+    assert.equal(describePath('criteria', conflicts[0].path, ctx), 'Criteri');
+    assert.deepEqual(formatValue('criteria', conflicts[0].path, conflicts[0].theirs, ctx), ['Mercato', 'Squadra']);
+  });
+
+  it('gli elenchi interi si mostrano con i loro nomi', () => {
+    assert.deepEqual(formatValue('criteria', 'data.criteria', [{ key: 'mercato', label: 'Mercato', weight: 2 }, { key: 'x', weight: 1 }]), ['Mercato', 'x']);
+    assert.deepEqual(formatValue('survey', 'data.questions', [{ id: 'q1', type: 'breve', label: 'Che lavoro fai?' }, { id: 'q2' }]), ['Che lavoro fai?', 'q2']);
+    assert.deepEqual(formatValue('canvas', 'data.validated', { problem: true, revenue: true, boh: true }), ['Problema', 'Flussi di ricavo', 'boh']);
   });
 });

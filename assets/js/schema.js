@@ -1135,9 +1135,12 @@ export function describePath(kind, path, ctx = {}) {
     const [, ideaId, criterion] = rest.split('.');
     const ideaTitle = ctx.ideaTitle?.(ideaId) || 'Idea';
     if (head === 'notes') return `Note › ${ideaTitle}`;
-    return `Voti › ${ideaTitle} › ${ctx.criterionLabel?.(criterion) || criterion || ''}`.trim();
+    // Un conflitto può riguardare tutti i voti di un'idea, senza criterio.
+    if (!criterion) return `Voti › ${ideaTitle}`;
+    return `Voti › ${ideaTitle} › ${ctx.criterionLabel?.(criterion) || criterion}`;
   }
   if (kind === 'criteria') {
+    if (rest === 'criteria') return 'Criteri';
     if (rest === 'criteria.#order') return 'Criteri › ordine';
     const match = rest.match(/^criteria#([^.]+)\.(\w+)$/);
     if (match) {
@@ -1173,7 +1176,11 @@ export function describePath(kind, path, ctx = {}) {
   }
   if (kind === 'scoresnap') return { criteria: 'Criteri', ideas: 'Idee', votes: 'Voti', names: 'Nomi' }[head.split('#')[0]] || head;
   if (kind === 'survey') {
-    if (head === 'questions') return 'Domande › ordine';
+    if (head === 'questions') return tail[0] === '#order' ? 'Domande › ordine' : 'Domande';
+    if (head === 'cover' || head === 'thanks_image') {
+      const image = head === 'cover' ? 'Immagine della schermata iniziale' : 'Immagine del grazie';
+      return tail[0] === 'alt' ? `${image} › descrizione` : image;
+    }
     const question = head.match(/^questions#(.+)$/);
     if (question) {
       const name = ctx.questionLabel?.(question[1]) || question[1];
@@ -1207,10 +1214,11 @@ export function describePath(kind, path, ctx = {}) {
     if (head.startsWith('entries#')) return `Riga › ${{ day: 'giorno', start: 'inizio', end: 'fine', area: 'area', note: 'cosa' }[tail[0]] || 'riga'}`;
   }
   if (kind === 'canvas' && head === 'validated') {
+    if (!tail[0]) return 'Blocchi validati';
     return `${CANVAS_BLOCKS.find((b) => b.key === tail[0])?.label || tail[0]} › validato`;
   }
   if (kind === 'idea' && head === 'origin') return 'Origine nel generatore';
-  if (kind === 'idea' && head === 'roadmap') return `Roadmap › ${ctx.roadmapStep?.(tail[0]) || tail[0]}`;
+  if (kind === 'idea' && head === 'roadmap') return tail[0] ? `Roadmap › ${ctx.roadmapStep?.(tail[0]) || tail[0]}` : 'Roadmap';
   return fieldOf(kind, head)?.label || head;
 }
 
@@ -1226,6 +1234,12 @@ export function formatValue(kind, path, value, ctx = {}) {
   }
   if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
   if (kind === 'survey' && (path === 'data.cover.path' || path === 'data.thanks_image.path')) return 'immagine caricata';
+  // Un conflitto su un elenco intero: i nomi delle righe, non gli oggetti.
+  if (kind === 'survey' && path === 'data.questions' && Array.isArray(value)) return value.map((q) => q?.label || q?.id || '');
+  if (kind === 'criteria' && path === 'data.criteria' && Array.isArray(value)) return value.map((c) => c?.label || c?.key || '');
+  if (kind === 'canvas' && path === 'data.validated' && typeof value === 'object') {
+    return Object.keys(value).filter((key) => value[key] === true).map((key) => CANVAS_BLOCKS.find((b) => b.key === key)?.label || key);
+  }
   if (kind === 'expense' && path === 'data.amount' && Number.isFinite(value)) return (value / 100).toLocaleString('it-IT', { minimumFractionDigits: 2 });
   if (kind === 'expense' && path === 'data.paid_by') return ctx.personName?.(value) || 'Persona';
   if (kind === 'expense' && path === 'data.split.mode') return SPLIT_MODES.find(([v]) => v === value)?.[1] ?? value;
