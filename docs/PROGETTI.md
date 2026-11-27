@@ -95,8 +95,11 @@ Il test `supabase/tests/database/*aggiornamento*` parte dallo schema di prima (`
 
 ## Sito
 
-- Il progetto scelto si ricorda sul dispositivo; senza scelta valida si apre il primo di `my_projects()`. Chi non ha progetti vede la schermata «non fai parte di nessun progetto» (l'amministratore della piattaforma vede invece la pagina Progetti).
-- Il selettore nel menu elenca i progetti di `my_projects()`; cambiare progetto ricarica dati, presenza e chat di quel progetto.
+- Il progetto scelto si ricorda sul dispositivo; senza scelta valida si apre il primo di `my_projects()`. Chi non ha progetti vede la schermata «non fai parte di nessun progetto» (l'amministratore della piattaforma vede invece la pagina Progetti, e il suo Profilo: ogni altro indirizzo porta alla pagina Progetti).
+- Il selettore nel menu elenca i progetti di `my_projects()`; cambiare progetto ricarica dati, presenza e chat di quel progetto. Con modifiche non salvate la pagina aperta chiede prima, come per ogni uscita: chi resta resta nel progetto di prima e nulla cambia.
+- Un link con `?progetto=` aperto in una scheda dove il sito è già aperto apre quel progetto se è un altro dei miei, sulla pagina del link; altrimenti il parametro sparisce e la pagina si apre nel progetto aperto.
+- Chi non può più leggere il progetto aperto (tolto, o progetto archiviato) lo scopre alla risincronizzazione: un membro vede la schermata di chi non ne fa più parte; l'amministratore della piattaforma, per cui `members_overview` risponde sempre, lo scopre da `my_projects()` e il sito si ricarica sulla pagina Progetti, in un altro suo progetto o in nessuno.
+- Quello che il dispositivo ricorda di un progetto vale solo per quel progetto: bozze degli elementi nuovi, ultima visita della dashboard, chi conta negli impegni, notifiche lette. Il valore unico di prima dei progetti vale per il primo progetto aperto dopo l'aggiornamento, poi sparisce.
 - Pagina **Progetti** (`#/progetti`), solo per l'amministratore della piattaforma: elenco con membri e admin, creazione, rinomina, archiviazione, persone e ruoli di ogni progetto, amministratori della piattaforma.
 - La pagina **Membri** resta all'admin del progetto, limitata al suo progetto.
 - I link delle email portano il progetto, così aprono il progetto giusto.

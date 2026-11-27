@@ -75,6 +75,8 @@ export function registerRoutes() {
   addRoute('/membri', teamView); // i18n-ignore: address
   addRoute('/spese', expensesView); // i18n-ignore: address
   addRoute('/spese/:id/:tab?', expenseGroupView); // i18n-ignore: address
+  // The address of the Members page before it moved (old links, bookmarks, emails): it keeps leading there in every
+  // language, even if the English menu now calls the page of the squad "Our team".
   addRedirect('/team', '/membri'); // i18n-ignore: address
   addRoute('/profilo', profileView); // i18n-ignore: address
   addRoute('/progetti', projectsView);
