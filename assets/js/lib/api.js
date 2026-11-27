@@ -41,16 +41,19 @@ const DB_MESSAGES = {
   PGRST301: 'Sessione scaduta. Accedi di nuovo.',
 };
 
+// Only the table's own entries: a code like toString or __proto__ would otherwise find what every object inherits.
+const own = (table, key) => (typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : null);
+
 export function toAppError(error, fallback = 'Operazione non riuscita. Riprova.') {
   if (error instanceof AppError) return error;
   if (!error) return new AppError(fallback);
   const code = error.code ?? null;
   const status = error.status ?? null;
-  if (code && AUTH_MESSAGES[code]) return new AppError(AUTH_MESSAGES[code], { code, status });
+  if (own(AUTH_MESSAGES, code)) return new AppError(own(AUTH_MESSAGES, code), { code, status });
   if (code === 'P0001' && typeof error.message === 'string') {
     return new AppError(error.message.slice(0, 300), { code, status });
   }
-  if (code && DB_MESSAGES[code]) return new AppError(DB_MESSAGES[code], { code, status });
+  if (own(DB_MESSAGES, code)) return new AppError(own(DB_MESSAGES, code), { code, status });
   if (status === 429) return new AppError(AUTH_MESSAGES.over_request_rate_limit, { code, status });
   if (error.name === 'TypeError' || error.name === 'AuthRetryableFetchError' || error.name === 'FunctionsFetchError') {
     return new AppError('Connessione non riuscita. Controlla la rete e riprova.', { code: 'network', status });

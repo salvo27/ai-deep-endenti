@@ -1,4 +1,4 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from '../../assets/js/lib/api.js';
 import * as store from '../../assets/js/store.js';
@@ -218,4 +218,14 @@ test('labelContext resolves titles, criteria and generator axes', () => {
   assert.equal(store.labelContext.axisLabel('r-a'), 'XAI');
   assert.equal(store.labelContext.axisLabel('nope'), null);
   assert.equal(store.criteriaList().length, 1);
+});
+
+describe('esiti che sono nomi di ogni oggetto', () => {
+  for (const status of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    it(`l esito ${status} dà il testo generico, non una funzione ereditata`, () => {
+      const error = store.statusError(status);
+      assert.equal(error.message, 'Operazione non riuscita. Riprova.');
+      assert.equal(error.code, status);
+    });
+  }
 });

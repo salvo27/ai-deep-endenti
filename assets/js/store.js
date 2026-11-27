@@ -296,7 +296,8 @@ const STATUS_MESSAGES = {
 };
 
 export function statusError(status) {
-  return new AppError(STATUS_MESSAGES[status] || 'Operazione non riuscita. Riprova.', { code: status || 'error' });
+  const text = typeof status === 'string' && Object.hasOwn(STATUS_MESSAGES, status) ? STATUS_MESSAGES[status] : 'Operazione non riuscita. Riprova.';
+  return new AppError(text, { code: status || 'error' });
 }
 
 export async function createItem(kind, snapshot, message) {

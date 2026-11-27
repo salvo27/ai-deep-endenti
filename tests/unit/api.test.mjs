@@ -1,4 +1,4 @@
-import { test, beforeEach } from 'node:test';
+import { test, describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { AppError, api, toAppError } from '../../assets/js/lib/api.js';
 import { authFlags } from '../../assets/js/lib/supabase.js';
@@ -286,4 +286,14 @@ test('the public survey module has its own anon client without a session and cal
 
   assert.deepEqual([...new Set(pub.calls.map((c) => `${c[0]}:${c[1]}`))].sort(), ['rpc:public_survey', 'rpc:submit_survey', 'rpc:survey_event']);
   assert.deepEqual(fake.calls, [], 'il client del sito non viene usato');
+});
+
+describe('codici che sono nomi di ogni oggetto', () => {
+  // Una tabella di testi letta con [code] trova anche ciò che ogni oggetto eredita: toString, constructor, __proto__.
+  for (const code of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    it(`il codice ${code} dà il testo generico, non una funzione ereditata`, () => {
+      const error = toAppError({ code, message: 'messaggio interno' });
+      assert.equal(error.message, 'Operazione non riuscita. Riprova.');
+    });
+  }
 });
