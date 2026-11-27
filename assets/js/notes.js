@@ -4,6 +4,7 @@ import { fmtDate } from './lib/format.js';
 import { renderMarkdown } from './lib/markdown.js';
 import { mentionChip } from './views/mention-chip.js';
 import { canWrite, currentProjectId, readLocal, writeLocal } from './store.js';
+import { ALL, MENTION_SOURCE } from './lib/mentions.js';
 import { tx } from './i18n/index.js';
 
 const t = tx.notes;
@@ -243,8 +244,15 @@ export async function printNote(note) {
   window.print();
 }
 
+// A tag is stored as @[Name] or @[tutti] in every language: as plain text it reads @Name, or @ and the reader's word
+// for everyone.
+const MENTIONS = new RegExp(MENTION_SOURCE, 'g');
+const mentionWords = (_, name) => `@${name.trim().toLowerCase() === ALL ? tx.mentions.everyone : name.trim()}`;
+
+/** A short plain text of a note or a message, for alerts, quotes and cards: no images, links as their words, tags said. */
 export function noteExcerpt(text, max = 180) {
   const plain = String(text || '')
+    .replace(MENTIONS, mentionWords)
     .replace(/!\[[^\]\n]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]\n]+)\]\([^)]*\)/g, '$1')
     .replace(/[#*_\x60>|]/g, ' ')

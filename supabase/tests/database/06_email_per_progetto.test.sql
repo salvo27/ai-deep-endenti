@@ -9,7 +9,7 @@
 --   notify_release_weekly(p_user, p_project, p_week)
 --   notify_weekly_data(p_project, p_since)              jsonb di quel progetto con project_id, project_name e language in unread
 begin;
-select plan(43);
+select plan(44);
 
 create schema t06;
 
@@ -318,6 +318,23 @@ select is_empty(
   $$ select * from public.notify_claim_mentions((select ids from t06.mention_ids)) c
      where c.id in (select m.id from public.mentions m where m.user_id = tests.uid('b') and m.project_id = t06.id('P')) $$,
   'nor can the email job claim a mention of a project the person has left'
+);
+reset role;
+
+-- The general chat is stored as 'Generale' in every project: the email names it in the language of whoever receives it,
+-- so each mention says whether it comes from the general chat.
+select tests.login('e');
+insert into public.chat_messages (chat_id, body)
+select c.id, '@[Bruna] domani riunione' from public.chats c where c.project_id = t06.id('Q') and c.is_general;
+select tests.logout();
+set role service_role;
+-- The claims above are let go, so the comment of e in Q is pending again next to the new message.
+select public.notify_release_mentions((select ids from t06.mention_ids));
+select results_eq(
+  $$ select chat_is_general from public.notify_pending_mentions(now() - interval '1 day')
+     where user_id = tests.uid('b') and project_id = t06.id('Q') order by source $$,
+  $$ values (true), (false) $$,
+  'a mention says whether it comes from the general chat: from there true, from anywhere else false'
 );
 reset role;
 

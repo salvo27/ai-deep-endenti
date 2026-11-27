@@ -225,7 +225,7 @@ test('weekly: people who turned it off are skipped and a retry in the same week 
 
 test('user content is escaped in every HTML email', async () => {
   const people1 = [{ ...people()[0], display_name: `Anna ${XSS}`, project_name: `Alfa ${XSS}` }];
-  const m = setup({ people: people1, mentions: [mention({ id: 1, author_name: `Bruno ${XSS}`, chat_title: XSS, excerpt: `ciao ${XSS} & "amici"` })] });
+  const m = setup({ people: people1, mentions: [mention({ id: 1, author_name: `Bruno ${XSS}`, chat_title: XSS, chat_is_general: false, excerpt: `ciao ${XSS} & "amici"` })] });
   await m.handle(request());
   const html = m.sent[0].body.htmlContent;
   assert.doesNotMatch(html, /<img/);

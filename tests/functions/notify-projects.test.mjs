@@ -25,7 +25,7 @@ describe('le menzioni: una email per persona e progetto', () => {
       people: twoProjects(),
       mentions: [
         mention({ id: 1 }),
-        mention({ id: 2, project_id: BETA, project_name: 'Beta', chat_title: 'Spesa' }),
+        mention({ id: 2, project_id: BETA, project_name: 'Beta', chat_title: 'Spesa', chat_is_general: false }),
         mention({ id: 3, project_id: BETA, project_name: 'Beta', source: 'comment', chat_id: null, item_id: IDEA, item_title: 'Idea di Beta', item_kind: 'idea' }),
       ],
     });
@@ -209,6 +209,40 @@ describe('la lingua di chi riceve', () => {
     }
     assert.doesNotMatch(htmlContent, /«|»/, 'le virgolette sono quelle inglesi');
   });
+
+  // The database stores the excerpt with [immagine] and @tutti, and the general chat as 'Generale', in every language.
+  it('in inglese l estratto dice image ed everyone, e la chat generale si chiama General', async () => {
+    const person = recipient(ANNA, { language: 'en', project_name: 'Sensors' });
+    const m = setup({
+      people: [person],
+      mentions: [mention({ id: 1, project_name: 'Sensors', chat_title: 'Generale', chat_is_general: true, excerpt: '@tutti look at this [immagine] please' })],
+    });
+    await m.handle(cron());
+    const { subject, textContent, htmlContent } = m.sent[0].body;
+    assert.match(textContent, /Bruno tagged you in “General”/);
+    assert.match(textContent, /"@everyone look at this \[image\] please"/);
+    assert.match(htmlContent, /@everyone look at this \[image\] please/);
+    assert.doesNotMatch(`${subject}\n${textContent}\n${htmlContent}`, /Generale|immagine|@tutti/);
+  });
+
+  // [lingua, estratto salvato, chat generale, titolo salvato, estratto letto, dove]
+  for (const [language, excerpt, general, title, shown, where] of [
+    ['it', '@tutti guardate [immagine]', true, 'Generale', '@tutti guardate [immagine]', 'in «Generale»'],
+    ['en', '@tuttifrutti said hi', false, 'Generale', '@tuttifrutti said hi', 'in “Generale”'],
+    ['en', 'Ciao @Anna', false, 'Spesa', 'Ciao @Anna', 'in “Spesa”'],
+    ['en', '[immagine] [immagine]', false, 'Spesa', '[image] [image]', 'in “Spesa”'],
+  ]) {
+    it(`in ${language} «${excerpt}» si legge «${shown}», ${where}`, async () => {
+      const m = setup({
+        people: [recipient(ANNA, { language })],
+        mentions: [mention({ id: 1, chat_title: title, chat_is_general: general, excerpt })],
+      });
+      await m.handle(cron());
+      const { textContent } = m.sent[0].body;
+      assert.ok(textContent.includes(`"${shown}"`), textContent);
+      assert.ok(textContent.includes(where), textContent);
+    });
+  }
 
   it('le date e le ore seguono la lingua di chi riceve', async () => {
     for (const [language, day, time] of [['it', /28 ott/, /2 nov, 06:45/], ['en', /28 Oct/, /2 Nov, 06:45/]]) {

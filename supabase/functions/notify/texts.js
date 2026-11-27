@@ -31,6 +31,9 @@ export const TEXTS = {
       note: 'nota',
       card: 'una scheda',
       open: 'Apri dove ti hanno taggato',
+      general: 'Generale',
+      everyone: 'tutti',
+      image: 'immagine',
     },
     weekly: {
       subject: (project) => `La tua settimana in ${project}`,
@@ -83,6 +86,9 @@ export const TEXTS = {
       note: 'note',
       card: 'a card',
       open: 'Open where you were tagged',
+      general: 'General',
+      everyone: 'everyone',
+      image: 'image',
     },
     weekly: {
       subject: (project) => `Your week in ${project}`,

@@ -55,12 +55,23 @@ export function siteLink(siteUrl, route = '', project = null) {
 
 export const itemRoute = (kind, id) => (uuid(id) ? (kind === 'idea' ? `idea/${id}` : `elemento/${id}`) : '');
 
-// Come mentions.js nel sito: dove si è stati taggati e il link al punto esatto.
+// Come mentions.js nel sito: dove si è stati taggati e il link al punto esatto. The general chat is stored as 'Generale'
+// in every project: it is named in the language of whoever receives the email.
 export function mentionWhere(m, language) {
   const t = TEXTS[languageOf(language)];
-  if (m.source === 'chat') return t.mentions.inChat(quoted(t, m.chat_title, t.mentions.chat));
+  if (m.source === 'chat') return t.mentions.inChat(m.chat_is_general === true ? t.quote(t.mentions.general) : quoted(t, m.chat_title, t.mentions.chat));
   if (m.source === 'note') return t.mentions.inNote(quoted(t, m.item_title, t.mentions.note));
   return t.mentions.inComment(quoted(t, m.item_title, t.mentions.card));
+}
+
+// The database writes the excerpt with @tutti for the tag of everyone and [immagine] for an image, in every language:
+// as the site does (mentions.js), they are written in the reader's words. @tuttifrutti is a person, and stays.
+const EVERYONE = /@tutti(?![\p{L}\p{N}])/giu;
+const IMAGE = '[immagine]';
+
+export function mentionExcerpt(excerpt, language) {
+  const t = TEXTS[languageOf(language)];
+  return String(excerpt ?? '').split(IMAGE).join(`[${t.mentions.image}]`).replace(EVERYONE, `@${t.mentions.everyone}`);
 }
 
 export function mentionRoute(m) {
@@ -117,7 +128,7 @@ export function mentionsEmail({ name, mentions, siteUrl, project, language }) {
   const entries = mentions.map((m) => ({
     line: t.mentions.line(author(m), mentionWhere(m, lang)),
     when: fmtTime(m.created_at, lang),
-    excerpt: oneLine(m.excerpt, 200),
+    excerpt: oneLine(mentionExcerpt(m.excerpt, lang), 200),
     href: siteLink(siteUrl, mentionRoute(m), project?.id),
   }));
 

@@ -65,6 +65,7 @@ export function mention(over = {}) {
     source_id: MSG,
     chat_id: CHAT,
     chat_title: 'Generale',
+    chat_is_general: true,
     item_id: null,
     item_title: null,
     item_kind: null,

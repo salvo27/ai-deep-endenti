@@ -294,6 +294,42 @@ describe('una chat aperta in inglese', () => {
   });
 });
 
+// The tags are stored as @[Name] and @[tutti] in every language: what shows a message as plain text says them in words.
+describe('tag nei testi brevi in inglese', () => {
+  const BODY = '@[tutti] call at 5, see ![screenshot](immagine:abc/def.jpg) @[Bruno Rossi]';
+
+  it('l avviso del browser dice @everyone e @Nome, senza parentesi', () => {
+    globalThis.Notification = FakeNotification;
+    store.writeLocal('avvisiBrowser', true);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    store.emit('chat-message', { row: msg({ id: 'eeeeeeee-0000-4000-8000-0000000000c2', body: BODY }), inserted: true });
+    assert.equal(shown[0].body, 'Bruno in “General”: @everyone call at 5, see @Bruno Rossi');
+  });
+
+  it('la citazione del messaggio a cui si risponde dice @everyone', async () => {
+    api.listMessages = async () => [
+      msg({ id: OLDER, body: BODY, created_at: '2026-10-21T08:00:00Z' }),
+      msg({ id: 'eeeeeeee-0000-4000-8000-0000000000af', reply_to: OLDER, body: 'ok' }),
+    ];
+    await visit(`#/chat/${GENERAL}`);
+    assert.equal(text(outlet.querySelector('.chat-quote span')), '@everyone call at 5, see @Bruno Rossi');
+  });
+
+  // A member whose name starts with "tutti" is a person, not everyone.
+  for (const [input, expected] of [
+    ['@[tutti]', '@everyone'],
+    ['@[Tutti] ', '@everyone'],
+    ['@[tuttifrutti]', '@tuttifrutti'],
+    ['ciao @[Anna Bianchi]!', 'ciao @Anna Bianchi!'],
+    ['[link](https://example.com) @[tutti]', 'link @everyone'],
+  ]) {
+    it(`${JSON.stringify(input)} diventa ${JSON.stringify(expected)}`, async () => {
+      const { noteExcerpt } = await import('../../assets/js/notes.js');
+      assert.equal(noteExcerpt(input), expected);
+    });
+  }
+});
+
 describe('avvisi della chat in inglese', () => {
   it('l avviso del browser chiama General la generale e porta il nome del progetto', () => {
     globalThis.Notification = FakeNotification;

@@ -2213,6 +2213,21 @@ $$;
 
 -- Le colonne di prima più progetto, nome del progetto e lingua di chi riceve. Niente email per un progetto archiviato,
 -- né a chi non ne è più membro: resta tra i destinatari per gli altri suoi progetti, ma il testo di questo non lo riceve.
+-- chat_is_general è arrivata dopo: la funzione di prima, senza quella colonna, si ricrea (create or replace non cambia
+-- le colonne di una funzione). Le esecuzioni successive la trovano già così e non toccano nulla.
+do $$
+begin
+  if to_regprocedure('public.notify_pending_mentions(timestamptz)') is not null and not exists (
+    select 1 from pg_proc p
+    where p.oid = to_regprocedure('public.notify_pending_mentions(timestamptz)') and 'chat_is_general' = any (p.proargnames)
+  ) then
+    drop function public.notify_pending_mentions(timestamptz);
+  end if;
+end
+$$;
+
+-- La chat Generale è salvata come 'Generale' in ogni progetto: chat_is_general dice all'email di chiamarla nella lingua
+-- di chi riceve.
 create or replace function public.notify_pending_mentions(p_since timestamptz)
 returns table (
   id bigint,
@@ -2223,6 +2238,7 @@ returns table (
   source_id uuid,
   chat_id uuid,
   chat_title text,
+  chat_is_general boolean,
   item_id uuid,
   item_title text,
   item_kind text,
@@ -2238,7 +2254,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select mn.id, mn.user_id, mn.author_id, a.display_name, mn.source, mn.source_id, mn.chat_id, c.title,
+  select mn.id, mn.user_id, mn.author_id, a.display_name, mn.source, mn.source_id, mn.chat_id, c.title, coalesce(c.is_general, false),
          mn.item_id, i.title, i.kind, mn.excerpt, mn.created_at, mn.read_at, mn.project_id, pj.name, rcpt.language
   from public.mentions mn
   join public.projects pj on pj.id = mn.project_id and pj.archived_at is null
