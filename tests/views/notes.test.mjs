@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText } from '../setup/dom.mjs';
-import { IDS, ME, XSS, boardItems, item, members } from '../setup/fixtures.mjs';
+import { IDS, ME, PROJECT, XSS, boardItems, item, members } from '../setup/fixtures.mjs';
 
 let api;
 let store;
@@ -34,6 +34,8 @@ before(async () => {
 beforeEach(async () => {
   store.resetStore();
   store.state.user = { id: ME };
+  // The images are those of the open project: without one nothing is swept or deleted.
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   [
     ...boardItems(),
@@ -187,8 +189,9 @@ test('an image is reduced in the browser, uploaded privately and inserted where 
 test('images removed from the text are deleted after saving, if no other note points to them', async () => {
   const asked = [];
   const removed = [];
-  api.noteImageOrphans = async (paths) => {
+  api.noteImageOrphans = async (paths, project) => {
     asked.push(paths);
+    assert.equal(project, PROJECT);
     return paths;
   };
   api.removeNoteImages = async (paths) => removed.push(...paths);
@@ -216,9 +219,10 @@ test('a .md file with embedded images becomes a note with private images', async
 test('the periodic clean-up runs at most every 12 hours and only for who can edit', async () => {
   const removed = [];
   let asked = 0;
-  api.noteImageOrphans = async (paths) => {
+  api.noteImageOrphans = async (paths, project) => {
     asked += 1;
     assert.equal(paths, null);
+    assert.equal(project, PROJECT);
     return [IMG2];
   };
   api.removeNoteImages = async (paths) => removed.push(...paths);
