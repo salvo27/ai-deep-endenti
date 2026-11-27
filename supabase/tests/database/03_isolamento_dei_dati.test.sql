@@ -9,7 +9,7 @@
 --   e Marco Rossi   member of Q (same name as the Marco of P)
 --   f               platform admin, creates the two projects
 begin;
-select plan(129);
+select plan(132);
 
 -- Helpers of this file, rolled back with it.
 create schema iso;
@@ -706,6 +706,28 @@ select throws_ok(
 select lives_ok(
   $$select public.create_item(iso.id('Q'), 'timesheet', 'Ore lavorate', null, iso.timesheet(1), null, null)$$,
   'but logs hours in Q, where they are a member'
+);
+
+-- =========================================================================
+-- Rolling back a version: the database writes no sentence for people, it keeps the version gone back to
+-- =========================================================================
+
+select tests.login('d');
+insert into iso.ids (name, id)
+select 'revert_q', r.id from public.create_item(iso.id('Q'), 'idea', 'Prima versione', 'nuova', '{}'::jsonb, null, null) r;
+select public.save_item(iso.id('revert_q'), 1, 'Seconda versione', 'nuova', '{}'::jsonb, null, null);
+select is(public.revert_item(iso.id('revert_q'), 1, 2) ->> 'status', 'ok', 'a version is rolled back');
+select public.revert_item(iso.id('revert_q'), 2, 3, '  di nuovo la seconda  ');
+select tests.logout();
+select results_eq(
+  $$select op, message, reverted_from from public.revisions where item_id = iso.id('revert_q') and version = 3$$,
+  $$values ('revert'::text, null::text, 1)$$,
+  'a rollback keeps the version it went back to and no sentence: the site says it in the language of whoever reads'
+);
+select results_eq(
+  $$select message, reverted_from from public.revisions where item_id = iso.id('revert_q') and version = 4$$,
+  $$values ('di nuovo la seconda'::text, 2)$$,
+  'a message written by the person is kept, together with the version'
 );
 
 select * from finish();

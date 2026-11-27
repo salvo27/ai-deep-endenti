@@ -2373,7 +2373,7 @@ begin
   res := public.revert_item(v, 1, 4);
   assert res ->> 'status' = 'ok', 'revert fallito: ' || res::text;
   select * into r from public.revisions where item_id = v and version = 5;
-  assert r.op = 'revert' and r.message = 'Ripristinata la versione 1', 'revisione di revert errata';
+  assert r.op = 'revert' and r.message is null and r.reverted_from = 1, 'revisione di revert errata';
   assert (select data from public.items where id = v) = '{"pitch":"uno","problem":"p1"}'::jsonb, 'dati non ripristinati';
   assert public.revert_item(v, 1, 4) ->> 'status' = 'conflict', 'revert da versione vecchia accettato';
   assert public.revert_item(v, 99, 5) ->> 'status' = 'not_found', 'revert verso versione inesistente';

@@ -613,6 +613,9 @@ create table if not exists public.revisions (
   unique (item_id, version)
 );
 
+-- Un ripristino ricorda la versione a cui è tornato: la frase per le persone la scrive il sito, nella lingua di chi legge.
+alter table public.revisions add column if not exists reverted_from integer check (reverted_from is null or reverted_from > 0);
+
 create index if not exists revisions_project_idx on public.revisions (project_id, created_at desc);
 create index if not exists revisions_created_idx on public.revisions (created_at desc);
 create index if not exists revisions_idea_idx on public.revisions (idea_id, created_at desc);
@@ -1004,8 +1007,11 @@ begin
       ) d;
   end if;
 
-  insert into public.revisions (project_id, item_id, version, op, kind, idea_id, title, status, data, changed, author_id, message)
-  values (new.project_id, new.id, new.version, v_op, new.kind, new.idea_id, new.title, new.status, new.data, v_changed, auth.uid(), left(v_message, 500));
+  insert into public.revisions (project_id, item_id, version, op, kind, idea_id, title, status, data, changed, author_id, message, reverted_from)
+  values (
+    new.project_id, new.id, new.version, v_op, new.kind, new.idea_id, new.title, new.status, new.data, v_changed, auth.uid(), left(v_message, 500),
+    case when v_op = 'revert' then v_revert::integer end
+  );
   return null;
 end
 $$;
@@ -1212,11 +1218,8 @@ begin
   if not found then
     return jsonb_build_object('status', 'not_found');
   end if;
-  perform set_config(
-    'app.commit_message',
-    coalesce(nullif(btrim(p_message), ''), 'Ripristinata la versione ' || p_to_version),
-    true
-  );
+  -- Senza messaggio la revisione resta senza: reverted_from dice a quale versione è tornata.
+  perform set_config('app.commit_message', coalesce(nullif(btrim(p_message), ''), ''), true);
   perform set_config('app.revert_from', p_to_version::text, true);
   update public.items
      set title = v.title, status = v.status, data = v.data, idea_id = v.idea_id

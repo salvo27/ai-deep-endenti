@@ -1155,6 +1155,11 @@ export function formatValue(kind, path, value, ctx = {}) {
   return value;
 }
 
+// Busy hours and hours worked have one title for everyone, fixed by the database ('Impegni', 'Ore lavorate'): the
+// reader sees the name of the kind in their own language instead.
+const FIXED_TITLES = { availability: () => tx.availability.itemTitle, timesheet: () => tx.timesheet.itemTitle };
+export const shownTitle = (kind, title) => (Object.hasOwn(FIXED_TITLES, kind ?? '') ? FIXED_TITLES[kind]() : title);
+
 // Gli indirizzi delle pagine non cambiano con la lingua.
 export function routeFor(item) {
   if (!item) return '#/';

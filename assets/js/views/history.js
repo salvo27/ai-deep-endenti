@@ -4,7 +4,7 @@ import { blame, diffLines, diffSnapshots, diffWords, flatten, snapshotOf, snapsh
 import { dayKey, dayLabel, fmtDateTime, truncate } from '../lib/format.js';
 import { isUuid } from '../lib/validate.js';
 import { api } from '../lib/api.js';
-import { KINDS, describePath, fieldOf, formatValue, routeFor } from '../schema.js';
+import { KINDS, describePath, fieldOf, formatValue, routeFor, shownTitle } from '../schema.js';
 import { canWrite, getItem, ideas, labelContext, memberName, on, revertItem, state } from '../store.js';
 import { navigate } from '../router.js';
 import { tx } from '../i18n/index.js';
@@ -28,7 +28,16 @@ export function changedLabels(rev) {
   return [...new Set(labels)];
 }
 
+// Rollbacks saved before carry this sentence, written then by the database in Italian: it is read as the version it names.
+const OLD_REVERT_MESSAGE = /^Ripristinata la versione (\d+)$/; // i18n-ignore: stored text
+
 export function revisionSummary(rev) {
+  if (rev.op === 'revert') {
+    const old = OLD_REVERT_MESSAGE.exec(rev.message || '');
+    if (old) return t.summary.revertedTo(Number(old[1]));
+    // The database keeps the version gone back to and no sentence: the reader's words say it.
+    if (!rev.message) return Number.isInteger(rev.reverted_from) ? t.summary.revertedTo(rev.reverted_from) : t.summary.reverted;
+  }
   if (rev.message) return rev.message;
   if (rev.op === 'create') return t.summary.create;
   if (rev.op === 'delete') return t.summary.delete;
@@ -52,7 +61,7 @@ export function revisionLine(rev) {
         ` ${verb(rev.op) || VERBS.update} `,
         kindBadge(rev.kind),
         ' ',
-        h('a', { href: `#/diff/${rev.item_id}/${rev.version}` }, t.quoted(truncate(rev.title, 70))),
+        h('a', { href: `#/diff/${rev.item_id}/${rev.version}` }, t.quoted(truncate(shownTitle(rev.kind, rev.title), 70))),
       ),
       h('div', { class: ['log-message', !rev.message && 'muted'] }, revisionSummary(rev)),
     ),
@@ -289,7 +298,7 @@ export async function diffView(outlet, params) {
     pageHeader({
       back: { href: `#${LOG_PATH}/${params.id}` },
       eyebrow: kindBadge(target.kind),
-      title: target.title,
+      title: shownTitle(target.kind, target.title),
       subtitle: h(
         'span',
         null,
@@ -381,7 +390,7 @@ export async function itemHistoryView(outlet, params) {
     pageHeader({
       back: { href: item ? routeFor(item) : `#${LOG_PATH}` },
       eyebrow: kindBadge(latest.kind),
-      title: t.versions.title(latest.title),
+      title: t.versions.title(shownTitle(latest.kind, latest.title)),
       subtitle: t.versions.count(history.length),
       actions: [
         button(t.versions.compare, {

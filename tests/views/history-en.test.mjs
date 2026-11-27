@@ -59,6 +59,20 @@ describe('riassunto delle versioni in inglese', () => {
     assert.equal(history.revisionSummary(rev({ message: 'aggiornato il pitch' })), 'aggiornato il pitch');
   });
 
+  // The database no longer writes a sentence for a rollback: it keeps the version it went back to, and the site says it.
+  // Rollbacks saved before still carry the Italian sentence the database wrote then: it is read the same way.
+  for (const [name, input, expected] of [
+    ['un ripristino senza messaggio', { op: 'revert', reverted_from: 2, message: null }, 'Restored version 2'],
+    ['un ripristino salvato prima, con la frase del database', { op: 'revert', message: 'Ripristinata la versione 3' }, 'Restored version 3'],
+    ['un ripristino con il messaggio di chi l ha fatto', { op: 'revert', reverted_from: 2, message: 'back to the old pitch' }, 'back to the old pitch'],
+    ['un ripristino senza versione né messaggio', { op: 'revert', message: null }, 'Restored an earlier version'],
+    ['la stessa frase su un salvataggio normale resta com è', { op: 'update', message: 'Ripristinata la versione 3' }, 'Ripristinata la versione 3'],
+  ]) {
+    it(`${name}: «${expected}»`, () => {
+      assert.equal(history.revisionSummary(rev(input)), expected);
+    });
+  }
+
   it('un etichetta ripetuta compare una volta sola', () => {
     assert.deepEqual(history.changedLabels(rev({ kind: 'criteria', changed: ['criteria', 'criteria'] })), ['criteria']);
   });
@@ -176,9 +190,10 @@ describe('pagina di una versione in inglese', () => {
     assert.match(text(outlet), /Version not found\./);
   });
 
-  it('ripristinare una versione chiede conferma in inglese e lo conferma', async () => {
+  it('ripristinare una versione chiede conferma in inglese e lo conferma, senza mandare frasi al database', async () => {
     api.itemHistory = async () => ideaHistory();
-    api.revertItem = async () => ({ status: 'ok', item: { ...IDEA, version: 3 } });
+    const sent = [];
+    api.revertItem = async (...args) => (sent.push(args), { status: 'ok', item: { ...IDEA, version: 3 } });
     const outlet = document.createElement('main');
     await history.diffView(outlet, { id: IDS.idea, to: '1' });
     byText(outlet, 'button', 'Restore version 1').click();
@@ -189,7 +204,40 @@ describe('pagina di una versione in inglese', () => {
     byText(dialog, 'button', 'Restore').click();
     await flush(10);
     assert.match(text(document.querySelector('.toasts')), /Version 1 restored\./);
+    assert.deepEqual(sent, [[IDS.idea, 1, 2, null]]);
   });
+});
+
+// Busy hours and hours worked have a title fixed by the database ('Impegni', 'Ore lavorate'): the reader's words show.
+describe('titoli fissati dal database in inglese', () => {
+  const AVAILABILITY = '12121212-0000-4000-8000-000000000001';
+  const TIMESHEET = '12121212-0000-4000-8000-000000000002';
+  const fixed = () => [
+    rev({ id: 11, item_id: AVAILABILITY, kind: 'availability', title: 'Impegni', version: 2, op: 'update', changed: ['busy'], data: { busy: {} } }),
+    rev({ id: 12, item_id: TIMESHEET, kind: 'timesheet', title: 'Ore lavorate', version: 2, op: 'update', changed: ['entries'], data: { entries: [] } }),
+  ];
+
+  it('nelle righe dello storico', () => {
+    const [busy, hours] = fixed().map((r) => text(history.revisionLine(r).querySelector('.log-main')));
+    assert.match(busy, /“Busy hours”/);
+    assert.match(hours, /“Hours worked”/);
+    assert.doesNotMatch(`${busy} ${hours}`, /Impegni|Ore lavorate/);
+  });
+
+  for (const [name, index, id, title] of [
+    ['degli impegni', 0, AVAILABILITY, 'Busy hours'],
+    ['delle ore lavorate', 1, TIMESHEET, 'Hours worked'],
+  ]) {
+    it(`nella pagina di una versione e nelle versioni ${name}`, async () => {
+      const r = fixed()[index];
+      api.itemHistory = async () => [{ ...r, id: 1, version: 1, op: 'create', changed: [] }, r];
+      const outlet = document.createElement('main');
+      await history.diffView(outlet, { id, to: '2' });
+      assert.equal(text(outlet.querySelector('h1')), title);
+      await history.itemHistoryView(outlet, { id });
+      assert.equal(text(outlet.querySelector('h1')), `Versions of “${title}”`);
+    });
+  }
 });
 
 describe('versioni di un elemento in inglese', () => {

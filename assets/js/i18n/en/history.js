@@ -22,6 +22,8 @@ export const history = {
     restore: 'Restored from the trash',
     changed: (labels) => `Changed: ${labels.join(', ')}`,
     nothing: 'No fields changed',
+    revertedTo: (version) => `Restored version ${version}`,
+    reverted: 'Restored an earlier version',
   },
   quoted: (title) => `“${title}”`,
   seeChanges: 'See the changes',

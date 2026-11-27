@@ -25,6 +25,8 @@ export const history = {
     restore: 'Ripristinato dal cestino',
     changed: (labels) => `Modificati: ${labels.join(', ')}`,
     nothing: 'Nessun campo cambiato',
+    revertedTo: (version) => `Ripristinata la versione ${version}`,
+    reverted: 'Ripristinata una versione precedente',
   },
   quoted: (title) => `«${title}»`,
   seeChanges: 'Vedi le modifiche',
