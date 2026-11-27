@@ -1,7 +1,7 @@
-// i18n: da tradurre
 import { PREFER_NOT } from './survey-api.js';
-import { minutesLabel, questionWords } from './survey-time.js';
+import { questionWords } from './survey-time.js';
 import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';
+import { it as italian, language, texts } from './texts.js';
 
 export { accentTokens, contrastRatio, contrastText };
 
@@ -24,24 +24,30 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COVER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
 const INT_RE = /^[+-]?\d+$/;
 const CONTROL_RE = /[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
-const TYPES = new Set(['sezione', 'scelta', 'scelte', 'scala', 'numero', 'breve', 'lunga', 'email']);
+// Stored values (question types, layouts, progress styles): the same in every language.
+const SECTION = 'sezione'; // i18n-ignore
+const BY_SECTION = 'sezioni'; // i18n-ignore
+const ONE_PER_SCREEN = 'una'; // i18n-ignore
+const TYPES = new Set([SECTION, 'scelta', 'scelte', 'scala', 'numero', 'breve', 'lunga', 'email']);
 const THEMES = new Set(['automatico', 'chiaro', 'scuro', 'seppia', 'contrasto']);
-const PROGRESS = new Set(['contatore', 'barra', 'nessuno']);
+const PROGRESS = new Set(['contatore', 'barra', 'nessuno']); // i18n-ignore
 
-export const MESSAGES = Object.freeze({
-  required: 'Per continuare rispondi a questa domanda, per favore.',
-  other: 'Scrivi la tua risposta accanto ad «Altro», per favore.',
-  integer: 'Scrivi solo cifre, senza punti né virgole.',
-  email: 'L\'indirizzo email non sembra completo: controllalo, per favore.',
-  recontact: 'Per farti ricontattare scrivi la tua email, oppure togli la spunta.',
-  huge: 'Il numero è troppo grande.',
-  empty: 'Rispondi ad almeno una domanda prima di inviare.',
-});
+// The messages of the page, in the respondent's language.
+export const MESSAGES = Object.freeze({ ...texts.messages });
 
 // Il messaggio usa il nome della voce, se il team l'ha rinominata.
-export const otherMessage = (q) => (q.other_label && q.other_label !== 'Altro' ? `Scrivi la tua risposta accanto a «${q.other_label}», per favore.` : MESSAGES.other);
+export const otherMessage = (q) => (q.other_label && q.other_label !== texts.other ? texts.checks.otherNamed(q.other_label) : MESSAGES.other);
 
-export const tooLong = (max) => `Al massimo ${max} caratteri: accorcia un po' la risposta.`;
+export const tooLong = (max) => texts.checks.tooLong(max);
+
+// The database explains a refused answer in Italian, with the messages listed in texts.js: the page shows them in the
+// respondent's language. A message it does not know stays as it is in Italian, and in English becomes null, so the page
+// shows its own message for a failed send instead.
+export function reasonText(reason) {
+  const key = typeof reason === 'string' ? Object.keys(italian.server).find((name) => italian.server[name] === reason) : null;
+  if (key) return texts.server[key];
+  return language === 'it' && typeof reason === 'string' && reason ? reason : null;
+}
 
 const str = (value) => (typeof value === 'string' ? value : '');
 const length = (text) => [...text].length;
@@ -63,7 +69,7 @@ const isHexColor = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.tes
 
 function normalizeQuestion(q) {
   if (!q || typeof q !== 'object' || !ID_RE.test(str(q.id)) || !TYPES.has(q.type) || !str(q.label).trim()) return null;
-  const out = { id: q.id, type: q.type, label: str(q.label).trim(), help: str(q.help).trim(), required: q.type !== 'sezione' && q.required === true };
+  const out = { id: q.id, type: q.type, label: str(q.label).trim(), help: str(q.help).trim(), required: q.type !== SECTION && q.required === true };
   if (q.type === 'scelta' || q.type === 'scelte') {
     const seen = new Set();
     out.options = (Array.isArray(q.options) ? q.options : []).filter((o) => {
@@ -72,7 +78,7 @@ function normalizeQuestion(q) {
       return ok;
     }).map((o) => ({ id: o.id, label: o.label.trim() }));
     out.allow_other = q.allow_other === true;
-    out.other_label = out.allow_other ? str(q.other_label).trim().slice(0, 120) || 'Altro' : '';
+    out.other_label = out.allow_other ? str(q.other_label).trim().slice(0, 120) || texts.other : '';
     out.other_placeholder = out.allow_other ? str(q.other_placeholder).trim().slice(0, 120) : '';
     out.prefer_not = q.prefer_not === true;
     if (!out.options.length && !out.allow_other) return null;
@@ -103,11 +109,11 @@ export function normalizeSurvey(data) {
   const theme = data?.appearance?.theme;
   const accent = isHexColor(data?.appearance?.accent) ? data.appearance.accent.toLowerCase() : DEFAULT_ACCENT;
   return {
-    title: str(data?.title).trim() || 'Questionario',
+    title: str(data?.title).trim() || texts.defaultTitle,
     intro: str(data?.intro).trim(),
     privacy: str(data?.privacy).trim(),
     thanks: str(data?.thanks).trim(),
-    layout: data?.layout === 'sezioni' ? 'sezioni' : 'una',
+    layout: data?.layout === BY_SECTION ? BY_SECTION : ONE_PER_SCREEN,
     progress: PROGRESS.has(data?.progress) ? data.progress : 'contatore',
     show_time: data?.show_time !== false,
     median_seconds: Number.isFinite(data?.median_seconds) && data.median_seconds > 0 ? data.median_seconds : null,
@@ -126,10 +132,10 @@ export function buildScreens(survey) {
   let section = null;
   let current = null;
   for (const q of survey.questions) {
-    if (q.type === 'sezione') {
+    if (q.type === SECTION) {
       section = q;
       current = null;
-    } else if (survey.layout === 'sezioni') {
+    } else if (survey.layout === BY_SECTION) {
       if (!current) {
         current = { section, questions: [] };
         screens.push(current);
@@ -147,11 +153,11 @@ export function progressFor(screens, index) {
   const total = screens.reduce((n, s) => n + s.questions.length, 0);
   const first = screens.slice(0, index).reduce((n, s) => n + s.questions.length, 0) + 1;
   const last = first + (screens[index]?.questions.length ?? 1) - 1;
-  const text = first === last ? `Domanda ${first} di ${total}` : `Domande ${first}-${last} di ${total}`;
+  const text = first === last ? texts.progress.one(first, total) : texts.progress.range(first, last, total);
   return { first, last, total, ratio: total ? last / total : 0, text };
 }
 
-export const durationText = (minutes) => `${minutes === 1 ? 'Ci vorrà' : 'Ci vorranno'} ${minutesLabel(minutes)}.`;
+export const durationText = (minutes) => texts.time.duration(minutes);
 
 export const deviceFor = (width) => (width <= PHONE_MAX_WIDTH ? 'telefono' : 'computer');
 
@@ -159,15 +165,15 @@ export const emailQuestion = (survey) => survey.questions.find((q) => q.type ===
 
 export function numberHint(number) {
   const { min = null, max = null } = number || {};
-  if (min !== null && max !== null) return `Un numero intero da ${min} a ${max}.`;
-  if (min !== null) return `Un numero intero, almeno ${min}.`;
-  if (max !== null) return `Un numero intero, al massimo ${max}.`;
-  return 'Un numero intero.';
+  if (min !== null && max !== null) return texts.number.range(min, max);
+  if (min !== null) return texts.number.min(min);
+  if (max !== null) return texts.number.max(max);
+  return texts.number.any;
 }
 
 function rangeMessage({ min, max }) {
-  if (min !== null && max !== null) return `Scrivi un numero da ${min} a ${max}.`;
-  return min !== null ? `Scrivi un numero uguale o maggiore di ${min}.` : `Scrivi un numero uguale o minore di ${max}.`;
+  if (min !== null && max !== null) return texts.checks.between(min, max);
+  return min !== null ? texts.checks.atLeast(min) : texts.checks.atMost(max);
 }
 
 // Numero intero da quello che si è scritto: { value } oppure { error }, null se il campo è vuoto.
@@ -303,7 +309,7 @@ export function collectAnswers(questions, draft = {}) {
 // Tempo passato su una schermata, diviso tra le sue domande in base alle parole: con una domanda per schermata va tutto a lei.
 // Si somma a quello delle visite precedenti, così tornare indietro aggiunge tempo invece di cancellarlo.
 export function addScreenTime(times, questions, seconds) {
-  const asked = questions.filter((q) => q.type !== 'sezione');
+  const asked = questions.filter((q) => q.type !== SECTION);
   if (!(seconds > 0) || !asked.length) return times;
   const weights = asked.map((q) => Math.max(1, questionWords(q)));
   const total = weights.reduce((sum, w) => sum + w, 0);
@@ -331,13 +337,14 @@ export function buildMeta(survey, answers, { session, final = false, startedAt, 
   return meta;
 }
 
-export const storageKey = (token) => `questionario:${token}`;
+// localStorage keys, the same in every language.
+export const storageKey = (token) => `questionario:${token}`; // i18n-ignore
 // Segno lasciato sul dispositivo dopo l'invio, con la sola data: chi ha già risposto non ricomincia da capo.
-export const sentKey = (token) => `questionario:${token}:inviato`;
+export const sentKey = (token) => `questionario:${token}:inviato`; // i18n-ignore
 // Segno della scheda aperta: dopo un ricaricamento si riprende subito, a una nuova visita si saluta prima.
-export const tabKey = (token) => `questionario:${token}:scheda`;
+export const tabKey = (token) => `questionario:${token}:scheda`; // i18n-ignore
 // Quando il dispositivo ha aperto il link: le aperture si contano una volta per dispositivo, non a ogni ricaricamento.
-export const seenKey = (token) => `questionario:${token}:visto`;
+export const seenKey = (token) => `questionario:${token}:visto`; // i18n-ignore
 
 // Vero se il dispositivo ha già aperto il link negli ultimi 30 giorni.
 export function seenRecently(raw, now = Date.now()) {
@@ -349,7 +356,7 @@ export const KEEP_DAYS = 30;
 // Domande senza una risposta valida, nell'ordine del questionario.
 export function unanswered(questions, draft = {}) {
   const answers = collectAnswers(questions, draft);
-  return questions.filter((q) => q.type !== 'sezione' && !(q.id in answers) && !(otherKey(q.id) in answers));
+  return questions.filter((q) => q.type !== SECTION && !(q.id in answers) && !(otherKey(q.id) in answers));
 }
 
 // Compilazione salvata sul dispositivo: valida solo se ben formata, non più vecchia di 30 giorni,

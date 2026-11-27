@@ -23,6 +23,7 @@ import {
   progressFor,
   addScreenTime,
   readStored,
+  reasonText,
   seenKey,
   seenRecently,
   sentKey,
@@ -348,8 +349,9 @@ test('the browser test page runs under the same policy as q.html, plus only the 
 test('the public page never imports the app, the store, the router or anything that needs a login', () => {
   const importsOf = (file) =>
     [...readFileSync(new URL(`assets/js/public/${file}`, ROOT), 'utf8').matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
-  assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js']);
-  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js']);
+  // texts.js holds the page's texts in Italian and English and chooses the respondent's language: it is part of the page.
+  assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js', './texts.js']);
+  assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js', './texts.js']);
   // The minutes label is a text: survey-time.js reads it from texts.js, the page's own text module, which imports nothing.
   assert.deepEqual(importsOf('survey-time.js'), ['./texts.js']);
   assert.deepEqual(importsOf('texts.js'), []);
@@ -435,6 +437,11 @@ test('a device that opened the link counts as one visit for 30 days', () => {
   assert.equal(seenRecently(String(now - 29 * day), now), true);
   assert.equal(seenRecently(String(now - 31 * day), now), false, 'dopo 30 giorni è una nuova visita');
   for (const bad of [null, '', 'ieri', '0', String(now + day)]) assert.equal(seenRecently(bad, now), false, String(bad));
+});
+
+test('on an Italian device the messages of the database are shown as they arrive, known or not', () => {
+  for (const reason of ['Rispondi a tutte le domande obbligatorie.', 'Le risposte sono già state inviate.', 'Un messaggio nuovo del database.']) assert.equal(reasonText(reason), reason);
+  for (const reason of ['', null, undefined, 7]) assert.equal(reasonText(reason), null, String(reason));
 });
 
 test('the time on a screen goes to its questions by words, adds up when coming back, and travels with the answers', () => {

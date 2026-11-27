@@ -269,9 +269,10 @@ test('the public survey module has its own anon client without a session and cal
   assert.equal((await survey.submitSurvey('corto', {})).status, 'errore');
 
   pub.responses.rpc.submit_survey = () => Promise.reject(new TypeError('Failed to fetch'));
-  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e instanceof survey.PublicSurveyError && e.code === 'network' && /Connessione/.test(e.message));
+  // Only the code: the public page puts it into words in the respondent's language (tests/views/survey-page*.test.mjs).
+  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e instanceof survey.PublicSurveyError && e.code === 'network');
   pub.responses.rpc.submit_survey = { data: null, error: { status: 429, message: 'rate limit' } };
-  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e.code === 'rate_limit' && /Troppi tentativi/.test(e.message));
+  await assert.rejects(survey.submitSurvey(TOKEN, {}), (e) => e.code === 'rate_limit');
   pub.responses.rpc.public_survey = { data: null, error: { code: 'XX000', message: 'segreto interno' } };
   await assert.rejects(survey.loadPublicSurvey(TOKEN), (e) => e.code === 'server' && !/segreto/.test(e.message));
 
