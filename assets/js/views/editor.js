@@ -1,5 +1,5 @@
-// i18n: da tradurre
 import { h, mount, autoGrow, busy, confirmDialog, toast } from '../lib/dom.js';
+import { tx } from '../i18n/index.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
 import { debounce, fmtDate, fmtDateTime, fmtMoney, shortId } from '../lib/format.js';
@@ -45,11 +45,13 @@ const stage = (status) => KINDS.contact.statuses.findIndex(([v]) => v === status
 
 const CUSTOM_EDITORS = { canvas: canvasEditor, competitors: competitorsEditor, equity: equityEditor };
 
+// Addresses and parameters of the site: their Italian words are part of the URL, not text the reader sees.
+const PATHS = { edit: '/modifica/', create: '/nuovo/', survey: '/questionario/', surveys: '/questionari', status: 'stato', contact: 'contatto' }; // i18n-ignore
+
+// The new sheets of an idea are named after it. A Value Proposition Canvas is called the same in every language.
 const CHILD_TITLES = {
-  deeptech: 'Scheda deep tech',
-  vpc: 'Value Proposition Canvas',
-  market: 'Mercato',
-  competitors: 'Concorrenti',
+  ...tx.editor.form.childTitles,
+  vpc: (idea) => `Value Proposition Canvas: ${idea}`,
 };
 
 export function initialSnapshot(kind, query = new URLSearchParams()) {
@@ -64,18 +66,16 @@ export function initialSnapshot(kind, query = new URLSearchParams()) {
   if (kind === 'experiment' && idea) {
     snapshot.data = { customer: idea.data.customer, problem: idea.data.problem, solution: idea.data.solution, owner: state.user?.id };
   }
-  if (CHILD_TITLES[kind] && idea) snapshot.title = `${CHILD_TITLES[kind]}: ${idea.title}`.slice(0, LIMITS.title);
-  if (kind === 'deeptech') snapshot.data = { trl_now: '3', company_form: 'da_decidere', ip_owner: 'da_chiarire' };
+  if (CHILD_TITLES[kind] && idea) snapshot.title = CHILD_TITLES[kind](idea.title).slice(0, LIMITS.title);
+  if (kind === 'deeptech') snapshot.data = { trl_now: '3', company_form: 'da_decidere', ip_owner: 'da_chiarire' }; // i18n-ignore
   if (kind === 'market') snapshot.data = { approach: 'top_down', som_year: new Date().getFullYear() + 3 };
   if (kind === 'competitors') {
-    snapshot.data = {
-      axes: { x: { label: 'Prezzo', low: 'Costoso', high: 'Economico' }, y: { label: 'Facilità d\'uso', low: 'Complicato', high: 'Semplice' } },
-      us: { x: 7, y: 7 },
-    };
+    // The axes are written in the language of who creates the sheet; the team can rename them.
+    snapshot.data = { axes: structuredClone(tx.editor.form.competitorAxes), us: { x: 7, y: 7 } };
   }
   if (kind === 'teamcanvas') snapshot.title = 'Team Canvas';
   if (kind === 'equity') {
-    snapshot.title = 'Divisione delle quote';
+    snapshot.title = tx.editor.form.equityTitle;
     snapshot.data = {
       factors: DEFAULT_EQUITY_FACTORS,
       founders: state.members.filter((m) => m.role !== 'advisor').map((m) => ({ id: `f-${shortId().slice(0, 8)}`, name: m.display_name })),
@@ -84,8 +84,8 @@ export function initialSnapshot(kind, query = new URLSearchParams()) {
   if (kind === 'contact') snapshot.data = { purpose: 'cliente', owner: state.user?.id };
   if (kind === 'interview') {
     snapshot.data = { date: today(), interviewer: state.user?.id };
-    if (KINDS.interview.statuses.some(([v]) => v === query.get('stato'))) snapshot.status = query.get('stato');
-    const from = isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
+    if (KINDS.interview.statuses.some(([v]) => v === query.get(PATHS.status))) snapshot.status = query.get(PATHS.status);
+    const from = isUuid(query.get(PATHS.contact)) ? getItem(query.get(PATHS.contact)) : null;
     if (from?.kind === 'contact' && !isExample(from)) {
       snapshot.title = from.title;
       snapshot.idea_id = from.idea_id;
@@ -110,7 +110,7 @@ function options(list, value, empty = '-') {
 function tagInput(def, working, onChange) {
   const chips = h('div', { class: 'chips' });
   const listId = `sugg-${def.key}`;
-  const input = h('input', { class: 'input', type: 'text', list: listId, placeholder: 'Scrivi e premi Invio', maxlength: LIMITS.tag });
+  const input = h('input', { class: 'input', type: 'text', list: listId, placeholder: tx.editor.form.tagPlaceholder, maxlength: LIMITS.tag });
   const render = () => {
     const tags = working.data[def.key] || [];
     mount(chips,
@@ -122,7 +122,7 @@ function tagInput(def, working, onChange) {
           h('button', {
             type: 'button',
             class: 'chip-x',
-            'aria-label': `Rimuovi ${tag}`,
+            'aria-label': tx.editor.form.removeTag(tag),
             onClick: () => {
               working.data[def.key] = tags.filter((t) => t !== tag);
               render();
@@ -157,7 +157,7 @@ function tagInput(def, working, onChange) {
 
 function checkList(entries, selected, onToggle) {
   const set = new Set(selected || []);
-  if (!entries.length) return h('p', { class: 'muted small' }, 'Nessuna voce disponibile.');
+  if (!entries.length) return h('p', { class: 'muted small' }, tx.editor.form.noEntries);
   return h(
     'div',
     { class: 'check-list' },
@@ -195,13 +195,13 @@ function photoInput(def, working, onChange) {
     });
     mount(
       box,
-      photoView(value, { alt: 'Anteprima della foto', size: 96, fallback: working.title }),
+      photoView(value, { alt: tx.editor.form.photoPreview, size: 96, fallback: working.title }),
       h(
         'div',
         { class: 'photo-actions' },
-        h('label', { class: 'btn btn-ghost' }, icon('image', 16), h('span', null, value ? 'Cambia foto' : 'Carica una foto'), file),
+        h('label', { class: 'btn btn-ghost' }, icon('image', 16), h('span', null, value ? tx.editor.form.changePhoto : tx.editor.form.uploadPhoto), file),
         value
-          ? h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => { working.data[def.key] = undefined; onChange(); render(); } }, icon('close', 16), h('span', null, 'Togli la foto'))
+          ? h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => { working.data[def.key] = undefined; onChange(); render(); } }, icon('close', 16), h('span', null, tx.editor.form.removePhoto))
           : null,
       ),
     );
@@ -212,15 +212,16 @@ function photoInput(def, working, onChange) {
 
 // Testo Markdown della nota, con immagini caricate nello spazio privato e anteprima.
 function markdownInput(def, working, onChange) {
+  const texts = tx.editor.markdown;
   const titleLine = h('p', { class: 'small md-title' });
   const text = attachMentions(autoGrow(
     h('textarea', {
       class: 'input md-input',
       rows: 14,
       value: working.data[def.key] || '',
-      placeholder: 'Titolo della nota\n\nScrivi qui gli appunti. Usa i pulsanti sopra per grassetto, dimensioni, elenchi e tabelle.',
+      placeholder: texts.placeholder,
       maxlength: LIMITS.note,
-      'aria-label': 'Testo della nota: la prima riga è il titolo',
+      'aria-label': texts.textLabel,
       onInput: (e) => {
         working.data[def.key] = e.target.value;
         onChange();
@@ -231,7 +232,7 @@ function markdownInput(def, working, onChange) {
         const key = e.key.toLowerCase();
         if (key === 'b' || key === 'i') {
           e.preventDefault();
-          wrap(key === 'b' ? '**' : '*', key === 'b' ? 'grassetto' : 'corsivo');
+          wrap(key === 'b' ? '**' : '*', key === 'b' ? texts.bold : texts.italic);
         }
       },
     }),
@@ -239,9 +240,9 @@ function markdownInput(def, working, onChange) {
   const preview = h('div', { class: 'md-preview', hidden: true });
   const status = h('span', { class: 'muted small', 'aria-live': 'polite' });
   const renderCount = () => {
-    status.textContent = `${imagePaths(text.value).size} di ${MAX_NOTE_IMAGES} immagini`;
+    status.textContent = texts.imageCount(imagePaths(text.value).size, MAX_NOTE_IMAGES);
     const title = noteTitle(text.value);
-    mount(titleLine, title ? ['Titolo della nota: ', h('strong', null, title)] : 'La prima riga sarà il titolo della nota.');
+    mount(titleLine, title ? [texts.noteTitle, ' ', h('strong', null, title)] : texts.titleHint);
   };
   const replaceRange = (start, end, snippet, selStart = start + snippet.length, selEnd = selStart) => {
     text.value = `${text.value.slice(0, start)}${snippet}${text.value.slice(end)}`;
@@ -286,29 +287,31 @@ function markdownInput(def, working, onChange) {
   const table = () => {
     const [, end] = selection();
     const lineEnd = text.value.indexOf('\n', end) < 0 ? text.value.length : text.value.indexOf('\n', end);
-    const block = '\n\n| Colonna 1 | Colonna 2 | Colonna 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n';
-    replaceRange(lineEnd, lineEnd, block, lineEnd + 4, lineEnd + 13);
+    const first = texts.column(1);
+    const block = `\n\n| ${first} | ${texts.column(2)} | ${texts.column(3)} |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |\n`;
+    // Selects the first column title, whatever its length in the language in use, so typing replaces it.
+    replaceRange(lineEnd, lineEnd, block, lineEnd + 4, lineEnd + 4 + first.length);
   };
   const size = h(
     'select',
     {
       class: 'input input-small',
-      'aria-label': 'Dimensione del testo',
+      'aria-label': texts.size,
       onChange: (e) => {
         if (e.target.value !== '') setSize(Number(e.target.value));
         e.target.value = '';
       },
     },
-    h('option', { value: '', selected: true, disabled: true }, 'Dimensione'),
-    h('option', { value: '0' }, 'Testo normale'),
-    h('option', { value: '1' }, 'Titolo grande'),
-    h('option', { value: '2' }, 'Titolo medio'),
-    h('option', { value: '3' }, 'Titolo piccolo'),
+    h('option', { value: '', selected: true, disabled: true }, texts.sizeLabel),
+    h('option', { value: '0' }, texts.sizes.normal),
+    h('option', { value: '1' }, texts.sizes.large),
+    h('option', { value: '2' }, texts.sizes.medium),
+    h('option', { value: '3' }, texts.sizes.small),
   );
   const tool = (label, title, onClick, cls) => h('button', { type: 'button', class: ['btn', 'btn-ghost', 'btn-small', cls], title, 'aria-label': title, onClick }, label);
   const needsIdea = () => {
     if (isUuid(working.idea_id)) return false;
-    toast('Scegli prima l\'idea a cui appartiene la nota.', { type: 'error' });
+    toast(texts.needsIdea, { type: 'error' });
     return true;
   };
   const imageInput = h('input', {
@@ -322,10 +325,10 @@ function markdownInput(def, working, onChange) {
       if (!files.length || needsIdea()) return;
       for (const file of files) {
         if (imagePaths(text.value).size >= MAX_NOTE_IMAGES) {
-          toast(`Al massimo ${MAX_NOTE_IMAGES} immagini per nota.`, { type: 'error' });
+          toast(texts.maxImages(MAX_NOTE_IMAGES), { type: 'error' });
           break;
         }
-        status.textContent = `Carico «${file.name}»…`;
+        status.textContent = texts.uploading(file.name);
         try {
           const path = await uploadNoteImage(working.idea_id, file);
           insert(`\n${imagePointer(path, file.name.replace(/\.[^.]+$/, ''))}\n`);
@@ -345,12 +348,12 @@ function markdownInput(def, working, onChange) {
       e.target.value = '';
       if (!file || needsIdea()) return;
       try {
-        status.textContent = 'Importo il file…';
+        status.textContent = texts.importing;
         const imported = await markdownToNote(await file.text(), working.idea_id, {
-          onProgress: (done, total) => (status.textContent = `Carico le immagini: ${done} di ${total}`),
+          onProgress: (done, total) => (status.textContent = texts.uploadingImages(done, total)),
         });
         setText(text.value.trim() ? `${text.value.trimEnd()}\n\n${imported.body}` : imported.body);
-        toast('File importato.', { type: 'success' });
+        toast(texts.imported, { type: 'success' });
       } catch (error) {
         toast(error.message, { type: 'error' });
       }
@@ -365,25 +368,25 @@ function markdownInput(def, working, onChange) {
       if (show) mount(preview, renderNote(text.value));
       preview.hidden = !show;
       text.hidden = show;
-      previewButton.textContent = show ? 'Scrivi' : 'Anteprima';
+      previewButton.textContent = show ? texts.write : texts.preview;
     },
-  }, 'Anteprima');
+  }, texts.preview);
   renderCount();
   return h(
     'div',
     { class: 'md-editor' },
     h(
       'div',
-      { class: 'md-toolbar', role: 'toolbar', 'aria-label': 'Formattazione' },
+      { class: 'md-toolbar', role: 'toolbar', 'aria-label': texts.toolbar },
       size,
-      tool(h('strong', null, 'B'), 'Grassetto (Cmd o Ctrl + B)', () => wrap('**', 'grassetto'), 'md-tool'),
-      tool(h('em', null, 'I'), 'Corsivo (Cmd o Ctrl + I)', () => wrap('*', 'corsivo'), 'md-tool'),
-      tool('• Elenco', 'Elenco puntato', bullets),
-      tool('1. Elenco', 'Elenco numerato', numbers),
-      tool('Tabella', 'Inserisci una tabella', table),
+      tool(h('strong', null, 'B'), texts.boldTool, () => wrap('**', texts.bold), 'md-tool'),
+      tool(h('em', null, 'I'), texts.italicTool, () => wrap('*', texts.italic), 'md-tool'),
+      tool(texts.bullets, texts.bulletsTitle, bullets),
+      tool(texts.numbers, texts.numbersTitle, numbers),
+      tool(texts.table, texts.tableTitle, table),
       h('span', { class: 'md-sep', 'aria-hidden': 'true' }),
-      h('label', { class: 'btn btn-ghost btn-small' }, icon('image', 14), h('span', null, 'Immagine'), imageInput),
-      h('label', { class: 'btn btn-ghost btn-small' }, icon('file', 14), h('span', null, 'Importa .md'), mdInput),
+      h('label', { class: 'btn btn-ghost btn-small' }, icon('image', 14), h('span', null, texts.image), imageInput),
+      h('label', { class: 'btn btn-ghost btn-small' }, icon('file', 14), h('span', null, texts.importMd), mdInput),
       previewButton,
       status,
     ),
@@ -472,14 +475,15 @@ export function fieldControl(def, working, onChange) {
         [1, 2, 3, 4, 5].map((n) =>
           h('label', { class: 'scale-option' }, h('input', { type: 'radio', name: `scale-${def.key}`, value: n, checked: value === n, onChange: () => set(n) }), String(n)),
         ),
-        h('button', { type: 'button', class: 'link-btn small', onClick: () => { set(undefined); onChange(true); } }, 'azzera'),
+        h('button', { type: 'button', class: 'link-btn small', onClick: () => { set(undefined); onChange(true); } }, tx.editor.form.clearScale),
       );
     default:
-      return h('span', { class: 'muted' }, 'Campo non supportato');
+      return h('span', { class: 'muted' }, tx.editor.form.unsupported);
   }
 }
 
 export function editorView(outlet, params, query) {
+  const texts = tx.editor.form;
   const editing = params.id ? getItem(params.id) : null;
   const kind = editing ? editing.kind : params.kind;
   const def = KINDS[kind];
@@ -487,28 +491,28 @@ export function editorView(outlet, params, query) {
   // I questionari si scrivono nella loro pagina, a partire dal modello.
   if (kind === 'survey') {
     const parent = isUuid(query.get('idea')) ? query.get('idea') : null;
-    const target = editing ? `/questionario/${editing.id}` : parent ? `/idea/${parent}/questionari` : '/questionari';
+    const target = editing ? `${PATHS.survey}${editing.id}` : parent ? `/idea/${parent}${PATHS.surveys}` : PATHS.surveys;
     setTimeout(() => navigate(target, { replace: true }), 0);
     return null;
   }
   if (existing) {
-    navigate(`/modifica/${existing.id}`);
+    navigate(`${PATHS.edit}${existing.id}`);
     return null;
   }
   if ((params.id && !editing) || !EDITABLE_KINDS.includes(kind)) {
-    mount(outlet, errorBox({ message: 'Elemento non trovato.' }));
+    mount(outlet, errorBox({ message: texts.notFound }));
     return null;
   }
   if (!canWrite()) {
-    mount(outlet, errorBox({ message: 'Solo i membri del team possono modificare le board. Gli advisor possono commentare e votare.' }));
+    mount(outlet, errorBox({ message: texts.advisorsCannot }));
     return null;
   }
   if (isExample(editing)) {
-    mount(outlet, errorBox({ message: 'Gli esempi sono in sola lettura: crea una nuova idea e usali come traccia.' }));
+    mount(outlet, errorBox({ message: texts.examplesReadOnly }));
     return null;
   }
   if (editing?.deleted_at) {
-    mount(outlet, errorBox({ message: 'Questo elemento è archiviato: ripristinalo dal cestino per modificarlo.' }));
+    mount(outlet, errorBox({ message: texts.archivedItem }));
     return null;
   }
 
@@ -536,23 +540,23 @@ export function editorView(outlet, params, query) {
     class: 'input',
     type: 'text',
     maxlength: LIMITS.message,
-    placeholder: 'Descrivi la modifica (facoltativo), come un messaggio di commit',
-    'aria-label': 'Messaggio della modifica',
+    placeholder: texts.messagePlaceholder,
+    'aria-label': texts.messageLabel,
   });
   const error = h('div');
-  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, editing ? 'Salva' : 'Crea'));
+  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, editing ? tx.common.actions.save : texts.create));
   const backTo = () => {
     if (editing) return routeFor(editing).slice(1);
     if (def.singleton) return routeFor({ kind }).slice(1);
     return base.idea_id ? `/idea/${base.idea_id}` : '/';
   };
-  const cancelButton = h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => navigate(backTo()) }, 'Annulla');
+  const cancelButton = h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => navigate(backTo()) }, tx.common.actions.cancel);
 
   const draft = readLocal(draftKey);
   if (draft?.snapshot && !deepEqual(draft.snapshot, base)) {
     banner.hidden = false;
     mount(banner,
-      h('span', null, `Hai una bozza non salvata del ${fmtDateTime(draft.savedAt)}.`),
+      h('span', null, texts.draftFound(fmtDateTime(draft.savedAt))),
       h('button', {
         type: 'button',
         class: 'btn btn-small',
@@ -566,8 +570,8 @@ export function editorView(outlet, params, query) {
           renderForm();
           onChange();
         },
-      }, 'Ripristina la bozza'),
-      h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: () => { writeLocal(draftKey, null); banner.hidden = true; } }, 'Scarta'),
+      }, texts.restoreDraft),
+      h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: () => { writeLocal(draftKey, null); banner.hidden = true; } }, texts.discard),
     );
   }
 
@@ -576,15 +580,15 @@ export function editorView(outlet, params, query) {
       ? h(
           'label',
           { class: 'field' },
-          h('span', { class: 'field-label' }, def.needsIdea ? 'Idea' : 'Idea (facoltativa)'),
-          h('select', { class: 'input', onChange: (e) => { working.idea_id = e.target.value || null; onChange(true); } }, options(ideas().map((i) => [i.id, i.title]), working.idea_id, def.needsIdea ? 'Scegli l\'idea' : 'Nessuna')),
+          h('span', { class: 'field-label' }, def.needsIdea ? texts.idea : texts.ideaOptional),
+          h('select', { class: 'input', onChange: (e) => { working.idea_id = e.target.value || null; onChange(true); } }, options(ideas().map((i) => [i.id, i.title]), working.idea_id, def.needsIdea ? texts.chooseIdea : tx.common.states.none)),
         )
       : null;
     const statusSelect = def.statuses
       ? h(
           'label',
           { class: 'field' },
-          h('span', { class: 'field-label' }, 'Stato'),
+          h('span', { class: 'field-label' }, texts.status),
           h('select', { class: 'input', onChange: (e) => { working.status = e.target.value; onChange(); } }, def.statuses.map(([v, label]) => h('option', { value: v, selected: v === working.status }, label))),
         )
       : null;
@@ -593,7 +597,7 @@ export function editorView(outlet, params, query) {
       type: 'text',
       value: working.title,
       maxlength: LIMITS.title,
-      placeholder: def.titlePlaceholder || (kind === 'interview' ? 'Se lo lasci vuoto uso ruolo e organizzazione' : ''),
+      placeholder: def.titlePlaceholder || (kind === 'interview' ? texts.interviewTitlePlaceholder : ''),
       onInput: (e) => { working.title = e.target.value; onChange(); },
     });
 
@@ -630,17 +634,17 @@ export function editorView(outlet, params, query) {
 
   // Un'intervista nata da una persona con cui interfacciarsi aggiorna anche la persona: la collega e la porta avanti, mai indietro.
   async function linkContact(interview) {
-    const contact = kind === 'interview' && isUuid(query.get('contatto')) ? getItem(query.get('contatto')) : null;
+    const contact = kind === 'interview' && isUuid(query.get(PATHS.contact)) ? getItem(query.get(PATHS.contact)) : null;
     if (contact?.kind !== 'contact' || isExample(contact) || contact.deleted_at) return;
     const base = snapshotOf(contact);
     const next = { ...base, data: { ...base.data, interview_id: interview.id } };
-    const target = interview.status === 'da_fare' ? 'fissata' : 'in_contatto';
+    const target = interview.status === 'da_fare' ? 'fissata' : 'in_contatto'; // i18n-ignore
     if (stage(contact.status) < stage(target)) next.status = target;
     try {
-      const result = await saveWithMerge(contact, base, next, 'Collegata all\'intervista');
-      if (result.cancelled) toast('Intervista salvata; collega a mano la persona.', { type: 'error' });
+      const result = await saveWithMerge(contact, base, next, texts.contactLinked);
+      if (result.cancelled) toast(texts.linkByHand, { type: 'error' });
     } catch {
-      toast('Intervista salvata; aggiorna a mano lo stato della persona.', { type: 'error' });
+      toast(texts.updateByHand, { type: 'error' });
     }
   }
 
@@ -648,7 +652,7 @@ export function editorView(outlet, params, query) {
     mount(error);
     let snapshot = sanitizeSnapshot(kind, working);
     if (kind === 'interview' && !snapshot.title) snapshot = { ...snapshot, title: autoInterviewTitle(snapshot.data) };
-    if (def.titleFromBody) snapshot = { ...snapshot, title: noteTitle(snapshot.data.body) || `Nota del ${fmtDate(snapshot.data.date || new Date().toISOString().slice(0, 10))}` };
+    if (def.titleFromBody) snapshot = { ...snapshot, title: noteTitle(snapshot.data.body) || texts.noteTitle(fmtDate(snapshot.data.date || new Date().toISOString().slice(0, 10))) };
     const problem = snapshotProblem(kind, snapshot);
     if (problem) {
       mount(error, errorBox({ message: problem }));
@@ -669,7 +673,7 @@ export function editorView(outlet, params, query) {
       saveDraft.cancel();
       writeLocal(draftKey, null);
       setLeaveGuard(null);
-      toast(editing ? 'Modifiche salvate.' : `Salvato: ${def.label}.`, { type: 'success' });
+      toast(editing ? texts.changesSaved : texts.created(def.label), { type: 'success' });
       navigate(routeFor(saved).slice(1));
     } catch (e) {
       mount(error, errorBox(e));
@@ -693,27 +697,25 @@ export function editorView(outlet, params, query) {
   window.addEventListener('beforeunload', onBeforeUnload);
   cleanups.push(() => window.removeEventListener('keydown', onKey), () => window.removeEventListener('beforeunload', onBeforeUnload));
 
-  setLeaveGuard(async () => !dirty || confirmDialog('Hai modifiche non salvate. Restano come bozza su questo dispositivo.', { title: 'Uscire senza salvare?', okLabel: 'Esci', danger: true }));
+  setLeaveGuard(async () => !dirty || confirmDialog(texts.leaveBody, { title: texts.leaveTitle, okLabel: texts.leave, danger: true }));
 
   if (editing) {
     cleanups.push(
       on('item', ({ item, byMe }) => {
         if (item.id !== editing.id || byMe) return;
         banner.hidden = false;
-        mount(banner,
-          h('span', null, `${memberName(item.updated_by)} ha salvato una nuova versione mentre modificavi. Al salvataggio unirò le vostre modifiche e ti chiederò solo dove si sovrappongono.`),
-        );
+        mount(banner, h('span', null, texts.remoteSave(memberName(item.updated_by))));
       }),
     );
   }
 
-  trackPresence({ route: editing ? routeFor(editing).slice(1) : `/nuovo/${kind}`, editing: true });
+  trackPresence({ route: editing ? routeFor(editing).slice(1) : `${PATHS.create}${kind}`, editing: true });
   renderForm();
   mount(
     outlet,
     pageHeader({
       back: { href: `#${backTo()}` },
-      title: editing ? `Modifica: ${editing.title}` : `Nuovo: ${def.label}`,
+      title: editing ? texts.editTitle(editing.title) : texts.newTitle(def.label),
     }),
     banner,
     formHost,

@@ -1,6 +1,6 @@
-// i18n: da tradurre
 import { h, openModal, toast } from '../lib/dom.js';
 import { merge3, resolveConflicts, snapshotOf, diffWords } from '../lib/diff.js';
+import { tx } from '../i18n/index.js';
 import { describePath, fieldOf, formatValue } from '../schema.js';
 import { photoView } from './components.js';
 import { labelContext, memberName, saveSnapshot, state, statusError } from '../store.js';
@@ -8,15 +8,15 @@ import { labelContext, memberName, saveSnapshot, state, statusError } from '../s
 const MAX_ATTEMPTS = 4;
 
 function renderValue(kind, path, value, base) {
-  if (value === undefined || value === null || value === '') return h('span', { class: 'muted' }, 'vuoto');
-  if (fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image') return photoView(value, { alt: 'Foto', size: 64 });
+  if (value === undefined || value === null || value === '') return h('span', { class: 'muted' }, tx.editor.merge.empty);
+  if (fieldOf(kind, path.replace(/^data\./, '').split('.')[0])?.type === 'image') return photoView(value, { alt: tx.editor.components.photo, size: 64 });
   if (kind === 'idea' && path.startsWith('data.roadmap.')) return h('span', null, String(formatValue(kind, path, value, labelContext)));
   const shown = formatValue(kind, path, value, labelContext);
   if (typeof value === 'string' && typeof base === 'string') {
     return h(
       'div',
       { class: 'text-block diff-inline' },
-      diffWords(base, value).map((op) => (op.t === 'eq' ? op.v : h(op.t === 'add' ? 'ins' : 'del', null, op.v))),
+      diffWords(base, value).map((op) => (op.t === 'eq' ? op.v : h(op.t === 'add' ? 'ins' : 'del', null, op.v))), // i18n-ignore (HTML tags)
     );
   }
   if (Array.isArray(shown)) return h('span', null, shown.join(', '));
@@ -25,6 +25,7 @@ function renderValue(kind, path, value, base) {
 }
 
 export function conflictDialog({ kind, conflicts, theirsAuthor }) {
+  const texts = tx.editor.merge;
   return new Promise((resolve) => {
     const choices = conflicts.map(() => 'mine');
     const rows = conflicts.map((conflict, index) => {
@@ -41,27 +42,18 @@ export function conflictDialog({ kind, conflicts, theirsAuthor }) {
         'fieldset',
         { class: 'conflict' },
         h('legend', null, describePath(kind, conflict.path, labelContext)),
-        option('mine', 'La tua versione', renderValue(kind, conflict.path, conflict.mine, conflict.base)),
-        option('theirs', theirsAuthor ? `La versione di ${theirsAuthor}` : 'La versione salvata altrove', renderValue(kind, conflict.path, conflict.theirs, conflict.base)),
+        option('mine', texts.yours, renderValue(kind, conflict.path, conflict.mine, conflict.base)),
+        option('theirs', theirsAuthor ? texts.theirs(theirsAuthor) : texts.elsewhere, renderValue(kind, conflict.path, conflict.theirs, conflict.base)),
       );
     });
     openModal({
-      title: 'Modifiche in conflitto',
+      title: texts.title,
       wide: true,
-      body: h(
-        'div',
-        null,
-        h(
-          'p',
-          null,
-          `Mentre modificavi, ${theirsAuthor ? `${theirsAuthor} ha salvato` : 'hai salvato da un altro dispositivo'} cambiando gli stessi campi. Scegli quale versione tenere per ciascuno: il resto è già stato unito.`,
-        ),
-        rows,
-      ),
+      body: h('div', null, h('p', null, theirsAuthor ? texts.introOther(theirsAuthor) : texts.introSelf), rows),
       onClose: (value) => resolve(value === true ? choices : null),
       actions: [
-        { label: 'Annulla', value: false },
-        { label: 'Salva con queste scelte', value: true, kind: 'primary' },
+        { label: tx.common.actions.cancel, value: false },
+        { label: texts.saveChoices, value: true, kind: 'primary' },
       ],
     });
   });
@@ -87,11 +79,7 @@ export async function saveWithMerge(item, base, mine, message, { resolveConflict
       if (!choices) return { cancelled: true, item: theirs };
       next = resolveConflicts(merged.value, merged.conflicts, choices);
     } else {
-      toast(
-        theirs.updated_by === state.user?.id
-          ? 'Le tue modifiche sono state unite a quelle salvate da un altro dispositivo.'
-          : `Le tue modifiche sono state unite a quelle di ${memberName(theirs.updated_by)}.`,
-      );
+      toast(theirs.updated_by === state.user?.id ? tx.editor.merge.mergedSelf : tx.editor.merge.mergedOther(memberName(theirs.updated_by)));
     }
     target = theirs;
     baseSnapshot = snapshotOf(theirs);

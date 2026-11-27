@@ -1,4 +1,3 @@
-// i18n: da tradurre
 import { h, busy, confirmDialog, mount, toast } from '../lib/dom.js';
 import { renderMentions } from '../lib/mentions.js';
 import { mentionChip } from './mention-chip.js';
@@ -7,22 +6,24 @@ import { markReadWhere } from '../mentions.js';
 import { api } from '../lib/api.js';
 import { LIMITS, cleanText } from '../lib/validate.js';
 import { renderMarkdown } from '../lib/markdown.js';
+import { tx } from '../i18n/index.js';
 import { AI_TASKS } from '../ai.js';
 import { getItem, memberName, on, state } from '../store.js';
 import { avatar, errorBox, itemLink, loading, timeAgo } from './components.js';
 
 // Con «related» il pannello mostra anche i commenti di altri elementi, per esempio le schede di un'idea.
 export function commentsPanel(item, { related = [] } = {}) {
+  const texts = tx.editor.comments;
   const ids = [item.id, ...related.filter((id) => id !== item.id)];
   markReadWhere((m) => m.source === 'comment' && ids.includes(m.item_id));
   const list = h('div', { class: 'comments' }, loading());
-  const textarea = attachMentions(h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, placeholder: 'Scrivi un commento; con @ tagghi qualcuno', 'aria-label': 'Nuovo commento' }));
-  const send = h('button', { type: 'button', class: 'btn btn-primary' }, 'Commenta');
+  const textarea = attachMentions(h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, placeholder: texts.placeholder, 'aria-label': texts.newComment }));
+  const send = h('button', { type: 'button', class: 'btn btn-primary' }, texts.send);
   let comments = [];
 
   const render = () => {
     if (!comments.length) {
-      mount(list, h('p', { class: 'muted' }, 'Ancora nessun commento.'));
+      mount(list, h('p', { class: 'muted' }, texts.none));
       return;
     }
     mount(list, ...comments.map(commentView));
@@ -35,8 +36,8 @@ export function commentsPanel(item, { related = [] } = {}) {
       ? h(
           'div',
           { class: 'comment-actions' },
-          h('button', { type: 'button', class: 'link-btn small', onClick: () => edit(c, body) }, 'Modifica'),
-          h('button', { type: 'button', class: 'link-btn small', onClick: () => remove(c) }, 'Elimina'),
+          h('button', { type: 'button', class: 'link-btn small', onClick: () => edit(c, body) }, tx.common.actions.edit),
+          h('button', { type: 'button', class: 'link-btn small', onClick: () => remove(c) }, tx.common.actions.delete),
         )
       : null;
     return h(
@@ -50,10 +51,10 @@ export function commentsPanel(item, { related = [] } = {}) {
           'div',
           { class: 'comment-head' },
           h('strong', null, memberName(c.author_id)),
-          c.ai_task ? h('span', { class: 'badge badge-soft' }, `Claude · ${AI_TASKS[c.ai_task] || 'risposta'}`) : null,
+          c.ai_task ? h('span', { class: 'badge badge-soft' }, `Claude · ${AI_TASKS[c.ai_task] || texts.aiAnswer}`) : null,
           timeAgo(c.created_at),
-          c.edited_at ? h('span', { class: 'muted small' }, '(modificato)') : null,
-          c.item_id !== item.id ? h('span', { class: 'comment-on muted small' }, 'su ', itemLink(getItem(c.item_id))) : null,
+          c.edited_at ? h('span', { class: 'muted small' }, texts.edited) : null,
+          c.item_id !== item.id ? h('span', { class: 'comment-on muted small' }, texts.on, ' ', itemLink(getItem(c.item_id))) : null,
         ),
         body,
         actions,
@@ -72,7 +73,7 @@ export function commentsPanel(item, { related = [] } = {}) {
 
   const edit = (c, bodyEl) => {
     const area = attachMentions(h('textarea', { class: 'input', rows: 3, maxlength: LIMITS.comment, value: c.body }));
-    const save = h('button', { type: 'button', class: 'btn btn-small btn-primary' }, 'Salva');
+    const save = h('button', { type: 'button', class: 'btn btn-small btn-primary' }, tx.common.actions.save);
     save.addEventListener('click', busy(save, async () => {
       const text = cleanText(area.value, LIMITS.comment);
       if (!text) return;
@@ -83,11 +84,11 @@ export function commentsPanel(item, { related = [] } = {}) {
         toast(error.message, { type: 'error' });
       }
     }));
-    mount(bodyEl, area, h('div', { class: 'row' }, save, h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: render }, 'Annulla')));
+    mount(bodyEl, area, h('div', { class: 'row' }, save, h('button', { type: 'button', class: 'btn btn-small btn-ghost', onClick: render }, tx.common.actions.cancel)));
   };
 
   const remove = async (c) => {
-    if (!(await confirmDialog('Eliminare questo commento?', { okLabel: 'Elimina', danger: true }))) return;
+    if (!(await confirmDialog(texts.deleteConfirm, { okLabel: tx.common.actions.delete, danger: true }))) return;
     try {
       await api.deleteComment(c.id);
       await load();
