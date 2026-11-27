@@ -502,6 +502,13 @@ describe('valori dello storico in inglese', () => {
     ['survey', 'data.show_time', false, 'no'],
     ['survey', 'data.layout', 'una', 'One question per screen'],
     ['survey', 'data.appearance.theme', 'seppia', 'Sepia'],
+    // Type and topic of a question are stored as Italian keys: a version diff or a conflict shows their labels.
+    ['survey', 'data.questions#q1.type', 'scelte', 'Multiple choice'],
+    ['survey', 'data.questions#q1.type', 'sezione', 'Section title'],
+    ['survey', 'data.questions#q1.role', 'problema', 'The problem'],
+    ['survey', 'data.questions#q1.role', 'altro', 'Other'],
+    ['survey', 'data.questions#q1.type', 'sconosciuto', 'sconosciuto'],
+    ['survey', 'data.questions#q1.label', 'altro', 'altro'],
     ['survey', 'data.cover.path', 'x.jpg', 'image uploaded'],
     ['survey', 'status', 'chiuso', 'Closed'],
     // In inglese il punto separa i decimali e la virgola le migliaia, già da quattro cifre.

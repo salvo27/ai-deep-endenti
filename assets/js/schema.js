@@ -1102,6 +1102,9 @@ export function formatValue(kind, path, value, ctx = {}) {
     return mark.state === 'skip' ? H.roadmapSkipped(member(mark.by)) : H.roadmapDone(member(mark.by));
   }
   if (kind === 'survey' && path === 'data.appearance.theme') return SURVEY_THEMES.find(([v]) => v === value)?.[1] ?? value;
+  // Type and topic of a question are stored as keys: their labels show, as for the theme.
+  if (kind === 'survey' && /^data\.questions#[^.]+\.type$/.test(path)) return QUESTION_TYPES.find(([v]) => v === value)?.[1] ?? value;
+  if (kind === 'survey' && /^data\.questions#[^.]+\.role$/.test(path)) return QUESTION_ROLES.find(([v]) => v === value)?.[1] ?? value;
   if (kind === 'survey' && (path === 'data.cover.path' || path === 'data.thanks_image.path')) return H.imageUploaded;
   // Un conflitto su un elenco intero: i nomi delle righe, non gli oggetti.
   if (kind === 'survey' && path === 'data.questions' && Array.isArray(value)) return value.map((q) => q?.label || q?.id || '');
