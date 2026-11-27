@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROADMAP, ROADMAP_STEPS, roadmapState, stepByKey } from '../../assets/js/roadmap.js';
+import { textsFor } from '../../assets/js/i18n/index.js';
 
 const IDEA = '11111111-1111-4111-8111-111111111111';
 const ME_ID = '22222222-2222-4222-8222-222222222222';
@@ -151,6 +152,40 @@ describe('collegamenti dei passi', () => {
       if (linked) assert.equal(stepState(key, linked).href, withLinked);
     });
   }
+});
+
+describe('numeri nei testi della roadmap', () => {
+  const rm = { it: textsFor('it').roadmap, en: textsFor('en').roadmap };
+
+  for (const [lang, n, expected] of [
+    ['it', 0, '0 voti completi'],
+    ['it', 1, '1 voto completo'],
+    ['it', 2, '2 voti completi'],
+    ['en', 0, '0 complete votes'],
+    ['en', 1, '1 complete vote'],
+    ['en', 2, '2 complete votes'],
+  ]) {
+    it(`${lang}: ${n} voti completi si dice «${expected}»`, () => {
+      assert.equal(rm[lang].progress.fullVoters(n), expected);
+    });
+  }
+
+  for (const [lang, done, total, expected] of [
+    ['it', 0, 37, '0 passi su 37'],
+    ['it', 1, 37, '1 passo su 37'],
+    ['it', 2, 37, '2 passi su 37'],
+    ['en', 0, 37, '0 of 37 steps'],
+    ['en', 1, 37, '1 of 37 steps'],
+    ['en', 37, 37, '37 of 37 steps'],
+  ]) {
+    it(`${lang}: ${done} passi fatti su ${total} si dice «${expected}»`, () => {
+      assert.equal(rm[lang].page.stepsDone(done, total), expected);
+    });
+  }
+
+  it('con un solo voto completo il passo lo dice al singolare', () => {
+    assert.equal(stepState('voti', { fullVoters: 1 }).progress, '1 voto completo');
+  });
 });
 
 describe('avanzamento della roadmap', () => {

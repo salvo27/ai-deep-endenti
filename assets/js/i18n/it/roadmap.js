@@ -553,7 +553,7 @@ export const roadmap = {
   // Avanzamento di un passo calcolato dai dati della board.
   progress: {
     count: (done, total) => `${done} su ${total}`,
-    fullVoters: (count) => `${count} voti completi`,
+    fullVoters: (count) => (count === 1 ? '1 voto completo' : `${count} voti completi`),
   },
   // La pagina della roadmap nell'idea, il riquadro della panoramica e le fasi nella guida.
   page: {
@@ -585,7 +585,7 @@ export const roadmap = {
     beforeMovingOn: 'Prima di andare avanti:',
     title: 'Roadmap dell\'idea',
     progress: 'Avanzamento della roadmap',
-    stepsDone: (done, total) => `${done} passi su ${total}`,
+    stepsDone: (done, total) => (done === 1 ? `1 passo su ${total}` : `${done} passi su ${total}`),
     currentPhase: (phase) => `fase attuale: ${phase}`,
     nextLabel: 'Prossimo passo:',
     inPhase: (phase) => `(fase ${phase})`,
