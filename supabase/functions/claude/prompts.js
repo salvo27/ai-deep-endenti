@@ -55,6 +55,9 @@ export function systemPrompt(task) {
   return `${COMMON}\n\n${TASKS[task].instructions}`;
 }
 
+// Un <board> o </board> scritto nella board chiuderebbe il blocco dei dati prima del tempo: il suo «<» diventa «[».
+const BOARD_TAG = /<(?=\s*\/?\s*board\b)/gi;
+
 export function userMessage(context) {
-  return `Ecco il contenuto della board:\n\n<board>\n${context}\n</board>`;
+  return `Ecco il contenuto della board:\n\n<board>\n${context.replace(BOARD_TAG, '[')}\n</board>`;
 }
