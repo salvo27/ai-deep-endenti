@@ -1,9 +1,8 @@
-// i18n: da tradurre
 import { h, mount, svg, confirmDialog, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual } from '../lib/diff.js';
 import { dayKey, fmtRelative, shortId } from '../lib/format.js';
-import { DAYS, DAY_KEYS, addDays, isMonday, shortDate, thisMonday, weekLabel } from '../availability.js';
+import { DAYS, DAY_KEYS, addDays, dayName, dayShort, isMonday, shortDate, thisMonday, weekLabel } from '../availability.js';
 import {
   AREAS,
   HISTORY_WEEKS,
@@ -27,17 +26,23 @@ import {
 } from '../timesheet.js';
 import { canWrite, createItem, memberName, on, saveSnapshot, state, statusError, syncItems, timesheetsOf } from '../store.js';
 import { replaceCurrent, setLeaveGuard } from '../router.js';
+import { locale, tx } from '../i18n/index.js';
 import { avatar, errorBox, tabs } from './components.js';
 
-const TITLE = 'Ore lavorate';
+const t = tx.timesheet;
+// Il titolo lo fissa il database e resta questo in ogni lingua.
+const TITLE = 'Ore lavorate'; // i18n-ignore
+const PAGE = '/squadra/ore'; // i18n-ignore: indirizzo
 const PAST_WEEKS = 52;
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const MAX_ATTEMPTS = 4;
 const FOCUS_FALLBACK = { 'week-prev': ['week-next', 'week-title'], 'week-next': ['week-prev', 'week-title'], save: ['pledge', 'week-title'] };
-const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
-const dayName = (day) => DAYS.find(([key]) => key === day)[1];
-const hoursValue = (minutes) => (Number.isInteger(minutes) ? String(minutes / 60).replace('.', ',') : '');
+// Le ore dichiarate con il separatore decimale della lingua: 7,5 in italiano, 7.5 in inglese.
+const hoursFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false });
+const hoursValue = (minutes) => (Number.isInteger(minutes) ? hoursFormat.format(minutes / 60) : '');
 const srOnly = (text) => h('span', { class: 'sr-only' }, text);
+// Gli indirizzi della pagina restano uguali in ogni lingua.
+const pagePath = (mine, week) => `${PAGE}?${mine ? 'vista=mie&' : ''}settimana=${week}`; // i18n-ignore: indirizzo
 
 // Le schede di una persona, già pulite, per lunedì della settimana.
 function weeksOf(userId) {
@@ -70,15 +75,18 @@ function historyChart(series, name) {
     const x = i * slot + 3;
     const barW = slot - 6;
     const barH = (w.minutes / max) * height;
-    const tip = `${weekLabel(w.week)}: ${durationText(w.minutes)}${w.pledge !== null ? ` su ${durationText(w.pledge)}` : ''}`;
+    const tip = w.pledge !== null ? t.team.tipOf(weekLabel(w.week), durationText(w.minutes), durationText(w.pledge)) : t.team.tip(weekLabel(w.week), durationText(w.minutes));
     return [
       barH ? svg('rect', { x, y: base - barH, width: barW, height: barH, rx: 2, class: i === series.length - 1 ? 'ts-col ts-col-now' : 'ts-col' }, svg('title', {}, tip)) : null,
       w.pledge ? svg('line', { x1: x - 1, x2: x + barW + 1, y1: base - (w.pledge / max) * height, y2: base - (w.pledge / max) * height, class: 'ts-pledge-mark' }, svg('title', {}, tip)) : null,
     ].filter(Boolean);
   });
-  const label = `${name}, dalla settimana più vecchia: ${series
-    .map((w) => `${shortDate(w.week)} ${durationText(w.minutes)}${w.pledge ? ` su ${durationText(w.pledge)}` : ''}`)
-    .join(', ')}`;
+  const label = t.team.chartLabel(
+    name,
+    series
+      .map((w) => (w.pledge ? t.team.chartWeekOf(shortDate(w.week), durationText(w.minutes), durationText(w.pledge)) : t.team.chartWeek(shortDate(w.week), durationText(w.minutes))))
+      .join(', '),
+  );
   return h(
     'div',
     { class: 'ts-history-box' },
@@ -88,7 +96,7 @@ function historyChart(series, name) {
 }
 
 function areaList(rows) {
-  if (!rows.length) return h('p', { class: 'muted small' }, 'Nessuna ora segnata.');
+  if (!rows.length) return h('p', { class: 'muted small' }, t.team.noArea);
   const max = rows[0].minutes;
   return h('ul', { class: 'ts-areas' }, rows.map((row) => h('li', null, h('span', null, row.label), bar(row.minutes, max), h('strong', null, durationText(row.minutes)))));
 }
@@ -97,7 +105,7 @@ export function timesheetView(outlet, query, chrome) {
   const writable = canWrite();
   const mode = query.get('vista') === 'mie' && writable ? 'mine' : 'team';
   let currentMonday = thisMonday();
-  const asked = query.get('settimana');
+  const asked = query.get('settimana'); // i18n-ignore: parametro dell'indirizzo
   let monday = isMonday(asked) && asked <= currentMonday && asked >= addDays(currentMonday, -7 * (PAST_WEEKS - 1)) ? asked : currentMonday;
   let working = null;
   let startItem = null;
@@ -117,12 +125,12 @@ export function timesheetView(outlet, query, chrome) {
     'button',
     { type: 'button', class: 'btn btn-primary', disabled: true, dataset: { focus: 'save' } },
     icon('commit', 16),
-    h('span', null, 'Salva le mie ore'),
+    h('span', null, t.mine.save),
   );
 
   const weekIndex = () => Math.round((Date.parse(currentMonday) - Date.parse(monday)) / WEEK_MS);
   const mineWeeks = () => weeksOf(state.user?.id);
-  const weekPath = () => `/squadra/ore?${mode === 'mine' ? 'vista=mie&' : ''}settimana=${monday}`;
+  const weekPath = () => pagePath(mode === 'mine', monday);
 
   const baseline = () => mineWeeks().get(monday)?.data || { week: monday, entries: [] };
 
@@ -151,10 +159,10 @@ export function timesheetView(outlet, query, chrome) {
     const done = working.entries.filter((e) => Number.isInteger(e.start) && Number.isInteger(e.end) && e.end > e.start);
     const total = minutesOf(done);
     const pledge = effectivePledge();
-    const which = weekIndex() === 0 ? 'Questa settimana' : capital(weekLabel(monday));
+    const which = weekIndex() === 0 ? t.nav.thisWeek : t.weekStart(weekLabel(monday));
     mount(
       totalHost,
-      h('strong', null, pledge ? `${which}: ${durationText(total)} su ${durationText(pledge)} dichiarate` : `${which}: ${durationText(total)}`),
+      h('strong', null, pledge ? t.totalOf(which, durationText(total), durationText(pledge)) : t.total(which, durationText(total))),
       pledge ? bar(total, pledge) : null,
     );
     const days = dayTotals(done);
@@ -165,14 +173,14 @@ export function timesheetView(outlet, query, chrome) {
 
   // Il primo problema da sistemare prima di salvare, con il campo dove andare.
   const problemOf = () => {
-    if (working.entries.length > MAX_ENTRIES) return { text: `In una settimana ci stanno al massimo ${MAX_ENTRIES} righe: togline qualcuna.`, focus: 'save' };
+    if (working.entries.length > MAX_ENTRIES) return { text: t.problems.tooManyRowsFix(MAX_ENTRIES), focus: 'save' };
     for (const day of DAY_KEYS) {
-      const name = capital(dayName(day));
+      const name = dayName(day);
       for (const e of working.entries.filter((row) => row.day === day)) {
         if (!Number.isInteger(e.start) || !Number.isInteger(e.end)) {
-          return { text: `${name}: in una riga manca l'ora di inizio o di fine.`, focus: `row-${e.id}-${Number.isInteger(e.start) ? 'end' : 'start'}` };
+          return { text: t.problems.missingTime(name), focus: `row-${e.id}-${Number.isInteger(e.start) ? 'end' : 'start'}` };
         }
-        if (e.end <= e.start) return { text: `${name}: una riga finisce prima di cominciare. Se passi la mezzanotte, dividila in due righe.`, focus: `row-${e.id}-end` };
+        if (e.end <= e.start) return { text: t.problems.endsBeforeStart(name), focus: `row-${e.id}-end` };
       }
     }
     const clean = sanitizeTimesheet(working);
@@ -193,9 +201,9 @@ export function timesheetView(outlet, query, chrome) {
   const updateDirty = () => {
     changed = !deepEqual(comparable(working), comparable(baseline()));
     saveButton.disabled = saving || !changed;
-    setLeaveGuard(changed ? () => confirmDialog('Hai ore non salvate. Uscire comunque?', { title: 'Ore non salvate', okLabel: 'Esci', danger: true }) : null);
+    setLeaveGuard(changed ? () => confirmDialog(t.mine.leaveQuestion, { title: t.mine.unsavedTitle, okLabel: t.mine.leave, danger: true }) : null);
     const item = mineWeeks().get(monday)?.item;
-    const text = saving ? 'Salvataggio in corso' : changed ? 'Modifiche non salvate' : item ? `Salvato ${fmtRelative(item.updated_at)}` : 'Nessuna ora segnata in questa settimana';
+    const text = saving ? t.mine.saving : changed ? t.mine.unsaved : item ? t.mine.savedWhen(fmtRelative(item.updated_at)) : t.mine.nothingYet;
     if (statusHost.textContent !== text) mount(statusHost, text);
     outlet.querySelectorAll('.ts-day input, .ts-day select, .ts-day button, .ts-pledge-input, .av-week button').forEach((el) => {
       el.disabled = saving || el.dataset.edge === 'true';
@@ -211,7 +219,7 @@ export function timesheetView(outlet, query, chrome) {
 
   const goToWeek = async (step) => {
     if (saving) return;
-    if (changed && !(await confirmDialog('Hai ore non salvate in questa settimana. Cambiare settimana comunque?', { title: 'Ore non salvate', okLabel: 'Cambia', danger: true }))) return;
+    if (changed && !(await confirmDialog(t.mine.changeWeekQuestion, { title: t.mine.unsavedTitle, okLabel: t.mine.changeWeek, danger: true }))) return;
     if (!alive) return;
     monday = addDays(monday, step * 7);
     // L'indirizzo segue la settimana: ricaricando si resta qui e la scheda aperta resta la stessa pagina.
@@ -226,15 +234,15 @@ export function timesheetView(outlet, query, chrome) {
 
   const weekNav = () => {
     const index = weekIndex();
-    const name = index === 0 ? 'Questa settimana' : index === 1 ? 'La settimana scorsa' : `${index} settimane fa`;
+    const name = index === 0 ? t.nav.thisWeek : index === 1 ? t.nav.lastWeek : t.nav.weeksAgo(index);
     const arrow = (label, focus, edge, step, text) =>
       h('button', { type: 'button', class: 'btn btn-ghost btn-small', disabled: edge || saving, 'aria-label': label, dataset: { focus, edge: String(edge) }, onClick: () => goToWeek(step) }, text);
     return h(
       'div',
       { class: 'av-week' },
-      arrow('Settimana precedente', 'week-prev', index >= PAST_WEEKS - 1, -1, '←'),
+      arrow(t.nav.previous, 'week-prev', index >= PAST_WEEKS - 1, -1, '←'),
       h('div', { class: 'av-week-title', 'aria-live': 'polite', tabindex: '-1', dataset: { focus: 'week-title' } }, h('strong', null, name), h('span', { class: 'muted small' }, weekLabel(monday))),
-      arrow('Settimana successiva', 'week-next', index <= 0, 1, '→'),
+      arrow(t.nav.next, 'week-next', index <= 0, 1, '→'),
     );
   };
 
@@ -294,11 +302,11 @@ export function timesheetView(outlet, query, chrome) {
       });
     return h(
       'li',
-      { class: 'ts-row', role: 'group', 'aria-label': `${capital(name)}, riga ${n}`, dataset: { id: entry.id } },
-      h('span', { class: 'ts-times' }, timeInput('start', 'Inizio'), h('span', { 'aria-hidden': 'true' }, '-'), timeInput('end', 'Fine')),
+      { class: 'ts-row', role: 'group', 'aria-label': t.mine.row(name, n), dataset: { id: entry.id } },
+      h('span', { class: 'ts-times' }, timeInput('start', t.mine.start), h('span', { 'aria-hidden': 'true' }, '-'), timeInput('end', t.mine.end)),
       h(
         'select',
-        { class: 'input ts-area', 'aria-label': 'Area', dataset: { focus: `row-${entry.id}-area` }, onChange: (event) => set('area', event.target.value) },
+        { class: 'input ts-area', 'aria-label': t.mine.area, dataset: { focus: `row-${entry.id}-area` }, onChange: (event) => set('area', event.target.value) },
         AREAS.map(([value, long, short]) => h('option', { value, selected: value === entry.area, title: long }, short)),
       ),
       h('input', {
@@ -306,13 +314,13 @@ export function timesheetView(outlet, query, chrome) {
         type: 'text',
         maxlength: NOTE_MAX,
         value: entry.note || '',
-        placeholder: 'Cosa hai fatto (facoltativo)',
-        'aria-label': 'Nota',
+        placeholder: t.mine.notePlaceholder,
+        'aria-label': t.mine.note,
         dataset: { focus: `row-${entry.id}-note` },
         onInput: (event) => set('note', event.target.value),
       }),
       // Col doppio clic il secondo colpirebbe la riga che sale al suo posto.
-      h('button', { type: 'button', class: 'icon-btn ts-remove', 'aria-label': `Togli la riga ${n} di ${name}`, onClick: (event) => event.detail < 2 && removeRow(entry.id) }, icon('close', 16)),
+      h('button', { type: 'button', class: 'icon-btn ts-remove', 'aria-label': t.mine.removeRow(n, name), onClick: (event) => event.detail < 2 && removeRow(entry.id) }, icon('close', 16)),
     );
   };
 
@@ -351,7 +359,7 @@ export function timesheetView(outlet, query, chrome) {
         h(
           'header',
           { class: 'ts-day-head' },
-          h('h2', { id: titleId }, `${capital(name)} ${shortDate(date)}`, date === today ? h('span', { class: 'muted small' }, ' · oggi') : null),
+          h('h2', { id: titleId }, t.mine.dayTitle(name, shortDate(date)), date === today ? h('span', { class: 'muted small' }, ` · ${t.mine.today}`) : null),
           h('span', { class: 'muted small', dataset: { dayTotal: day } }, ''),
         ),
         rows.length ? h('ul', { class: 'ts-rows' }, rows.map((entry, n) => rowView(entry, name, n + 1))) : null,
@@ -359,21 +367,21 @@ export function timesheetView(outlet, query, chrome) {
           ? null
           : h(
               'button',
-              { type: 'button', class: 'btn btn-ghost btn-small ts-add', disabled: saving, 'aria-label': `Aggiungi ore a ${name}`, dataset: { focus: `add-${day}` }, onClick: () => addRow(day) },
+              { type: 'button', class: 'btn btn-ghost btn-small ts-add', disabled: saving, 'aria-label': t.mine.addTo(name), dataset: { focus: `add-${day}` }, onClick: () => addRow(day) },
               icon('plus', 14),
-              h('span', null, 'Aggiungi ore'),
+              h('span', null, t.mine.add),
             ),
       );
     });
     return [
-      h('p', { class: 'muted' }, 'Per ogni giorno segna da che ora a che ora hai lavorato al progetto e su cosa. Gli orari vanno al quarto d\'ora. Puoi farlo a fine giornata o a fine settimana.'),
-      h('p', { class: 'muted small' }, 'Le note le vede tutto il team, advisor compresi, e restano nello storico.'),
+      h('p', { class: 'muted' }, t.mine.intro),
+      h('p', { class: 'muted small' }, t.mine.notesVisible),
       weekNav(),
       h(
         'div',
         { class: 'ts-pledge' },
-        h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Ore a settimana che puoi dare'), pledgeInput),
-        h('p', { class: 'muted small' }, 'Valgono da questa settimana in poi, finché non le cambi.'),
+        h('label', { class: 'field' }, h('span', { class: 'field-label' }, t.mine.pledge), pledgeInput),
+        h('p', { class: 'muted small' }, t.mine.pledgeHelp),
       ),
       totalHost,
       h('div', { class: 'ts-days' }, days),
@@ -400,9 +408,9 @@ export function timesheetView(outlet, query, chrome) {
         h(
           'tr',
           null,
-          h('th', { scope: 'col' }, 'Persona'),
-          DAYS.map(([key, label], i) => h('th', { scope: 'col', abbr: label }, h('span', { class: 'av-day' }, key), h('span', { class: 'av-date' }, shortDate(addDays(monday, i))))),
-          h('th', { scope: 'col' }, 'Totale'),
+          h('th', { scope: 'col' }, t.team.person),
+          DAYS.map(([key, label], i) => h('th', { scope: 'col', abbr: label }, h('span', { class: 'av-day' }, dayShort(key)), h('span', { class: 'av-date' }, shortDate(addDays(monday, i))))),
+          h('th', { scope: 'col' }, t.team.total),
         ),
       ),
       h(
@@ -415,19 +423,19 @@ export function timesheetView(outlet, query, chrome) {
             'tr',
             null,
             h('th', { scope: 'row' }, h('span', { class: 'ts-who' }, h('span', { 'aria-hidden': 'true' }, avatar(p.member.user_id, 22)), personName(p.member))),
-            DAY_KEYS.map((day) => h('td', null, days[day] ? durationText(days[day]) : [h('span', { class: 'muted', 'aria-hidden': 'true' }, '-'), srOnly('nessuna ora')])),
+            DAY_KEYS.map((day) => h('td', null, days[day] ? durationText(days[day]) : [h('span', { class: 'muted', 'aria-hidden': 'true' }, '-'), srOnly(t.team.noHours)])),
             h(
               'td',
               { class: 'ts-sum' },
               h('strong', null, durationText(total)),
-              p.pledge ? h('span', { class: 'muted small' }, ` su ${durationText(p.pledge)}`) : null,
+              p.pledge ? h('span', { class: 'muted small' }, ` ${t.team.of(durationText(p.pledge))}`) : null,
               p.pledge ? bar(total, p.pledge) : null,
             ),
           );
         }),
       ),
     );
-    const scroller = h('div', { class: 'av-scroll', tabindex: '0', role: 'region', 'aria-label': `Ore della squadra ${weekLabel(monday)}`, dataset: { focus: 'team-table' } }, table);
+    const scroller = h('div', { class: 'av-scroll', tabindex: '0', role: 'region', 'aria-label': t.team.tableLabel(weekLabel(monday)), dataset: { focus: 'team-table' } }, table);
     scroller.addEventListener('scroll', () => {
       tableScroll = scroller.scrollLeft;
     });
@@ -438,17 +446,18 @@ export function timesheetView(outlet, query, chrome) {
       h(
         'p',
         { class: 'muted' },
-        'Le ore che ognuno ha dedicato al progetto, giorno per giorno, accanto a quelle che aveva detto di poter dare. ',
-        writable ? h('a', { href: `#/squadra/ore?vista=mie&settimana=${monday}`, dataset: { replace: '' } }, 'Segna le tue ore') : null,
+        t.team.intro,
+        ' ',
+        writable ? h('a', { href: `#${pagePath(true, monday)}`, dataset: { replace: '' } }, t.team.logYours) : null,
       ),
       weekNav(),
       scroller,
-      missing.length ? h('p', { class: 'muted small' }, `Non hanno segnato ore: ${missing.join(', ')}.`) : null,
+      missing.length ? h('p', { class: 'muted small' }, t.team.missing(missing.join(', '))) : null,
       h(
         'section',
         { class: 'card', 'aria-labelledby': 'ts-history-title' },
-        h('h2', { id: 'ts-history-title' }, `Ultime ${HISTORY_WEEKS} settimane`),
-        h('p', { class: 'muted small' }, 'Le colonne sono le ore segnate, il segno orizzontale le ore dichiarate.'),
+        h('h2', { id: 'ts-history-title' }, t.team.lastWeeks(HISTORY_WEEKS)),
+        h('p', { class: 'muted small' }, t.team.chartHelp),
         h(
           'ul',
           { class: 'ts-people' },
@@ -461,7 +470,7 @@ export function timesheetView(outlet, query, chrome) {
               null,
               h('strong', null, name),
               historyChart(p.series, name),
-              h('span', { class: 'muted small' }, filled.length ? `in media ${durationText(average)} nelle settimane segnate` : 'nessuna settimana segnata'),
+              h('span', { class: 'muted small' }, filled.length ? t.team.average(durationText(average)) : t.team.noWeeks),
             );
           }),
         ),
@@ -469,10 +478,10 @@ export function timesheetView(outlet, query, chrome) {
       h(
         'div',
         { class: 'cards cards-2' },
-        h('section', { class: 'card' }, h('h2', null, weekIndex() === 0 ? 'Per area, questa settimana' : `Per area, ${weekLabel(monday)}`), areaList(areaTotals(allWeek))),
-        h('section', { class: 'card' }, h('h2', null, `Per area, ultime ${HISTORY_WEEKS} settimane`), areaList(areaTotals(allHistory))),
+        h('section', { class: 'card' }, h('h2', null, weekIndex() === 0 ? t.team.byAreaThisWeek : t.team.byAreaWeek(weekLabel(monday))), areaList(areaTotals(allWeek))),
+        h('section', { class: 'card' }, h('h2', null, t.team.byAreaLast(HISTORY_WEEKS)), areaList(areaTotals(allHistory))),
       ),
-      h('h2', null, 'Giorno per giorno'),
+      h('h2', null, t.team.dayByDay),
       people.some((p) => p.week.entries.length)
         ? h(
             'div',
@@ -491,7 +500,7 @@ export function timesheetView(outlet, query, chrome) {
                       h(
                         'li',
                         null,
-                        h('strong', null, `${capital(dayName(e.day))} ${shortDate(addDays(monday, DAY_KEYS.indexOf(e.day)))}, ${clockText(e.start)}-${clockText(e.end)}`),
+                        h('strong', null, t.team.entryWhen(dayName(e.day), shortDate(addDays(monday, DAY_KEYS.indexOf(e.day))), clockText(e.start), clockText(e.end))),
                         ` · ${areaLabel(e.area)}`,
                         e.note ? ` · ${e.note}` : '',
                       ),
@@ -506,7 +515,7 @@ export function timesheetView(outlet, query, chrome) {
                 return details;
               }),
           )
-        : h('p', { class: 'muted small' }, 'Nessuna ora segnata in questa settimana.'),
+        : h('p', { class: 'muted small' }, t.team.emptyWeek),
     ];
   };
 
@@ -517,12 +526,12 @@ export function timesheetView(outlet, query, chrome) {
     const views = writable
       ? tabs(
           [
-            ['team', 'Ore della squadra'],
-            ['mie', 'Le mie ore'],
+            ['team', t.views.team],
+            ['mie', t.views.mine],
           ],
           mode === 'mine' ? 'mie' : 'team',
-          (key) => (key === 'mie' ? `#/squadra/ore?vista=mie&settimana=${monday}` : `#/squadra/ore?settimana=${monday}`),
-          { ariaLabel: 'Vista', className: 'subtabs' },
+          (key) => `#${pagePath(key === 'mie', monday)}`,
+          { ariaLabel: t.views.label, className: 'subtabs' },
         )
       : null;
     mount(outlet, ...chrome([]), h('div', { class: 'tab-body stack' }, views, mode === 'mine' ? mineBody() : teamBody()));
@@ -554,7 +563,7 @@ export function timesheetView(outlet, query, chrome) {
         target = { ...existing, version: 0 };
       } else {
         try {
-          await createItem('timesheet', { title: TITLE, data: draft }, 'Prime ore della settimana');
+          await createItem('timesheet', { title: TITLE, data: draft }, t.mine.firstMessage);
           return { saved: true };
         } catch (error) {
           if (error?.code !== '23505') throw error;
@@ -566,7 +575,7 @@ export function timesheetView(outlet, query, chrome) {
       }
     }
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const result = await saveSnapshot(target, { title: TITLE, status: null, idea_id: null, data: draft }, 'Ore aggiornate');
+      const result = await saveSnapshot(target, { title: TITLE, status: null, idea_id: null, data: draft }, t.mine.updateMessage);
       if (result.status === 'ok') return { saved: true, merged: attempt > 0 };
       if (result.status !== 'conflict' || !result.item) throw statusError(result.status);
       const theirs = sanitizeTimesheet(result.item.data);
@@ -603,7 +612,7 @@ export function timesheetView(outlet, query, chrome) {
     if (!alive) return;
     if (outcome?.saved) {
       startWorking();
-      toast(outcome.merged ? 'Ore salvate, unite a quelle salvate da un altro dispositivo.' : 'Ore salvate.', { type: 'success' });
+      toast(outcome.merged ? t.mine.savedMerged : t.mine.saved, { type: 'success' });
       render('save');
     } else if (outcome?.draft && outcome.week === monday) {
       startItem = outcome.item;
