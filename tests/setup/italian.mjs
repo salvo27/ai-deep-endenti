@@ -1,12 +1,13 @@
+// Words that English uses too (come, serve, per, persona, dove) are left out on purpose.
 // Finds Italian left in what should be English: in the source of the site (string literals) and in rendered pages.
 // A heuristic, tuned on the site's own texts: accented letters, the commonest Italian function words and the words
 // of the interface that do not exist in English.
 
 const FUNCTION_WORDS = [
   'il', 'lo', 'gli', 'della', 'delle', 'dello', 'degli', 'del', 'dei', 'dal', 'dalla', 'nel', 'nella', 'nelle', 'sul', 'sulla',
-  'una', 'uno', 'di', 'da', 'per', 'con', 'che', 'non', 'sono', 'questo', 'questa', 'questi', 'queste', 'quando', 'anche',
-  'ancora', 'già', 'più', 'solo', 'tutti', 'tutte', 'ogni', 'nessun', 'nessuna', 'nessuno', 'oppure', 'perché', 'come', 'dove',
-  'chi', 'cosa', 'tra', 'fra', 'qui', 'ecco', 'hai', 'ha', 'è', 'sei', 'puoi', 'devi', 'deve', 'serve', 'manca', 'mancano',
+  'una', 'uno', 'di', 'da', 'con', 'che', 'non', 'sono', 'questo', 'questa', 'questi', 'queste', 'quando', 'anche',
+  'ancora', 'già', 'più', 'solo', 'tutti', 'tutte', 'ogni', 'nessun', 'nessuna', 'nessuno', 'oppure', 'perché', 'fa',
+  'chi', 'cosa', 'tra', 'fra', 'qui', 'ecco', 'hai', 'ha', 'è', 'sei', 'puoi', 'devi', 'deve', 'manca', 'mancano',
 ];
 
 const UI_WORDS = [
@@ -21,7 +22,7 @@ const UI_WORDS = [
   'lavoro', 'strumenti', 'sistema', 'sezioni', 'sezione', 'pagina', 'pagine', 'avvio', 'ricarica', 'scheda', 'schede', 'elenco',
   'tabella', 'colonne', 'fase', 'fasi', 'passo', 'passi', 'prossimo', 'prossima', 'ultimo', 'ultima', 'primo', 'prima', 'dopo',
   'sempre', 'mai', 'mentre', 'senza', 'sotto', 'sopra', 'accanto', 'aggiornato', 'aggiornata', 'ricerca', 'filtro', 'filtri',
-  'persona', 'ruoli', 'accesso', 'utente', 'utenti', 'sì', 'grazie', 'benvenuto', 'esempio', 'esempi', 'vedi', 'leggi',
+  'ruoli', 'accesso', 'utente', 'utenti', 'sì', 'grazie', 'benvenuto', 'esempio', 'esempi', 'vedi', 'leggi',
 ];
 
 const WORDS = new Set([...FUNCTION_WORDS, ...UI_WORDS]);
@@ -32,7 +33,7 @@ export function italianWords(text) {
   const found = [];
   const lower = String(text ?? '').toLowerCase();
   for (const phrase of [...WORDS].filter((w) => w.includes(' '))) if (lower.includes(phrase)) found.push(phrase);
-  for (const word of lower.match(/[a-zàèéìòù]+/g) || []) {
+  for (const word of lower.match(/[a-zàèéìòù]+(?:-[a-zàèéìòù]+)*/g) || []) {
     if ((WORDS.has(word) || ACCENTED.test(word)) && !found.includes(word)) found.push(word);
   }
   return found;

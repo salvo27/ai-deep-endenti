@@ -32,6 +32,19 @@ describe('rilevatore di italiano', () => {
     assert.deepEqual(italianWords('Nessuna idea nel cestino'), ['nessuna', 'nel', 'cestino']);
   });
 
+  it('non conta le parole che esistono anche in inglese, né i prefissi con il trattino', () => {
+    for (const english of [
+      'You cannot log hours on a day that has not come yet.',
+      'The part a website like ours can serve, per person.',
+      'New buyer persona',
+      'Non-dilutive funding and non-compete clauses',
+    ]) {
+      assert.equal(looksItalian(english), false, english);
+    }
+    assert.ok(looksItalian('Come funziona questa pagina?'), 'una frase italiana con altre parole resta italiana');
+    assert.ok(looksItalian('Non salvare'));
+  });
+
   it('legge i testi tra apici, virgolette e accenti gravi, saltando i commenti', () => {
     const literals = stringLiterals("// 'commento'\nconst a = 'uno';\n/* \"due\" */ const b = `tre ${'quattro'} cinque`;");
     assert.deepEqual(literals.map((l) => [l.line, l.text]), [[2, 'uno'], [3, "tre ${'quattro'} cinque"]]);
