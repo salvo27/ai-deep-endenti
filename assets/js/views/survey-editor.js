@@ -1,9 +1,9 @@
-// i18n: da tradurre
 import { autoGrow, busy, confirmDialog, h, mount, toast } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { deepEqual, snapshotOf } from '../lib/diff.js';
 import { LIMITS } from '../lib/validate.js';
 import { truncate } from '../lib/format.js';
+import { tx } from '../i18n/index.js';
 import { QUESTION_ROLES, QUESTION_TYPES, SURVEY_ACCENT, SURVEY_LAYOUTS, SURVEY_LIMITS, SURVEY_PROGRESS, SURVEY_THEMES, sanitizeSnapshot } from '../schema.js';
 import { itemsOf, memberName } from '../store.js';
 import { estimateMinutes, minutesLabel } from '../public/survey-time.js';
@@ -13,8 +13,13 @@ import { SCALE_PRESETS, convertQuestion, duplicateQuestion, newQuestion, newRowI
 import { saveWithMerge } from './merge.js';
 import { surveyCoverUrl, uploadSurveyCover } from '../survey-images.js';
 
+const t = tx.surveyEditor;
 const TYPE_LABELS = Object.fromEntries(QUESTION_TYPES);
-const ROLE_SHORT = { persona: 'Chi risponde', problema: 'Problema', contatto: 'Contatto', altro: 'Altro' };
+
+// Valori salvati: restano in italiano in ogni lingua.
+const SECTION = 'sezione'; // i18n-ignore
+const RESPONDENT = 'persona'; // i18n-ignore
+const ONE_PER_SCREEN = 'una'; // i18n-ignore
 
 // Avvisi con la forma migliore accanto: non bloccano mai il salvataggio.
 export function warningList(warnings, { compact = false } = {}) {
@@ -31,13 +36,13 @@ function editSession(item, { message, onSaved }) {
   const base = snapshotOf(item);
   const working = structuredClone(base);
   const status = h('span', { class: 'save-status muted small', role: 'status' });
-  const note = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: 'Descrivi la modifica (facoltativo)', 'aria-label': 'Messaggio della modifica' });
-  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, 'Salva'));
+  const note = h('input', { class: 'input', type: 'text', maxlength: LIMITS.message, placeholder: t.editor.notePlaceholder, 'aria-label': t.editor.noteLabel });
+  const saveButton = h('button', { type: 'button', class: 'btn btn-primary', disabled: true }, icon('commit', 16), h('span', null, tx.common.actions.save));
   const session = { working, dirty: false, saving: false, saveButton };
   session.changed = () => {
     session.dirty = !deepEqual(sanitizeSnapshot('survey', working), sanitizeSnapshot('survey', base));
     saveButton.disabled = !session.dirty;
-    status.textContent = session.dirty ? 'Modifiche non salvate' : '';
+    status.textContent = session.dirty ? t.editor.unsaved : '';
   };
   saveButton.addEventListener(
     'click',
@@ -47,7 +52,7 @@ function editSession(item, { message, onSaved }) {
         const result = await saveWithMerge(item, base, sanitizeSnapshot('survey', working), note.value.trim() || message);
         if (result.cancelled) return;
         session.dirty = false;
-        toast('Questionario salvato.', { type: 'success' });
+        toast(t.editor.saved, { type: 'success' });
         onSaved?.();
       } catch (error) {
         toast(error.message, { type: 'error' });
@@ -60,7 +65,7 @@ function editSession(item, { message, onSaved }) {
   session.banner = h('div', { class: 'banner', role: 'status', hidden: true });
   session.notifyRemote = (theirs) => {
     session.banner.hidden = false;
-    mount(session.banner, `${memberName(theirs.updated_by)} ha salvato una nuova versione mentre modificavi. Al salvataggio unirò le vostre modifiche e ti chiederò solo dove si sovrappongono.`);
+    mount(session.banner, t.editor.remoteSaved(memberName(theirs.updated_by)));
   };
   return session;
 }
@@ -78,29 +83,32 @@ function textCard(title, control, hint, extra = null) {
   return h('section', { class: 'card sq-text' }, h('div', { class: 'section-head' }, h('h2', null, title), extra), control, hint ? h('p', { class: 'field-help' }, hint) : null);
 }
 
+const readOnly = (content) => h('fieldset', { class: 'sv-readonly', disabled: true }, h('legend', { class: 'muted small' }, t.editor.readOnly), content);
+
 export function questionsPanel(item, { writable, expanded, onSaved }) {
-  const session = editSession(item, { message: 'Domande del questionario', onSaved });
+  const texts = t.questions;
+  const session = editSession(item, { message: texts.message, onSaved });
   const data = session.working.data;
   if (!Array.isArray(data.questions)) data.questions = [];
   const summary = h('div', { class: 'sq-summary', 'aria-live': 'polite' });
   const list = h('div', { class: 'sq-list' });
   const warnHosts = new Map();
   const titles = new Map();
-  const privacyBadge = h('span', { class: 'badge badge-warn' }, 'Da completare');
+  const privacyBadge = h('span', { class: 'badge badge-warn' }, texts.toComplete);
 
   const hasEmail = () => data.questions.some((q) => q.type === 'email');
 
   function renderSummary() {
-    const asked = data.questions.filter((q) => q.type !== 'sezione');
+    const asked = data.questions.filter((q) => q.type !== SECTION);
     const open = asked.filter((q) => q.type === 'breve' || q.type === 'lunga').length;
     mount(
       summary,
       h(
         'p',
         { class: 'sq-counts' },
-        h('strong', null, `${asked.length} ${asked.length === 1 ? 'domanda' : 'domande'}`),
-        ` · ${countByRole(data.questions, 'persona')} su chi risponde · ${countByRole(data.questions, 'problema')} sul problema · ${open} aperte · `,
-        h('strong', { class: 'sq-time' }, `Durata stimata: ${minutesLabel(estimateMinutes(data))}`),
+        h('strong', null, t.list.questions(asked.length)),
+        ` · ${texts.aboutRespondent(countByRole(data.questions, RESPONDENT))} · ${texts.aboutProblem(countByRole(data.questions, 'problema'))} · ${texts.open(open)} · `,
+        h('strong', { class: 'sq-time' }, texts.estimated(minutesLabel(estimateMinutes(data)))),
       ),
       warningList(surveyWarnings(data)),
     );
@@ -136,7 +144,7 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
   }
 
   async function remove(q) {
-    const ok = await confirmDialog(`«${truncate(q.label || 'Senza testo', 80)}» sparirà dal questionario quando salvi.`, { title: 'Eliminare la domanda?', okLabel: 'Elimina', danger: true });
+    const ok = await confirmDialog(texts.removeText(truncate(q.label || texts.untitled, 80)), { title: texts.removeTitle, okLabel: tx.common.actions.delete, danger: true });
     if (!ok) return;
     data.questions = data.questions.filter((x) => x !== q);
     expanded.delete(q.id);
@@ -168,8 +176,8 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
     return h(
       'div',
       { class: 'sq-other row' },
-      text('other_label', 'Nome della voce', 'Altro', `other-${q.id}`),
-      text('other_placeholder', 'Esempio nel campo', 'Per esempio: Quale? Scrivi il nome'),
+      text('other_label', texts.otherName, t.other, `other-${q.id}`),
+      text('other_placeholder', texts.otherExample, texts.otherExamplePlaceholder),
     );
   }
 
@@ -183,22 +191,22 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
           type: 'text',
           value: o.label,
           maxlength: SURVEY_LIMITS.option,
-          'aria-label': `Opzione ${i + 1}`,
+          'aria-label': texts.option(i + 1),
           dataset: { focus: `opt-${o.id}` },
           onInput: (e) => {
             o.label = e.target.value;
             refresh();
           },
         }),
-        toolButton(`Sposta su l'opzione ${i + 1}`, 'chevron', () => {
+        toolButton(texts.optionUp(i + 1), 'chevron', () => {
           [q.options[i - 1], q.options[i]] = [q.options[i], q.options[i - 1]];
           rerender(`opt-${o.id}`);
         }, { disabled: i === 0, cls: 'is-up' }),
-        toolButton(`Sposta giù l'opzione ${i + 1}`, 'chevron', () => {
+        toolButton(texts.optionDown(i + 1), 'chevron', () => {
           [q.options[i + 1], q.options[i]] = [q.options[i], q.options[i + 1]];
           rerender(`opt-${o.id}`);
         }, { disabled: i === q.options.length - 1 }),
-        toolButton(`Togli l'opzione ${i + 1}`, 'close', () => {
+        toolButton(texts.optionRemove(i + 1), 'close', () => {
           q.options.splice(i, 1);
           rerender(`add-opt-${q.id}`);
         }),
@@ -207,7 +215,7 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
     return h(
       'div',
       { class: 'field is-wide' },
-      h('span', { class: 'field-label' }, 'Opzioni'),
+      h('span', { class: 'field-label' }, texts.options),
       h('div', { class: 'sq-options' }, rows),
       h(
         'div',
@@ -222,18 +230,18 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
             q.options.push(o);
             rerender(`opt-${o.id}`);
           },
-        }, icon('plus', 14), 'Aggiungi un\'opzione'),
+        }, icon('plus', 14), texts.addOption),
       ),
-      checkbox('Aggiungi «Altro» con uno spazio per scrivere', q.allow_other, (v) => {
+      checkbox(texts.allowOther, q.allow_other, (v) => {
         q.allow_other = v;
         rerender(`other-${q.id}`);
       }),
       q.allow_other ? otherFields(q) : null,
-      checkbox('Aggiungi «Preferisco non rispondere»', q.prefer_not, (v) => {
+      checkbox(texts.preferNot, q.prefer_not, (v) => {
         q.prefer_not = v;
         refresh();
       }),
-      h('span', { class: 'field-help' }, '«Preferisco non rispondere» solo per le domande delicate, come età o reddito.'),
+      h('span', { class: 'field-help' }, texts.preferNotHelp),
     );
   }
 
@@ -250,7 +258,7 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
         'div',
         { class: 'form-grid' },
         field(
-          'Punti',
+          texts.points,
           h(
             'select',
             {
@@ -263,12 +271,12 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
                 rerender(`points-${q.id}`);
               },
             },
-            [5, 7].map((n) => h('option', { value: n, selected: n === points }, `${n} punti`)),
+            [5, 7].map((n) => h('option', { value: n, selected: n === points }, texts.pointsOption(n))),
           ),
-          { help: '5 punti bastano quasi sempre.' },
+          { help: texts.pointsHelp },
         ),
         field(
-          'Etichette suggerite',
+          texts.presets,
           h(
             'select',
             {
@@ -280,12 +288,12 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
                 rerender(`preset-${q.id}`);
               },
             },
-            h('option', { value: '' }, 'Scegli un insieme'),
+            h('option', { value: '' }, texts.choosePreset),
             SCALE_PRESETS.map(([key, name, sets]) => h('option', { value: key, selected: deepEqual(sets[points], labels) }, `${name}: ${sets[points].join(', ')}`)),
           ),
         ),
       ),
-      h('span', { class: 'field-label' }, 'Un\'etichetta per ogni punto'),
+      h('span', { class: 'field-label' }, texts.pointLabels),
       h(
         'ol',
         { class: 'sq-scale-labels' },
@@ -298,7 +306,7 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
               type: 'text',
               value: label,
               maxlength: SURVEY_LIMITS.scaleLabel,
-              'aria-label': `Etichetta del punto ${i + 1}`,
+              'aria-label': texts.pointLabel(i + 1),
               onInput: (e) => {
                 const next = [...labels];
                 next[i] = e.target.value;
@@ -329,11 +337,11 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
           refresh();
         },
       }));
-    return h('div', { class: 'form-grid is-wide' }, bound('min', 'Minimo (facoltativo)'), bound('max', 'Massimo (facoltativo)'));
+    return h('div', { class: 'form-grid is-wide' }, bound('min', texts.min), bound('max', texts.max));
   }
 
   function questionBody(q) {
-    const isSection = q.type === 'sezione';
+    const isSection = q.type === SECTION;
     const typeSelect = h(
       'select',
       {
@@ -355,14 +363,14 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
         : q.type === 'numero'
         ? numberEditor(q)
         : q.type === 'email'
-        ? h('p', { class: 'field-help is-wide' }, 'L\'email va in una colonna a parte e chi risponde può chiedere di essere ricontattato. Dalla scheda Risposte la aggiungete ai Contatti con un clic.')
+        ? h('p', { class: 'field-help is-wide' }, texts.emailHelp)
         : isSection
-        ? h('p', { class: 'field-help is-wide' }, 'Un titolo che divide le domande. Con «Una sezione per schermata» ogni sezione è una pagina.')
+        ? h('p', { class: 'field-help is-wide' }, texts.sectionHelp)
         : null;
     return h(
       'div',
       { class: 'sq-body form-grid' },
-      field(isSection ? 'Titolo della sezione' : 'Testo della domanda', h('input', {
+      field(isSection ? texts.sectionTitle : texts.questionText, h('input', {
         class: 'input',
         type: 'text',
         value: q.label,
@@ -370,11 +378,11 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
         dataset: { focus: `label-${q.id}` },
         onInput: (e) => {
           q.label = e.target.value;
-          titles.get(q.id).textContent = q.label.trim() || 'Senza testo';
+          titles.get(q.id).textContent = q.label.trim() || texts.untitled;
           refresh();
         },
       }), { wide: true }),
-      field('Spiegazione (facoltativa)', autoGrow(h('textarea', {
+      field(texts.explanation, autoGrow(h('textarea', {
         class: 'input',
         rows: 2,
         value: q.help || '',
@@ -385,10 +393,10 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
           refresh();
         },
       })), { wide: true }),
-      field('Tipo', typeSelect),
+      field(texts.type, typeSelect),
       isSection
         ? null
-        : field('Argomento', h(
+        : field(texts.topic, h(
             'select',
             {
               class: 'input',
@@ -399,21 +407,21 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
               },
             },
             QUESTION_ROLES.map(([value, label]) => h('option', { value, selected: value === q.role }, label)),
-          ), { help: 'Serve ai controlli: al massimo 3 domande su chi risponde e 10 sul problema.' }),
+          ), { help: texts.topicHelp }),
       isSection
         ? null
-        : h('div', { class: 'field is-wide' }, checkbox('Obbligatoria', q.required === true, (v) => {
+        : h('div', { class: 'field is-wide' }, checkbox(texts.required, q.required === true, (v) => {
             q.required = v;
             rerender(`req-${q.id}`);
-          }, { dataset: { focus: `req-${q.id}` } }), h('span', { class: 'field-help' }, 'Meglio di no: obbligare a rispondere fa abbandonare di più.')),
+          }, { dataset: { focus: `req-${q.id}` } }), h('span', { class: 'field-help' }, texts.requiredHelp)),
       specific,
     );
   }
 
   function questionCard(q, index, number) {
-    const isSection = q.type === 'sezione';
+    const isSection = q.type === SECTION;
     const open = !writable || expanded.has(q.id);
-    const title = h('span', { class: 'sq-label' }, q.label.trim() || 'Senza testo');
+    const title = h('span', { class: 'sq-label' }, q.label.trim() || texts.untitled);
     titles.set(q.id, title);
     const warnHost = h('div', { class: 'sq-warn' });
     warnHosts.set(q.id, warnHost);
@@ -423,10 +431,10 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
           'span',
           { class: 'sq-meta' },
           TYPE_LABELS[q.type],
-          ` · ${ROLE_SHORT[q.role] || 'Altro'}`,
-          q.required ? h('span', { class: 'badge badge-soft' }, 'obbligatoria') : null,
+          ` · ${texts.roles[q.role] || texts.roles.altro}`,
+          q.required ? h('span', { class: 'badge badge-soft' }, texts.requiredBadge) : null,
         );
-    const where = isSection ? `la sezione «${truncate(q.label, 40)}»` : `la domanda ${number}`;
+    const where = isSection ? texts.sectionRef(truncate(q.label, 40)) : texts.questionRef(number);
     const tools = writable
       ? h(
           'div',
@@ -443,25 +451,25 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
               refresh();
               list.querySelector(`[data-id="${q.id}"] [data-action="toggle"]`)?.focus();
             },
-          }, icon(open ? 'close' : 'edit', 14), open ? 'Chiudi' : 'Modifica'),
-          toolButton(`Sposta su ${where}`, 'chevron', () => move(index, -1, 'up'), { disabled: index === 0, action: 'up', cls: 'is-up' }),
-          toolButton(`Sposta giù ${where}`, 'chevron', () => move(index, 1, 'down'), { disabled: index === data.questions.length - 1, action: 'down' }),
-          toolButton(`Duplica ${where}`, 'copy', () => {
+          }, icon(open ? 'close' : 'edit', 14), open ? tx.common.actions.close : tx.common.actions.edit),
+          toolButton(texts.moveUp(where), 'chevron', () => move(index, -1, 'up'), { disabled: index === 0, action: 'up', cls: 'is-up' }),
+          toolButton(texts.moveDown(where), 'chevron', () => move(index, 1, 'down'), { disabled: index === data.questions.length - 1, action: 'down' }),
+          toolButton(texts.duplicate(where), 'copy', () => {
             const copy = duplicateQuestion(q);
-            if (copy.type === 'email') return toast('Ci può essere una sola domanda per l\'email.', { type: 'error' });
-            if (data.questions.length >= SURVEY_LIMITS.questions) return toast(`Al massimo ${SURVEY_LIMITS.questions} domande.`, { type: 'error' });
+            if (copy.type === 'email') return toast(texts.onlyOneEmail, { type: 'error' });
+            if (data.questions.length >= SURVEY_LIMITS.questions) return toast(texts.maxQuestions(SURVEY_LIMITS.questions), { type: 'error' });
             data.questions.splice(index + 1, 0, copy);
             expanded.add(copy.id);
             rerender(`label-${copy.id}`);
             return null;
           }, { action: 'duplicate', disabled: q.type === 'email' }),
-          toolButton(`Elimina ${where}`, 'trash', () => remove(q), { action: 'delete' }),
+          toolButton(texts.remove(where), 'trash', () => remove(q), { action: 'delete' }),
         )
       : null;
     return h(
       'article',
       { class: ['sq-card', isSection && 'is-section'], dataset: { id: q.id } },
-      h('header', { class: 'sq-head' }, h('span', { class: 'sq-num' }, isSection ? 'Sezione' : `D${number}`), h('div', { class: 'sq-title' }, title, meta), tools),
+      h('header', { class: 'sq-head' }, h('span', { class: 'sq-num' }, isSection ? texts.section : t.questionNumber(number)), h('div', { class: 'sq-title' }, title, meta), tools),
       warnHost,
       open ? questionBody(q) : null,
     );
@@ -473,13 +481,13 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
     let number = 0;
     mount(
       list,
-      data.questions.length ? null : h('p', { class: 'muted' }, 'Nessuna domanda.'),
-      data.questions.map((q, index) => questionCard(q, index, q.type === 'sezione' ? number : (number += 1))),
+      data.questions.length ? null : h('p', { class: 'muted' }, texts.empty),
+      data.questions.map((q, index) => questionCard(q, index, q.type === SECTION ? number : (number += 1))),
     );
   }
 
-  const newType = h('select', { class: 'input input-small', 'aria-label': 'Tipo della nuova domanda' });
-  const addButton = h('button', { type: 'button', class: 'btn btn-primary btn-small' }, icon('plus', 14), h('span', null, 'Aggiungi'));
+  const newType = h('select', { class: 'input input-small', 'aria-label': texts.newType });
+  const addButton = h('button', { type: 'button', class: 'btn btn-primary btn-small' }, icon('plus', 14), h('span', null, tx.common.actions.add));
   const renderAddBar = () => {
     mount(newType, QUESTION_TYPES.map(([value, label]) => h('option', { value, selected: value === 'scelta', disabled: value === 'email' && hasEmail() }, label)));
     addButton.disabled = data.questions.length >= SURVEY_LIMITS.questions;
@@ -512,17 +520,17 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
   const content = h(
     'div',
     { class: 'stack' },
-    textCard('Introduzione', textArea('intro', SURVEY_LIMITS.intro, 4), 'Sostituisci le parti tra parentesi quadre. Nomina l\'università solo se sponsorizza o autorizza davvero il progetto: farla sembrare una ricerca ufficiale è scorretto.'),
-    textCard('Informativa sulla privacy', textArea('privacy', SURVEY_LIMITS.privacy, 6), 'Circa 150 parole: chi siete, perché raccogliete i dati, quali dati, anonimato, per quanto li tenete, diritti e un contatto. È un modello, non una consulenza legale.', privacyBadge),
+    textCard(texts.intro, textArea('intro', SURVEY_LIMITS.intro, 4), texts.introHint),
+    textCard(texts.privacy, textArea('privacy', SURVEY_LIMITS.privacy, 6), texts.privacyHint, privacyBadge),
     h(
       'section',
       { class: 'stack sq-questions' },
-      h('h2', null, 'Domande'),
+      h('h2', null, texts.title),
       list,
-      writable ? h('div', { class: 'sq-add row' }, h('span', { class: 'field-label' }, 'Nuova domanda'), newType, addButton) : null,
+      writable ? h('div', { class: 'sq-add row' }, h('span', { class: 'field-label' }, texts.newQuestion), newType, addButton) : null,
     ),
-    textCard('Messaggio finale', textArea('thanks', SURVEY_LIMITS.thanks, 2), 'Lo vede chi non lascia l\'email o non chiede di essere ricontattato: un grazie e, se volete, un modo per scrivervi.'),
-    textCard('Messaggio per chi vuole essere ricontattato', textArea('thanks_contact', SURVEY_LIMITS.thanks, 2), 'Lo vede chi lascia l\'email e mette la spunta «Potete ricontattarmi»: cosa succede adesso. Sotto la pagina mostra l\'indirizzo che ha scritto, così si accorge se ha sbagliato. Vuoto: vale il messaggio finale.'),
+    textCard(texts.thanks, textArea('thanks', SURVEY_LIMITS.thanks, 2), texts.thanksHint),
+    textCard(texts.thanksContact, textArea('thanks_contact', SURVEY_LIMITS.thanks, 2), texts.thanksContactHint),
   );
 
   const el = h(
@@ -530,7 +538,7 @@ export function questionsPanel(item, { writable, expanded, onSaved }) {
     { class: 'stack survey-editor' },
     session.banner,
     summary,
-    writable ? content : h('fieldset', { class: 'sv-readonly', disabled: true }, h('legend', { class: 'muted small' }, 'Sola lettura'), content),
+    writable ? content : readOnly(content),
     writable ? session.bar : null,
   );
   return { el, session };
@@ -546,11 +554,12 @@ const PREVIEW_THEMES = {
 
 // Anteprima di una domanda con tema e colore scelti; il tema automatico mostra chiaro e scuro.
 function previewCard(data, mode) {
+  const texts = t.settings;
   const look = PREVIEW_THEMES[mode] || PREVIEW_THEMES.chiaro;
   const tokens = accentTokens(data.appearance?.accent || SURVEY_ACCENT);
-  const asked = (data.questions || []).filter((q) => q.type !== 'sezione');
+  const asked = (data.questions || []).filter((q) => q.type !== SECTION);
   const sample = asked.find((q) => q.type === 'scelta' && q.options?.length >= 2);
-  const options = sample ? sample.options.slice(0, 3).map((o) => o.label) : ['Prima opzione', 'Seconda opzione'];
+  const options = sample ? sample.options.slice(0, 3).map((o) => o.label) : texts.previewOptions;
   const total = Math.max(asked.length, 1);
   const position = sample ? asked.indexOf(sample) + 1 : 1;
   return h(
@@ -567,21 +576,14 @@ function previewCard(data, mode) {
         '--sv-on-accent': tokens[`--on-${look.key}`],
       },
     },
-    h('span', { class: 'sv-preview-mode' }, SURVEY_THEMES.find(([v]) => v === mode)?.[1] || 'Chiaro'),
+    h('span', { class: 'sv-preview-mode' }, SURVEY_THEMES.find(([v]) => v === mode)?.[1] || texts.lightTheme),
     data.progress === 'barra' ? h('div', { class: 'sv-preview-bar' }, h('span', { style: { width: `${Math.round((position / total) * 100)}%` } })) : null,
-    data.progress === 'contatore' ? h('p', { class: 'sv-preview-count' }, `Domanda ${position} di ${total}`) : null,
-    h('p', { class: 'sv-preview-q' }, sample?.label || 'Quale di queste descrive meglio la tua situazione?'),
+    data.progress === 'contatore' ? h('p', { class: 'sv-preview-count' }, texts.previewCounter(position, total)) : null,
+    h('p', { class: 'sv-preview-q' }, sample?.label || texts.previewQuestion),
     options.map((label, i) => h('div', { class: ['sv-preview-opt', i === 0 && 'is-on'] }, h('span', { class: 'sv-preview-dot' }), h('span', null, label))),
-    h('span', { class: 'sv-preview-btn' }, 'Avanti'),
+    h('span', { class: 'sv-preview-btn' }, tx.common.actions.next),
   );
 }
-
-const REASONS = {
-  layout: 'Sul telefono si saltano meno domande, e chi abbandona lascia comunque le risposte date (Mavletova e Couper 2016).',
-  progress: 'Dice onestamente quante domande mancano; in media non cambia gli abbandoni, una barra ingannevole li aumenta (Villar e altri 2013).',
-  time: 'Dire quanto dura, senza sottostimarlo, fa iniziare e finire più persone (Galesic e Bosnjak 2009).',
-  theme: 'Chiaro o scuro come il telefono di chi risponde; il testo scuro su chiaro si legge meglio (Piepenbrock e altri 2013). Chi ha chiesto più contrasto al telefono lo riceve con ogni tema.',
-};
 
 function choiceGroup(legend, name, entries, value, onPick, { recommended, reason } = {}) {
   return h(
@@ -593,7 +595,7 @@ function choiceGroup(legend, name, entries, value, onPick, { recommended, reason
         'label',
         { class: 'sv-choice' },
         h('input', { type: 'radio', name, value: v, checked: v === value, onChange: () => onPick(v) }),
-        h('span', null, label, v === recommended ? [' ', h('span', { class: 'badge badge-ok' }, 'consigliato')] : null, v === recommended && reason ? [' ', h('span', { class: 'sv-reason' }, reason)] : null),
+        h('span', null, label, v === recommended ? [' ', h('span', { class: 'badge badge-ok' }, t.editor.recommended)] : null, v === recommended && reason ? [' ', h('span', { class: 'sv-reason' }, reason)] : null),
       ),
     ),
   );
@@ -601,6 +603,7 @@ function choiceGroup(legend, name, entries, value, onPick, { recommended, reason
 
 // Immagine del questionario (copertina o grazie): anteprima, scelta, descrizione per chi non la vede e rimozione.
 function imagePicker({ item, data, session, key, empty, placeholder }) {
+  const texts = t.settings;
   const host = h('div', { class: 'sv-cover' });
   const status = h('span', { class: 'muted small', role: 'status' });
   const input = h('input', {
@@ -611,11 +614,11 @@ function imagePicker({ item, data, session, key, empty, placeholder }) {
       const file = e.target.files?.[0];
       e.target.value = '';
       if (!file) return;
-      status.textContent = 'Carico l\'immagine…';
+      status.textContent = texts.uploading;
       try {
         const path = await uploadSurveyCover(item.id, file);
         data[key] = { path, alt: data[key]?.alt || '' };
-        status.textContent = 'Immagine caricata: salva per usarla.';
+        status.textContent = texts.uploaded;
         session.changed();
         render();
       } catch (error) {
@@ -631,14 +634,14 @@ function imagePicker({ item, data, session, key, empty, placeholder }) {
     if (image) {
       surveyCoverUrl(image.path).then((url) => {
         if (data[key]?.path !== image.path) return;
-        mount(thumb, url ? h('img', { src: url, alt: '' }) : h('span', { class: 'muted small' }, 'Anteprima non disponibile.'));
+        mount(thumb, url ? h('img', { src: url, alt: '' }) : h('span', { class: 'muted small' }, texts.noPreview));
       });
     }
     const alt = image
       ? h(
           'label',
           { class: 'field' },
-          h('span', { class: 'field-label' }, 'Descrizione dell\'immagine'),
+          h('span', { class: 'field-label' }, texts.imageAlt),
           h('input', {
             class: 'input',
             type: 'text',
@@ -650,10 +653,10 @@ function imagePicker({ item, data, session, key, empty, placeholder }) {
               session.changed();
             },
           }),
-          h('span', { class: 'muted small' }, 'La legge chi usa un lettore di schermo. Lasciala vuota solo se l\'immagine è decorativa.'),
+          h('span', { class: 'muted small' }, texts.imageAltHelp),
         )
       : null;
-    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => input.click() }, icon('image', 14), h('span', null, image ? 'Cambia immagine' : 'Scegli un\'immagine'));
+    const pick = h('button', { type: 'button', class: 'btn btn-small', onClick: () => input.click() }, icon('image', 14), h('span', null, image ? texts.changeImage : texts.chooseImage));
     const drop = image
       ? h('button', {
           type: 'button',
@@ -664,7 +667,7 @@ function imagePicker({ item, data, session, key, empty, placeholder }) {
             session.changed();
             render();
           },
-        }, icon('trash', 14), h('span', null, 'Togli'))
+        }, icon('trash', 14), h('span', null, texts.removeImage))
       : null;
     mount(host, thumb, h('div', { class: 'row' }, pick, drop, status), alt, input);
   }
@@ -674,17 +677,18 @@ function imagePicker({ item, data, session, key, empty, placeholder }) {
 }
 
 export function settingsPanel(item, { writable, onSaved }) {
-  const session = editSession(item, { message: 'Aspetto e impostazioni', onSaved });
+  const texts = t.settings;
+  const session = editSession(item, { message: texts.message, onSaved });
   const { working } = session;
   const data = working.data;
   data.appearance = { theme: data.appearance?.theme || 'automatico', accent: data.appearance?.accent || '#3b4bc8' };
   const contrastHost = h('div', { class: 'sv-contrast', 'aria-live': 'polite' });
   const previewHost = h('div', { class: 'sv-previews' });
-  const hex = h('input', { class: 'input input-small sv-hex', type: 'text', maxlength: 7, 'aria-label': 'Codice del colore', value: data.appearance.accent });
-  const picker = h('input', { class: 'input input-color', type: 'color', 'aria-label': 'Colore personalizzato', value: data.appearance.accent });
-  const swatches = h('div', { class: 'sv-swatches', role: 'radiogroup', 'aria-label': 'Colori consigliati' });
-  const coverPicker = imagePicker({ item, data, session, key: 'cover', empty: 'Senza immagine in alto c\'è una fascia leggera nel colore scelto, con un\'icona.', placeholder: 'Per esempio: il nostro gruppo davanti all\'università' });
-  const thanksPicker = imagePicker({ item, data, session, key: 'thanks_image', empty: 'Senza immagine il grazie ha solo il testo.', placeholder: 'Per esempio: Enrico, Francesco e Salvatore' });
+  const hex = h('input', { class: 'input input-small sv-hex', type: 'text', maxlength: 7, 'aria-label': texts.colourCode, value: data.appearance.accent });
+  const picker = h('input', { class: 'input input-color', type: 'color', 'aria-label': texts.customColour, value: data.appearance.accent });
+  const swatches = h('div', { class: 'sv-swatches', role: 'radiogroup', 'aria-label': texts.swatches });
+  const coverPicker = imagePicker({ item, data, session, key: 'cover', empty: texts.coverEmpty, placeholder: texts.coverPlaceholder });
+  const thanksPicker = imagePicker({ item, data, session, key: 'thanks_image', empty: texts.thanksEmpty, placeholder: texts.thanksPlaceholder });
 
   const renderSwatches = () =>
     mount(
@@ -710,11 +714,7 @@ export function settingsPanel(item, { writable, onSaved }) {
     const check = accentCheck(data.appearance.accent, data.appearance.theme);
     mount(
       contrastHost,
-      h(
-        'p',
-        { class: 'small' },
-        `Testo sul colore: bianco ${fmtRatio(check.white)}, nero ${fmtRatio(check.black)}. I pulsanti useranno il testo ${check.onAccent === '#ffffff' ? 'bianco' : 'nero'}.`,
-      ),
+      h('p', { class: 'small' }, texts.contrast({ white: fmtRatio(check.white), black: fmtRatio(check.black), onWhite: check.onAccent === '#ffffff' })),
       warningList(check.problems.map((p) => ({ code: `contrasto-${p.code}`, text: p.text, hint: p.hint }))),
     );
     const modes = data.appearance.theme === 'automatico' ? ['chiaro', 'scuro'] : [data.appearance.theme];
@@ -738,6 +738,7 @@ export function settingsPanel(item, { writable, onSaved }) {
     if (/^#[0-9a-fA-F]{6}$/.test(hex.value.trim())) setAccent(hex.value.trim());
   });
 
+  const recommended = h('span', { class: 'badge badge-ok' }, t.editor.recommended);
   const experiments = itemsOf('experiment', { ideaId: item.idea_id });
   const content = h(
     'div',
@@ -745,11 +746,11 @@ export function settingsPanel(item, { writable, onSaved }) {
     h(
       'section',
       { class: 'card stack' },
-      h('h2', null, 'Impostazioni'),
+      h('h2', null, texts.settings),
       h(
         'div',
         { class: 'form-grid' },
-        field('Titolo', h('input', {
+        field(t.newSurvey.titleLabel, h('input', {
           class: 'input',
           type: 'text',
           value: working.title,
@@ -758,8 +759,8 @@ export function settingsPanel(item, { writable, onSaved }) {
             working.title = e.target.value;
             update();
           },
-        }), { help: 'Lo vede anche chi risponde.' }),
-        field('Esperimento collegato (facoltativo)', h(
+        }), { help: texts.titleHelp }),
+        field(t.newSurvey.experimentOptional, h(
           'select',
           {
             class: 'input',
@@ -769,66 +770,58 @@ export function settingsPanel(item, { writable, onSaved }) {
               update();
             },
           },
-          h('option', { value: '' }, 'Nessuno'),
+          h('option', { value: '' }, t.newSurvey.noExperiment),
           experiments.map((x) => h('option', { value: x.id, selected: x.id === data.experiment_id }, x.title)),
         )),
       ),
-      choiceGroup('Impaginazione', 'sv-layout', SURVEY_LAYOUTS, data.layout, (v) => {
+      choiceGroup(texts.layout, 'sv-layout', SURVEY_LAYOUTS, data.layout, (v) => {
         data.layout = v;
         update();
-      }, { recommended: 'una', reason: REASONS.layout }),
-      choiceGroup('Avanzamento', 'sv-progress', SURVEY_PROGRESS, data.progress, (v) => {
+      }, { recommended: ONE_PER_SCREEN, reason: texts.reasons.layout }),
+      choiceGroup(texts.progress, 'sv-progress', SURVEY_PROGRESS, data.progress, (v) => {
         data.progress = v;
         update();
-      }, { recommended: 'contatore', reason: REASONS.progress }),
+      }, { recommended: 'contatore', reason: texts.reasons.progress }),
       h(
         'div',
         { class: 'field' },
-        checkbox(h('span', null, `Mostra la durata stimata nell'introduzione (${minutesLabel(estimateMinutes(data))}) `, h('span', { class: 'badge badge-ok' }, 'consigliato')), data.show_time !== false, (v) => {
+        checkbox(h('span', null, `${texts.showTime(minutesLabel(estimateMinutes(data)))} `, recommended), data.show_time !== false, (v) => {
           data.show_time = v;
           update();
         }),
-        h('span', { class: 'sv-reason' }, REASONS.time),
+        h('span', { class: 'sv-reason' }, texts.reasons.time),
       ),
     ),
     h(
       'section',
       { class: 'card stack' },
-      h('h2', null, 'Aspetto'),
-      choiceGroup('Tema', 'sv-theme', SURVEY_THEMES, data.appearance.theme, (v) => {
+      h('h2', null, texts.appearance),
+      choiceGroup(texts.theme, 'sv-theme', SURVEY_THEMES, data.appearance.theme, (v) => {
         data.appearance.theme = v;
         update();
-      }, { recommended: 'automatico', reason: REASONS.theme }),
+      }, { recommended: 'automatico', reason: texts.reasons.theme }),
       h(
         'div',
         { class: 'field' },
-        h('span', { class: 'field-label' }, 'Colore'),
+        h('span', { class: 'field-label' }, texts.colour),
         swatches,
-        h('div', { class: 'row' }, h('span', { class: 'small' }, 'Altro colore'), picker, hex),
+        h('div', { class: 'row' }, h('span', { class: 'small' }, texts.otherColour), picker, hex),
       ),
       contrastHost,
-      h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Anteprima'), previewHost),
+      h('div', { class: 'field' }, h('span', { class: 'field-label' }, texts.preview), previewHost),
     ),
     h(
       'section',
       { class: 'card stack' },
-      h('h2', null, 'Immagine della schermata iniziale'),
-      h(
-        'p',
-        { class: 'sv-reason' },
-        'Facoltativa, in alto sopra il titolo. Meglio un\'immagine neutra: il gruppo, il posto, un logo. Una foto vicino alle domande può spostare le risposte (Couper, Tourangeau e Kenyon 2004), per questo compare solo all\'inizio. La vede chiunque abbia il link; viene ridotta e ripulita dai dati della foto (posizione, telefono).',
-      ),
+      h('h2', null, texts.coverTitle),
+      h('p', { class: 'sv-reason' }, texts.coverHelp),
       coverPicker,
     ),
     h(
       'section',
       { class: 'card stack' },
-      h('h2', null, 'Immagine del grazie'),
-      h(
-        'p',
-        { class: 'sv-reason' },
-        'Facoltativa, in fondo al messaggio finale, per esempio una foto del gruppo: un volto rende più facile dire sì alla chiacchierata. Alla fine non può influenzare le risposte, che sono già date. La pagina la scarica all\'inizio, così compare subito.',
-      ),
+      h('h2', null, texts.thanksTitle),
+      h('p', { class: 'sv-reason' }, texts.thanksHelp),
       thanksPicker,
     ),
   );
@@ -839,9 +832,8 @@ export function settingsPanel(item, { writable, onSaved }) {
     'div',
     { class: 'stack survey-settings' },
     session.banner,
-    writable ? content : h('fieldset', { class: 'sv-readonly', disabled: true }, h('legend', { class: 'muted small' }, 'Sola lettura'), content),
+    writable ? content : readOnly(content),
     writable ? session.bar : null,
   );
   return { el, session };
 }
-

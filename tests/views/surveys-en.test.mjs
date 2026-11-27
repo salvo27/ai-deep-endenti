@@ -15,6 +15,8 @@ let router;
 let app;
 let schema;
 let i18n;
+let checks;
+let time;
 let original;
 let outlet;
 let saves;
@@ -88,6 +90,8 @@ before(async () => {
   app = await import('../../assets/js/app.js');
   schema = await import('../../assets/js/schema.js');
   i18n = await import('../../assets/js/i18n/index.js');
+  checks = await import('../../assets/js/survey-checks.js');
+  time = await import('../../assets/js/public/survey-time.js');
   original = { ...api };
   router.clearRoutes();
   app.registerRoutes();
@@ -421,6 +425,278 @@ describe('scheda Condividi in inglese', () => {
     assert.equal(byText(outlet, 'button', 'Change link'), null);
     assert.equal(outlet.querySelector('.sv-status'), null);
     assert.ok(byText(outlet, '.sv-link button', 'Copy'));
+  });
+});
+
+const field = (root, label) => [...root.querySelectorAll('.field')].find((el) => text(el.querySelector('.field-label')) === label) || null;
+const labels = (root) => [...root.querySelectorAll('.field-label')].map(text);
+const aria = (root) => [...root.querySelectorAll('[aria-label]')].map((el) => el.getAttribute('aria-label'));
+
+describe('scheda Domande in inglese', () => {
+  it('il riepilogo conta le domande in inglese', async () => {
+    for (const [id, counts] of [
+      [S.open, '8 questions · 1 about the respondent · 6 about the problem · 1 open · '],
+      [S.draft, '2 questions · 1 about the respondent · 1 about the problem · 0 open · '],
+      [S.other, '0 questions · 0 about the respondent · 0 about the problem · 0 open · '],
+    ]) {
+      await visit(`#/questionario/${id}/domande`);
+      const minutes = time.minutesLabel(time.estimateMinutes(store.getItem(id).data));
+      assert.equal(text(outlet.querySelector('.sq-counts')), `${counts}Estimated time: ${minutes}`, id);
+    }
+    assert.match(text(outlet.querySelector('.sq-list')), /^No questions\.$/);
+  });
+
+  it('le parti del questionario, la barra di salvataggio e la nuova domanda sono in inglese', async () => {
+    await visit(`#/questionario/${S.open}/domande`);
+    assert.deepEqual([...outlet.querySelectorAll('.survey-editor h2')].map(text), ['Introduction', 'Privacy notice', 'Questions', 'Final message', 'Message for those who want to be contacted']);
+    const body = text(outlet);
+    for (const hint of [
+      'Replace the parts in square brackets. Name the university only if it really sponsors or approves the project: making it look like official research is misleading.',
+      'About 150 words: who you are, why you collect the data, which data, anonymity, how long you keep it, rights and a contact. It is a template, not legal advice.',
+      'Seen by those who leave no email or do not ask to be contacted: a thank you and, if you like, a way to write to you.',
+      'Seen by those who leave their email and tick the box to be contacted again: what happens next. Below, the page shows the address they wrote, so they notice if they got it wrong. Empty: the final message is used.',
+    ]) assert.ok(body.includes(hint), hint);
+    assert.equal(text(outlet.querySelector('.sq-add .field-label')), 'New question');
+    assert.equal(outlet.querySelector('.sq-add select').getAttribute('aria-label'), 'Type of the new question');
+    assert.ok(byText(outlet, '.sq-add button', 'Add'));
+    const note = outlet.querySelector('.save-bar input');
+    assert.equal(note.getAttribute('placeholder'), 'Describe the change (optional)');
+    assert.equal(note.getAttribute('aria-label'), 'Change message');
+    assert.ok(byText(outlet, '.save-bar button', 'Save'));
+    assert.deepEqual(ownItalian(), []);
+    assertNoItalianSentence('domande');
+  });
+
+  it('l informativa con parti tra parentesi quadre è da completare', async () => {
+    store.applyItem(item({ ...store.getItem(S.draft), version: 2, data: { ...store.getItem(S.draft).data, privacy: 'We are [names].' } }));
+    await visit(`#/questionario/${S.draft}/domande`);
+    const badge = outlet.querySelector('.sq-text .badge-warn');
+    assert.equal(text(badge), 'To complete');
+    assert.equal(badge.hidden, false);
+  });
+
+  it('ogni domanda chiusa mostra numero, argomento, obbligatoria e strumenti in inglese', async () => {
+    await visit(`#/questionario/${S.open}/domande`);
+    assert.deepEqual([...outlet.querySelectorAll('.sq-num')].map(text), ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8']);
+    for (const [id, role] of [['role', 'Respondent'], ['last', 'Problem'], ['mail', 'Contact']]) assert.match(text(card(id).querySelector('.sq-meta')), new RegExp(` · ${role}$`), id);
+    assert.match(text(card('times').querySelector('.sq-meta')), / · Problemrequired$/);
+    assert.deepEqual(aria(card('role').querySelector('.sq-tools')), ['Move question 1 up', 'Move question 1 down', 'Duplicate question 1', 'Delete question 1']);
+    assert.equal(text(card('role').querySelector('[data-action="toggle"]')), 'Edit');
+    card('role').querySelector('[data-action="toggle"]').click();
+    await flush();
+    assert.equal(text(card('role').querySelector('[data-action="toggle"]')), 'Close');
+  });
+
+  it('una domanda senza argomento conosciuto dice Other', async () => {
+    const questions = [{ ...QUESTIONS[6], id: 'free', role: 'altro' }];
+    store.applyItem(item({ ...store.getItem(S.draft), version: 2, data: { ...store.getItem(S.draft).data, questions } }));
+    await visit(`#/questionario/${S.draft}/domande`);
+    assert.match(text(card('free').querySelector('.sq-meta')), / · Other$/);
+  });
+
+  it('la domanda aperta mostra campi e aiuti in inglese', async () => {
+    await visit(`#/questionario/${S.open}/domande`);
+    card('role').querySelector('[data-action="toggle"]').click();
+    await flush();
+    const role = card('role');
+    assert.deepEqual(labels(role), ['Question text', 'Explanation (optional)', 'Type', 'Topic', 'Options', 'Option name', 'Example in the field']);
+    assert.match(text(field(role, 'Topic')), /Used by the checks: at most 3 questions about the respondent and 10 about the problem\./);
+    assert.match(text(role), /Required.*Better not: forcing an answer makes more people give up\./);
+    assert.deepEqual(aria(role.querySelector('.sq-options')), ['Option 1', 'Move option 1 up', 'Move option 1 down', 'Remove option 1', 'Option 2', 'Move option 2 up', 'Move option 2 down', 'Remove option 2']);
+    assert.ok(byText(role, 'button', 'Add an option'));
+    assert.ok(byText(role, 'label.check', 'Add “Other” with a space to write'));
+    assert.ok(byText(role, 'label.check', 'Add “Prefer not to say”'));
+    assert.match(text(role), /“Prefer not to say” only for sensitive questions, such as age or income\./);
+    const [name, example] = role.querySelectorAll('.sq-other input');
+    assert.equal(name.getAttribute('placeholder'), 'Other');
+    assert.equal(example.getAttribute('placeholder'), 'For example: Which one? Write the name');
+    assert.deepEqual(ownItalian(role), []);
+  });
+
+  it('scala, numero, email e sezione hanno i loro campi in inglese', async () => {
+    await visit(`#/questionario/${S.open}/domande`);
+    for (const id of ['f1', 'times', 'mail']) card(id).querySelector('[data-action="toggle"]').click();
+    await flush();
+    const scale = card('f1');
+    assert.deepEqual(labels(scale), ['Question text', 'Explanation (optional)', 'Type', 'Topic', 'Points', 'Suggested labels', 'One label for each point']);
+    assert.deepEqual([...scale.querySelectorAll(`[data-focus="points-f1"] option`)].map(text), ['5 points', '7 points']);
+    assert.match(text(field(scale, 'Points')), /5 points are almost always enough\./);
+    assert.equal(scale.querySelector('[data-focus="preset-f1"] option[value=""]').textContent, 'Choose a set');
+    assert.deepEqual(aria(scale.querySelector('.sq-scale-labels')), ['Label for point 1', 'Label for point 2', 'Label for point 3', 'Label for point 4', 'Label for point 5']);
+    assert.deepEqual(labels(card('times')).slice(-2), ['Minimum (optional)', 'Maximum (optional)']);
+    assert.match(text(card('mail')), /The email goes in a separate column and respondents can ask to be contacted again\. From the Responses tab you add it to Contacts with one click\./);
+    assert.deepEqual(ownItalian(), []);
+
+    const newType = outlet.querySelector('.sq-add select');
+    newType.value = 'sezione';
+    byText(outlet, '.sq-add button', 'Add').click();
+    await flush();
+    const section = outlet.querySelector('.sq-card.is-section');
+    assert.equal(text(section.querySelector('.sq-num')), 'Section');
+    assert.deepEqual(labels(section), ['Section title', 'Explanation (optional)', 'Type']);
+    typeInto(section.querySelector('input[type="text"]'), '');
+    assert.equal(text(section.querySelector('.sq-label')), 'Untitled');
+    assert.match(text(section), /A title that splits the questions\. With one section per screen, each section is a page\./);
+    typeInto(section.querySelector('input[type="text"]'), 'About you');
+    section.querySelector('[data-action="toggle"]').click();
+    await flush();
+    const tools = outlet.querySelector('.sq-card.is-section .sq-tools');
+    assert.equal(tools.querySelector('[data-action="delete"]').getAttribute('aria-label'), 'Delete the section “About you”');
+  });
+
+  it('salvare usa il messaggio in inglese, e il testo vuoto si chiama Untitled', async () => {
+    await visit(`#/questionario/${S.draft}/domande`);
+    card('role').querySelector('[data-action="toggle"]').click();
+    await flush();
+    typeInto(card('role').querySelector('[data-focus="label-role"]'), '');
+    assert.equal(text(card('role').querySelector('.sq-label')), 'Untitled');
+    assert.equal(text(outlet.querySelector('.save-status')), 'Unsaved changes');
+    byText(outlet, '.save-bar button', 'Save').click();
+    await flush(5);
+    assert.equal(saves[0].message, 'Survey questions');
+    assert.match(toasts(), /Survey saved\./);
+  });
+
+  it('eliminare una domanda chiede conferma in inglese', async () => {
+    await visit(`#/questionario/${S.draft}/domande`);
+    card('role').querySelector('[data-action="delete"]').click();
+    await flush(2);
+    assert.equal(dialog().getAttribute('aria-label'), 'Delete the question?');
+    assert.equal(text(dialog().querySelector('.modal-body')), '“What is your job?” will disappear from the survey when you save.');
+    await answerDialog('Delete');
+    assert.equal(card('role'), null);
+  });
+
+  it('oltre il massimo di domande duplicare lo dice in inglese', async () => {
+    const questions = Array.from({ length: 40 }, (_, i) => ({ ...QUESTIONS[6], id: `q${i}`, label: `Question ${i + 1}` }));
+    store.applyItem(item({ ...store.getItem(S.draft), version: 2, data: { ...store.getItem(S.draft).data, questions } }));
+    await visit(`#/questionario/${S.draft}/domande`);
+    card('q0').querySelector('[data-action="duplicate"]').click();
+    await flush();
+    assert.match(toasts(), /At most 40 questions\./);
+  });
+
+  it('una versione salvata da altri mentre modifico lo dice in inglese', async () => {
+    await visit(`#/questionario/${S.draft}/domande`);
+    card('role').querySelector('[data-action="toggle"]').click();
+    await flush();
+    typeInto(card('role').querySelector('[data-focus="label-role"]'), 'What is your job today?');
+    store.applyItem(item({ ...store.getItem(S.draft), version: 2, updated_by: OTHER, title: 'Title changed by Bruno' }));
+    await flush();
+    assert.match(text(outlet), /Bruno saved a new version while you were editing\. When you save I will merge your changes and only ask you where they overlap\./);
+  });
+
+  it('chi non può scrivere legge in sola lettura', async () => {
+    useMe(ADVISOR);
+    for (const tab of ['domande', 'aspetto']) {
+      await visit(`#/questionario/${S.open}/${tab}`);
+      assert.equal(text(outlet.querySelector('fieldset.sv-readonly legend')), 'Read only', tab);
+    }
+  });
+});
+
+describe('scheda Aspetto e impostazioni in inglese', () => {
+  it('impostazioni, aspetto e immagini sono in inglese, con le scelte consigliate e i loro motivi', async () => {
+    await visit(`#/questionario/${S.open}/aspetto`);
+    assert.deepEqual([...outlet.querySelectorAll('.survey-settings h2')].map(text), ['Settings', 'Appearance', 'Start screen image', 'Thank you image']);
+    assert.deepEqual(labels(outlet), ['Title', 'Linked experiment (optional)', 'Layout', 'Progress', 'Theme', 'Colour', 'Preview']);
+    assert.match(text(field(outlet, 'Title')), /Respondents see it too\./);
+    assert.equal(field(outlet, 'Linked experiment (optional)').querySelector('option[value=""]').textContent, 'None');
+    assert.equal(outlet.querySelectorAll('.badge-ok').length, 4);
+    assert.ok([...outlet.querySelectorAll('.badge-ok')].every((b) => text(b) === 'recommended'));
+    const body = text(outlet);
+    for (const reason of [
+      'On a phone people skip fewer questions, and those who give up still leave the answers they gave (Mavletova and Couper 2016).',
+      'It says honestly how many questions are left; on average it does not change how many people give up, while a misleading bar makes more of them give up (Villar et al. 2013).',
+      'Saying how long it takes, without underestimating it, gets more people to start and finish (Galesic and Bosnjak 2009).',
+      'Light or dark like the respondent\'s phone; dark text on a light background is easier to read (Piepenbrock et al. 2013). Anyone who asked their phone for more contrast gets it with every theme.',
+      'Optional, at the top above the title.',
+      'Couper, Tourangeau and Kenyon 2004',
+      'Optional, at the bottom of the final message',
+      'Without an image, there is a light band in the chosen colour at the top, with an icon.',
+      'Without an image the thank you has only text.',
+    ]) assert.ok(body.includes(reason), reason);
+    const minutes = time.minutesLabel(time.estimateMinutes(store.getItem(S.open).data));
+    assert.equal(text(byText(outlet, 'label.check', 'Show the estimated time')), `Show the estimated time in the introduction (${minutes}) recommended`);
+    assert.match(body, /Other colour/);
+    assert.equal(outlet.querySelector('.sv-hex').getAttribute('aria-label'), 'Colour code');
+    assert.equal(outlet.querySelector('input[type="color"]').getAttribute('aria-label'), 'Custom colour');
+    assert.equal(outlet.querySelector('.sv-swatches').getAttribute('aria-label'), 'Recommended colours');
+    assert.equal(byText(outlet, 'button', 'Choose an image') !== null, true);
+    assert.deepEqual(ownItalian(), []);
+    assertNoItalianSentence('aspetto');
+  });
+
+  it('il contrasto si legge in inglese con il colore dei pulsanti', async () => {
+    await visit(`#/questionario/${S.open}/aspetto`);
+    for (const [accent, buttons] of [['#3b4bc8', 'white'], ['#f5e663', 'black']]) {
+      typeInto(outlet.querySelector('.sv-hex'), accent);
+      const check = checks.accentCheck(accent, 'automatico');
+      assert.equal(text(outlet.querySelector('.sv-contrast p')), `Text on the colour: white ${checks.fmtRatio(check.white)}, black ${checks.fmtRatio(check.black)}. Buttons will use ${buttons} text.`);
+    }
+  });
+
+  it('l anteprima mostra il contatore e il pulsante in inglese, e un esempio se non c è una scelta', async () => {
+    await visit(`#/questionario/${S.open}/aspetto`);
+    const preview = outlet.querySelector('.sv-preview');
+    assert.equal(text(preview.querySelector('.sv-preview-count')), 'Question 1 of 8');
+    assert.equal(text(preview.querySelector('.sv-preview-btn')), 'Next');
+    await visit(`#/questionario/${S.other}/aspetto`);
+    const empty = outlet.querySelector('.sv-preview');
+    assert.equal(text(empty.querySelector('.sv-preview-q')), 'Which of these best describes your situation?');
+    assert.deepEqual([...empty.querySelectorAll('.sv-preview-opt')].map(text), ['First option', 'Second option']);
+    assert.equal(text(empty.querySelector('.sv-preview-count')), 'Question 1 of 1');
+  });
+
+  it('caricare un immagine la descrive, la cambia e la toglie in inglese', async () => {
+    const proto = window.HTMLCanvasElement.prototype;
+    const saved = { bitmap: globalThis.createImageBitmap, ctx: proto.getContext, blob: proto.toBlob, url: URL.createObjectURL };
+    globalThis.createImageBitmap = async () => ({ width: 400, height: 300, close() {} });
+    proto.getContext = () => ({ drawImage() {} });
+    proto.toBlob = function toBlob(callback) {
+      callback(new Blob(['jpeg'], { type: 'image/jpeg' }));
+    };
+    URL.createObjectURL = () => 'blob:cover';
+    api.uploadSurveyImage = async () => {};
+    api.downloadSurveyImage = async () => {
+      throw new Error('missing');
+    };
+    try {
+      await visit(`#/questionario/${S.open}/aspetto`);
+      const cover = outlet.querySelector('.sv-cover');
+      const input = cover.querySelector('input[type="file"]');
+      Object.defineProperty(input, 'files', { value: [new window.File(['x'], 'group.png', { type: 'image/png' })], configurable: true });
+      input.dispatchEvent(new window.Event('change'));
+      assert.equal(text(cover.querySelector('[role="status"]')), 'Uploading the image…');
+      await flush(10);
+      assert.equal(text(cover.querySelector('[role="status"]')), 'Image uploaded: save to use it.');
+      assert.ok(byText(cover, 'button', 'Change image'));
+      assert.ok(byText(cover, 'button', 'Remove'));
+      const description = field(cover, 'Image description');
+      assert.equal(description.querySelector('input').getAttribute('placeholder'), 'For example: our group in front of the university');
+      assert.match(text(description), /Read by people who use a screen reader\. Leave it empty only if the image is decorative\./);
+      assert.equal(cover.querySelector('.sv-cover-thumb img').getAttribute('src'), 'blob:cover', 'la copia appena caricata');
+      const thanks = outlet.querySelectorAll('.sv-cover')[1];
+      assert.match(text(thanks), /Without an image the thank you has only text\./);
+      byText(outlet, '.save-bar button', 'Save').click();
+      await flush(5);
+      assert.equal(saves[0].message, 'Appearance and settings');
+    } finally {
+      Object.assign(globalThis, { createImageBitmap: saved.bitmap });
+      Object.assign(proto, { getContext: saved.ctx, toBlob: saved.blob });
+      URL.createObjectURL = saved.url;
+    }
+  });
+
+  it('l immagine del grazie che non si scarica lo dice, e l esempio di descrizione è in inglese', async () => {
+    store.applyItem(item({ ...store.getItem(S.open), version: 2, data: { ...store.getItem(S.open).data, thanks_image: { path: `${S.open}/aaaaaaaa-0000-4000-8000-000000000001.jpg`, alt: '' } } }));
+    api.downloadSurveyImage = async () => {
+      throw new Error('missing');
+    };
+    await visit(`#/questionario/${S.open}/aspetto`);
+    const thanks = outlet.querySelectorAll('.sv-cover')[1];
+    assert.equal(text(thanks.querySelector('.sv-cover-thumb')), 'Preview not available.');
+    assert.equal(field(thanks, 'Image description').querySelector('input').getAttribute('placeholder'), 'For example: Enrico, Francesco and Salvatore');
   });
 });
 
