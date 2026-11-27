@@ -170,6 +170,7 @@ function displayValue(kind, path, value) {
 }
 
 const CONTEXT_LINES = 2;
+const sameLines = (n) => (n === 1 ? '… 1 riga uguale' : `… ${n} righe uguali`);
 
 export function lineDiffView(before, after) {
   const ops = diffLines(before ?? '', after ?? '');
@@ -182,13 +183,13 @@ export function lineDiffView(before, after) {
       return;
     }
     if (skipped) {
-      rows.push(h('div', { class: 'diff-line diff-skip' }, `… ${skipped} righe uguali`));
+      rows.push(h('div', { class: 'diff-line diff-skip' }, sameLines(skipped)));
       skipped = 0;
     }
     const sign = op.t === 'add' ? '+' : op.t === 'del' ? '−' : ' ';
     rows.push(h('div', { class: ['diff-line', `diff-${op.t}`] }, h('span', { class: 'diff-sign' }, sign), h('span', null, op.v || ' ')));
   });
-  if (skipped) rows.push(h('div', { class: 'diff-line diff-skip' }, `… ${skipped} righe uguali`));
+  if (skipped) rows.push(h('div', { class: 'diff-line diff-skip' }, sameLines(skipped)));
   return h('div', { class: 'diff-lines' }, rows);
 }
 
@@ -387,7 +388,7 @@ export async function itemHistoryView(outlet, params) {
       back: { href: item ? routeFor(item) : '#/storico' },
       eyebrow: kindBadge(latest.kind),
       title: `Versioni di «${latest.title}»`,
-      subtitle: `${history.length} versioni`,
+      subtitle: history.length === 1 ? '1 versione' : `${history.length} versioni`,
       actions: [
         button('Confronta le versioni scelte', {
           kind: 'primary',

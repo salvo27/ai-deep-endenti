@@ -149,3 +149,17 @@ test('logView applies filters from the address and loads more pages', async () =
   assert.equal(outlet.querySelectorAll('.log-entry').length, 52, 'filtro autore rispettato');
   off();
 });
+
+test('una sola riga uguale e una sola versione si dicono al singolare', async () => {
+  const view = history.lineDiffView('riga 0\nriga 1\nriga 2\nriga 3', 'riga zero\nriga 1\nriga 2\nriga 3');
+  assert.deepEqual([...view.querySelectorAll('.diff-skip')].map((el) => text(el)), ['… 1 riga uguale']);
+  const longer = history.lineDiffView('a\nb\nc\nd\ne', 'zero\nb\nc\nd\ne');
+  assert.deepEqual([...longer.querySelectorAll('.diff-skip')].map((el) => text(el)), ['… 2 righe uguali']);
+  api.itemHistory = async () => ideaHistory().slice(0, 1);
+  const outlet = document.createElement('main');
+  await history.itemHistoryView(outlet, { id: IDS.idea });
+  assert.equal(text(outlet.querySelector('.page-subtitle')), '1 versione');
+  api.itemHistory = async () => ideaHistory().slice(0, 2);
+  await history.itemHistoryView(outlet, { id: IDS.idea });
+  assert.equal(text(outlet.querySelector('.page-subtitle')), '2 versioni');
+});
