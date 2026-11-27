@@ -81,7 +81,7 @@ export function buildContext(task, { item, idea, canvases = [], experiments = []
 }
 
 export async function askClaude(task, context) {
-  if (!AI_TASKS[task]) throw new AppError('Richiesta non valida.', { code: 'invalid_task' });
+  if (!Object.hasOwn(AI_TASKS, task)) throw new AppError('Richiesta non valida.', { code: 'invalid_task' });
   const response = await api.invokeClaude(task, context);
   const text = typeof response?.text === 'string' ? response.text.trim() : '';
   if (!text) throw new AppError('Claude non ha restituito una risposta utilizzabile.', { code: 'empty_response' });

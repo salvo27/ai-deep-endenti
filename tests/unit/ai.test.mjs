@@ -66,3 +66,15 @@ test('askClaude validates the task and the response', async () => {
   assert.equal(res.remaining, null);
   assert.ok(Object.keys(AI_TASKS).includes('cell_ideas'));
 });
+
+test('un nome ereditato da ogni oggetto non è un compito valido e non arriva a Claude', async () => {
+  let calls = 0;
+  api.invokeClaude = async () => {
+    calls += 1;
+    return { text: 'risposta' };
+  };
+  for (const task of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    await assert.rejects(askClaude(task, 'x'), /non valida/, task);
+  }
+  assert.equal(calls, 0);
+});
