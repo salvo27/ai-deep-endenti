@@ -64,9 +64,16 @@ describe('invio delle risposte', () => {
     assert.deepEqual(rpcCalls()[1][2], { p_token: TOKEN, p_answers: {}, p_meta: { duration_seconds: 95, device: 'telefono' } });
   });
 
-  it('un codice malformato risponde come il database, così la pagina lo traduce come gli altri messaggi', async () => {
-    assert.deepEqual(await submitSurvey('corto', {}), { status: 'errore', reason: 'Questionario non trovato.' });
+  it('un link malformato risponde con il codice del database per un questionario che non c è, senza chiamarlo', async () => {
+    for (const token of ['corto', TOKEN.slice(1), `${TOKEN}x`, `${TOKEN.slice(1)}.`, '', null, 42]) {
+      assert.deepEqual(await submitSurvey(token, {}), { status: 'errore', reason: 'survey_not_found' }, String(token));
+    }
     assert.deepEqual(rpcCalls(), []);
+  });
+
+  it('il motivo di un rifiuto arriva alla pagina com è, come codice', async () => {
+    fake.responses.rpc.submit_survey = { data: { status: 'errore', reason: 'required_missing', question: 'eta' }, error: null };
+    assert.deepEqual(await submitSurvey(TOKEN, {}), { status: 'errore', reason: 'required_missing', question: 'eta' });
   });
 
   it('una risposta vuota del database è un errore senza motivo: la pagina mostra il suo messaggio di invio fallito', async () => {

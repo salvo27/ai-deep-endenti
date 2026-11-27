@@ -439,9 +439,19 @@ test('a device that opened the link counts as one visit for 30 days', () => {
   for (const bad of [null, '', 'ieri', '0', String(now + day)]) assert.equal(seenRecently(bad, now), false, String(bad));
 });
 
-test('on an Italian device the messages of the database are shown as they arrive, known or not', () => {
-  for (const reason of ['Rispondi a tutte le domande obbligatorie.', 'Le risposte sono già state inviate.', 'Un messaggio nuovo del database.']) assert.equal(reasonText(reason), reason);
-  for (const reason of ['', null, undefined, 7]) assert.equal(reasonText(reason), null, String(reason));
+test('on an Italian device the codes of the database are shown in Italian', () => {
+  for (const [code, italian] of [
+    ['required_missing', 'Rispondi a tutte le domande obbligatorie.'],
+    ['already_submitted', 'Le risposte sono già state inviate.'],
+    ['invalid_answers', 'Risposte non valide.'],
+    ['survey_full', 'Il questionario non accetta altre risposte.'],
+  ]) assert.equal(reasonText(code), italian, code);
+});
+
+test('on an Italian device an unknown code, an old sentence or a name of Object give no text: the page shows its own', () => {
+  for (const reason of ['codice_nuovo', 'Required_missing', ' required_missing', 'Rispondi a tutte le domande obbligatorie.', 'constructor', 'toString', '__proto__', '', null, undefined, 7, {}]) {
+    assert.equal(reasonText(reason), null, String(reason));
+  }
 });
 
 test('the time on a screen goes to its questions by words, adds up when coming back, and travels with the answers', () => {

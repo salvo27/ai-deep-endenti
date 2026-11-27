@@ -206,7 +206,7 @@ select 'idea_q', r.id from public.create_item(iso.id('Q'), 'idea', 'Consegne a d
 select is((select project_id from public.items where id = iso.id('idea_q')), iso.id('Q'), 'the admin of Q creates items in Q');
 select throws_ok(
   $$select public.create_item(iso.id('Q'), 'canvas', 'Canvas alla cieca', null, '{}'::jsonb, iso.id('idea_p'), null)$$,
-  'P0001', null,
+  'P0002', 'idea_not_found',
   'a member of Q cannot hang an item of Q under an idea of P it cannot even see'
 );
 
@@ -372,7 +372,7 @@ select lives_ok(
 );
 select throws_ok(
   $$insert into public.chat_messages (chat_id, body, reply_to) values (iso.id('chat_q'), 'Anche qui 29 euro', iso.id('msg_p'))$$,
-  'P0001', null,
+  'P0001', 'reply_other_chat',
   'a reply cannot quote a message of a chat of another project'
 );
 select iso.outcome($$update public.chat_messages set project_id = iso.id('Q') where id = iso.id('msg_p')$$);

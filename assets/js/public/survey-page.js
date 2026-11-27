@@ -1,4 +1,4 @@
-import { PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
+import { ALREADY_SUBMITTED, PREFER_NOT, PublicSurveyError, coverUrl, loadPublicSurvey, newSurveySession, recordSurveyEvent, submitSurvey } from './survey-api.js';
 import { estimateMinutes } from './survey-time.js';
 import {
   LIMITS,
@@ -40,8 +40,6 @@ import { language, locale, texts } from './texts.js';
 
 // The page speaks the respondent's language (texts.js); the survey's own texts are the team's.
 const t = texts;
-// The database's message for answers that had already arrived, matched in its own words.
-const ALREADY_SENT = /già state inviate/i;
 const SEND_ERROR = t.errors.send;
 const asText = (value) => (typeof value === 'string' ? value : '');
 // Stored values: the same in every language.
@@ -715,7 +713,7 @@ async function finish() {
   state.sending = false;
   setBusy(false, t.question.send);
   // «Già inviate» arriva quando il primo invio era passato ma la risposta si è persa per strada.
-  if (result?.status === 'ok' || ALREADY_SENT.test(asText(result?.reason))) {
+  if (result?.status === 'ok' || result?.reason === ALREADY_SUBMITTED) {
     showThanks();
     return;
   }

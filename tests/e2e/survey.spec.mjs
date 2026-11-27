@@ -311,7 +311,7 @@ test('invio finale senza rete o con troppi tentativi: messaggio chiaro e Riprova
 });
 
 test('se il primo invio era arrivato ma la risposta si è persa, Riprova porta comunque al grazie', async ({ page }) => {
-  await start(page, { survey: withQuestions(['eta']), submit: ['network', { status: 'errore', reason: 'Le risposte sono già state inviate.' }] });
+  await start(page, { survey: withQuestions(['eta']), submit: ['network', { status: 'errore', reason: 'already_submitted' }] });
   await page.getByLabel('Più di 50').check();
   await page.getByRole('button', { name: 'Invia' }).click();
   await page.getByRole('button', { name: 'Riprova' }).click();
@@ -320,7 +320,7 @@ test('se il primo invio era arrivato ma la risposta si è persa, Riprova porta c
 });
 
 test('un errore del database su una domanda si mostra sotto quella domanda', async ({ page }) => {
-  await start(page, { survey: withQuestions(['eta', 'lavoro']), submit: ['ok', { status: 'errore', reason: 'Una risposta è troppo lunga.', question: 'lavoro' }] });
+  await start(page, { survey: withQuestions(['eta', 'lavoro']), submit: ['ok', { status: 'errore', reason: 'answer_too_long', question: 'lavoro' }] });
   await page.getByLabel('Meno di 30').check();
   await next(page);
   await page.getByLabel('Che lavoro fai?').fill('Fornaio');

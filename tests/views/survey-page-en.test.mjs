@@ -215,24 +215,26 @@ describe('errori di invio in inglese', () => {
     assert.equal(alertText(), 'Too many attempts. Wait a few minutes and try again.');
   });
 
-  it('un messaggio del database su una domanda si mostra sotto la domanda, in inglese', async () => {
-    await sendOnce([{ status: 'errore', reason: 'Rispondi a tutte le domande obbligatorie.', question: 'age' }]);
+  it('un codice del database su una domanda si mostra sotto la domanda, in inglese', async () => {
+    await sendOnce([{ status: 'errore', reason: 'required_missing', question: 'age' }]);
     assert.equal(text(document.querySelector('.q-error')), 'Answer all the required questions.');
     noItalian();
   });
 
-  it('un messaggio del database senza domanda va nell avviso, in inglese', async () => {
-    await sendOnce([{ status: 'errore', reason: 'Il questionario non accetta altre risposte.' }]);
+  it('un codice del database senza domanda va nell avviso, in inglese', async () => {
+    await sendOnce([{ status: 'errore', reason: 'survey_full' }]);
     assert.equal(alertText(), 'The survey is not accepting any more answers.');
   });
 
-  it('un messaggio sconosciuto del database non arriva in italiano', async () => {
-    await sendOnce([{ status: 'errore', reason: 'Un errore nuovo del database.' }]);
-    assert.equal(alertText(), 'Sending failed. Please try again shortly.');
+  it('un codice sconosciuto, o una vecchia frase italiana, dà il messaggio di invio fallito', async () => {
+    for (const reason of ['codice_nuovo', 'Un errore nuovo del database.', 'constructor']) {
+      await sendOnce([{ status: 'errore', reason }]);
+      assert.equal(alertText(), 'Sending failed. Please try again shortly.', reason);
+    }
   });
 
-  it('«già inviate» vale come invio riuscito: le risposte erano arrivate', async () => {
-    await sendOnce(['network', { status: 'errore', reason: 'Le risposte sono già state inviate.' }]);
+  it('già inviate vale come invio riuscito: le risposte erano arrivate', async () => {
+    await sendOnce(['network', { status: 'errore', reason: 'already_submitted' }]);
     await press('Try again');
     assert.equal(text(document.querySelector('h1')), 'Thank you!');
   });

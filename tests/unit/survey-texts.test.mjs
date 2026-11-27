@@ -147,12 +147,11 @@ describe('durata in minuti', () => {
   });
 });
 
-describe('messaggi del database', () => {
-  it('ogni messaggio di errore che il database manda alla pagina ha la sua traduzione', () => {
+describe('codici del database', () => {
+  it('ogni codice che il database manda alla pagina ha il suo testo', () => {
     const schema = readFileSync(new URL('../../supabase/schema.sql', import.meta.url), 'utf8');
-    const sent = [...new Set([...schema.matchAll(/survey_error\('((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, '\'')))];
-    assert.ok(sent.length > 10, 'messaggi trovati nello schema');
-    const known = new Set(Object.values(italiano.server));
-    assert.deepEqual(sent.filter((message) => !known.has(message)), [], 'aggiungi il messaggio a server in assets/js/public/texts.js');
+    const sent = [...new Set([...schema.matchAll(/survey_error\('((?:[^']|'')*)'/g)].map((m) => m[1]))];
+    assert.ok(sent.length > 10, 'codici trovati nello schema');
+    assert.deepEqual(sent.filter((code) => !Object.hasOwn(italiano.server, code)), [], 'aggiungi il codice a server in assets/js/public/texts.js');
   });
 });

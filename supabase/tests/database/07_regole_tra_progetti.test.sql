@@ -99,7 +99,7 @@ select throws_ok(
 select tests.login('d');
 select throws_ok(
   $$select public.create_item(t07.id('Q'), 'expense', 'Dominio', null, t07.expense(t07.id('group_p')))$$,
-  'P0001', 'Il gruppo di spese non esiste',
+  'P0002', 'expense_group_not_found',
   'for who cannot see it, an expense group of another project does not exist'
 );
 
@@ -114,9 +114,9 @@ update public.projects set archived_at = now() where id = t07.id('P');
 select tests.anon();
 select is(public.public_survey('TokenAlfaRegole0000001') ->> 'status', 'non_trovato', 'once the project is archived its public link is not found');
 select is(
-  public.submit_survey('TokenAlfaRegole0000001', '{"nota":"Più tempo"}', '{"session":"11111111-1111-4111-8111-111111111111","final":true}') ->> 'status',
-  'errore',
-  'and takes no answers'
+  public.submit_survey('TokenAlfaRegole0000001', '{"nota":"Più tempo"}', '{"session":"11111111-1111-4111-8111-111111111111","final":true}'),
+  '{"status":"errore","reason":"survey_not_found"}'::jsonb,
+  'and takes no answers, as for a survey that does not exist'
 );
 select public.survey_event('TokenAlfaRegole0000001', 'view');
 select tests.logout();

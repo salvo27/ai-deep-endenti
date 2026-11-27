@@ -15,6 +15,11 @@ export const PREFER_NOT = 'non-rispondo'; // i18n-ignore: stored option id
 const NOT_FOUND = 'non_trovato'; // i18n-ignore
 const ERROR = 'errore'; // i18n-ignore
 
+// Codes of submit_survey for a survey that does not exist and for answers that had already arrived (survey_error in
+// supabase/schema.sql): the page puts every code into words with texts.js.
+const SURVEY_NOT_FOUND = 'survey_not_found';
+export const ALREADY_SUBMITTED = 'already_submitted';
+
 const client = createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 });
@@ -60,11 +65,11 @@ export async function loadPublicSurvey(token) {
 }
 
 // Salva la compilazione: ogni chiamata porta tutte le risposte date finora (sostituiscono quelle salvate),
-// final: true all'ultima schermata. Restituisce { status: 'ok' } oppure { status: 'errore', reason?, question? }.
-// Di meta passano solo session, final, duration_seconds, device, recontact e website (il campo trappola).
+// final: true all'ultima schermata. Restituisce { status: 'ok' } oppure { status: 'errore', reason?, question? }, con reason
+// un codice del database. Di meta passano solo session, final, duration_seconds, device, recontact e website (il campo trappola).
 export async function submitSurvey(token, answers, meta = {}) {
-  // The database's own message for an unknown survey, so the page translates it like every other reason.
-  if (!isToken(token)) return { status: ERROR, reason: 'Questionario non trovato.' }; // i18n-ignore: message of the database protocol
+  // The database's own code for an unknown survey, so the page puts it into words like every other reason.
+  if (!isToken(token)) return { status: ERROR, reason: SURVEY_NOT_FOUND };
   const pMeta = {};
   if (typeof meta?.session === 'string') pMeta.session = meta.session;
   if (typeof meta?.final === 'boolean') pMeta.final = meta.final;

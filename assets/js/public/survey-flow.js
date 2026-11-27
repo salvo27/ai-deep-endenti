@@ -1,7 +1,7 @@
 import { PREFER_NOT } from './survey-api.js';
 import { questionWords } from './survey-time.js';
 import { accentTokens, contrastRatio, contrastText } from './survey-colors.js';
-import { it as italian, language, texts } from './texts.js';
+import { texts } from './texts.js';
 
 export { accentTokens, contrastRatio, contrastText };
 
@@ -40,13 +40,11 @@ export const otherMessage = (q) => (q.other_label && q.other_label !== texts.oth
 
 export const tooLong = (max) => texts.checks.tooLong(max);
 
-// The database explains a refused answer in Italian, with the messages listed in texts.js: the page shows them in the
-// respondent's language. A message it does not know stays as it is in Italian, and in English becomes null, so the page
-// shows its own message for a failed send instead.
+// The database explains a refused answer with a code (survey_error in supabase/schema.sql): the page puts it into words in
+// the respondent's language. A code it does not know gives null in every language, never the raw code, so the page shows
+// its own message for a failed send instead.
 export function reasonText(reason) {
-  const key = typeof reason === 'string' ? Object.keys(italian.server).find((name) => italian.server[name] === reason) : null;
-  if (key) return texts.server[key];
-  return language === 'it' && typeof reason === 'string' && reason ? reason : null;
+  return typeof reason === 'string' && Object.hasOwn(texts.server, reason) ? texts.server[reason] : null;
 }
 
 const str = (value) => (typeof value === 'string' ? value : '');

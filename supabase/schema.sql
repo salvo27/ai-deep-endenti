@@ -659,30 +659,30 @@ begin
         and new.status is null),
     false
   ) then
-    raise exception 'Stato non valido per questo tipo di elemento';
+    raise exception 'invalid_status' using errcode = '22023';
   end if;
   if new.kind in ('idea', 'canvas', 'experiment', 'interview', 'decision', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'note', 'scoresnap', 'survey',
                   'expensegroup', 'expense')
      and btrim(new.title) = '' then
-    raise exception 'Il titolo è obbligatorio';
+    raise exception 'title_required' using errcode = '22023';
   end if;
   if new.kind in ('canvas', 'experiment', 'contact', 'deeptech', 'persona', 'vpc', 'market', 'competitors', 'survey') and new.idea_id is null then
-    raise exception 'Questo elemento deve appartenere a un''idea';
+    raise exception 'idea_required' using errcode = '22023';
   end if;
   if new.kind in ('idea', 'decision', 'teamcanvas', 'equity', 'criteria', 'score', 'generator', 'scoresnap', 'expensegroup', 'expense', 'availability',
                   'timesheet')
      and new.idea_id is not null then
-    raise exception 'Questo elemento non può appartenere a un''idea';
+    raise exception 'idea_not_allowed' using errcode = '22023';
   end if;
   -- L'idea si cerca con i permessi di chi scrive: un'idea che non vede non esiste. Una che vede ma di un altro
   -- progetto non si usa: il collegamento resta dentro il progetto.
   if new.idea_id is not null and new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end) then
     select i.project_id into v_idea_project from public.items i where i.id = new.idea_id and i.kind = 'idea';
     if not found then
-      raise exception 'idea_id deve indicare un''idea esistente';
+      raise exception 'idea_not_found' using errcode = 'P0002';
     end if;
     if new.project_id is not null and v_idea_project is distinct from new.project_id then
-      raise exception 'cross_project';
+      raise exception 'cross_project' using errcode = 'P0001';
     end if;
   end if;
 
@@ -690,7 +690,7 @@ begin
   if new.kind = 'survey' then
     if new.data ? 'token'
        and (jsonb_typeof(new.data -> 'token') <> 'string' or (new.data ->> 'token') !~ '^[A-Za-z0-9_-]{22}$') then
-      raise exception 'Il link pubblico del questionario non è valido';
+      raise exception 'invalid_survey_token' using errcode = '22023';
     end if;
     if (new.data ? 'layout' and coalesce(new.data ->> 'layout', '') not in ('una', 'sezioni'))
        or (new.data ? 'progress' and coalesce(new.data ->> 'progress', '') not in ('contatore', 'barra', 'nessuno'))
@@ -699,7 +699,7 @@ begin
              when jsonb_typeof(new.data -> 'questions') = 'array' then jsonb_array_length(new.data -> 'questions') > 40
              else true
            end) then
-      raise exception 'Impostazioni del questionario non valide';
+      raise exception 'invalid_survey_settings' using errcode = '22023';
     end if;
     -- Aspetto: solo tema e colore, mai altro (caratteri, immagini o CSS aprirebbero la pagina pubblica a contenuti estranei).
     if new.data ? 'appearance' and (case
@@ -712,7 +712,7 @@ begin
          )
          else true
        end) then
-      raise exception 'Aspetto del questionario non valido';
+      raise exception 'invalid_survey_appearance' using errcode = '22023';
     end if;
     -- Immagini della schermata iniziale e del grazie: solo un file dello spazio «questionari-immagini» e la sua descrizione.
     if new.data ? 'cover' and (case
@@ -723,7 +723,7 @@ begin
            or exists (select 1 from jsonb_object_keys(new.data -> 'cover') k where k not in ('path', 'alt'))
          else true
        end) then
-      raise exception 'Immagine del questionario non valida';
+      raise exception 'invalid_survey_image' using errcode = '22023';
     end if;
     if new.data ? 'thanks_image' and (case
          when jsonb_typeof(new.data -> 'thanks_image') = 'object' then
@@ -733,12 +733,12 @@ begin
            or exists (select 1 from jsonb_object_keys(new.data -> 'thanks_image') k where k not in ('path', 'alt'))
          else true
        end) then
-      raise exception 'Immagine del questionario non valida';
+      raise exception 'invalid_survey_image' using errcode = '22023';
     end if;
     if new.data ? 'experiment_id' then
       if jsonb_typeof(new.data -> 'experiment_id') <> 'string'
          or (new.data ->> 'experiment_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
-        raise exception 'L''esperimento collegato non è valido';
+        raise exception 'invalid_experiment' using errcode = '22023';
       end if;
       if (new.data -> 'experiment_id') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'experiment_id' end)
          or new.idea_id is distinct from (case when tg_op = 'UPDATE' then old.idea_id end) then
@@ -747,7 +747,7 @@ begin
           where e.id = (new.data ->> 'experiment_id')::uuid and e.kind = 'experiment' and e.idea_id = new.idea_id
             and e.project_id = new.project_id
         ) then
-          raise exception 'L''esperimento collegato deve essere della stessa idea';
+          raise exception 'experiment_not_in_idea' using errcode = 'P0001';
         end if;
       end if;
     end if;
@@ -768,7 +768,7 @@ begin
          )
        else false end,
        false) then
-    raise exception 'Gruppo di spese non valido';
+    raise exception 'invalid_expense_group' using errcode = '22023';
   end if;
   if new.kind = 'expense' then
     if not coalesce(
@@ -785,7 +785,7 @@ begin
               or (new.data ->> 'receipt') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'),
          false
        ) then
-      raise exception 'Movimento non valido';
+      raise exception 'invalid_expense' using errcode = '22023';
     end if;
     -- Come per le idee: il gruppo si cerca con i permessi di chi scrive, e uno che vede ma di un altro progetto non si usa.
     if tg_op = 'INSERT' or (new.data -> 'group') is distinct from (case when tg_op = 'UPDATE' then old.data -> 'group' end) then
@@ -793,10 +793,10 @@ begin
       from public.items g
       where g.id::text = new.data ->> 'group' and g.kind = 'expensegroup' and g.deleted_at is null;
       if not found then
-        raise exception 'Il gruppo di spese non esiste';
+        raise exception 'expense_group_not_found' using errcode = 'P0002';
       end if;
       if new.project_id is not null and v_group_project is distinct from new.project_id then
-        raise exception 'cross_project';
+        raise exception 'cross_project' using errcode = 'P0001';
       end if;
     end if;
   end if;
@@ -806,7 +806,7 @@ begin
   if new.kind = 'availability' then
     new.title := 'Impegni';
     if new.deleted_at is not null then
-      raise exception 'Gli impegni non si possono mettere nel cestino';
+      raise exception 'availability_not_trashable' using errcode = 'P0001';
     end if;
     if not coalesce(case when jsonb_typeof(new.data) = 'object' then
          not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('busy', 'until', 'weeks'))
@@ -826,7 +826,7 @@ begin
                and (select count(distinct w ->> 'key') from jsonb_array_elements(new.data -> 'weeks') w) = jsonb_array_length(new.data -> 'weeks')
              else false end)
        else false end, false) then
-      raise exception 'Impegni non validi';
+      raise exception 'invalid_availability' using errcode = '22023';
     end if;
     -- Date vere e lunedì: una data impossibile come il 31 febbraio fa fallire la conversione, e anche quella è rifiutata.
     begin
@@ -835,10 +835,10 @@ begin
       end if;
       if jsonb_typeof(new.data -> 'weeks') = 'array'
          and exists (select 1 from jsonb_array_elements(new.data -> 'weeks') w where extract(isodow from (w ->> 'key')::date) <> 1) then
-        raise exception 'Impegni non validi';
+        raise exception 'invalid_availability' using errcode = '22023';
       end if;
     exception when others then
-      raise exception 'Impegni non validi';
+      raise exception 'invalid_availability' using errcode = '22023';
     end;
   end if;
 
@@ -846,12 +846,12 @@ begin
   if new.kind = 'timesheet' then
     new.title := 'Ore lavorate';
     if new.deleted_at is not null then
-      raise exception 'Le ore lavorate non si possono mettere nel cestino';
+      raise exception 'timesheet_not_trashable' using errcode = 'P0001';
     end if;
     if tg_op = 'UPDATE' and (new.data -> 'week') is distinct from (old.data -> 'week') then
-      raise exception 'La settimana delle ore non si può cambiare';
+      raise exception 'timesheet_week_locked' using errcode = 'P0001';
     end if;
-    -- Ogni controllo che converte in numero sta dentro un case: un valore sbagliato dà il messaggio, non un errore tecnico.
+    -- Ogni controllo che converte in numero sta dentro un case: un valore sbagliato dà il codice invalid_timesheet, non un errore tecnico.
     if not coalesce(case when jsonb_typeof(new.data) = 'object' then
          not exists (select 1 from jsonb_object_keys(new.data) k where k not in ('week', 'pledge', 'entries'))
          and coalesce(jsonb_typeof(new.data -> 'week'), '') = 'string'
@@ -881,7 +881,7 @@ begin
                and (select count(distinct e ->> 'id') from jsonb_array_elements(new.data -> 'entries') e) = jsonb_array_length(new.data -> 'entries')
              else false end
        else false end, false) then
-      raise exception 'Ore lavorate non valide';
+      raise exception 'invalid_timesheet' using errcode = '22023';
     end if;
     -- Qui la forma è già giusta: si può convertire senza sorprese.
     if exists (
@@ -889,7 +889,7 @@ begin
          where a ->> 'id' < b ->> 'id' and a ->> 'day' = b ->> 'day'
            and (a ->> 'start')::int < (b ->> 'end')::int and (b ->> 'start')::int < (a ->> 'end')::int
        ) then
-      raise exception 'Due righe dello stesso giorno si accavallano';
+      raise exception 'timesheet_overlap' using errcode = '22023';
     end if;
     declare
       v_week date;
@@ -899,19 +899,19 @@ begin
       begin
         v_week := (new.data ->> 'week')::date;
       exception when others then
-        raise exception 'Ore lavorate non valide';
+        raise exception 'invalid_timesheet' using errcode = '22023';
       end;
       if extract(isodow from v_week) <> 1 then
-        raise exception 'Ore lavorate non valide';
+        raise exception 'invalid_timesheet' using errcode = '22023';
       end if;
       if v_week > v_today then
-        raise exception 'Non si possono segnare ore in una settimana che deve ancora venire';
+        raise exception 'timesheet_future_week' using errcode = 'P0001';
       end if;
       if exists (
            select 1 from jsonb_array_elements(new.data -> 'entries') e
            where v_week + (array_position(array['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'], e ->> 'day') - 1) > v_today
          ) then
-        raise exception 'Non si possono segnare ore in un giorno che deve ancora venire';
+        raise exception 'timesheet_future_day' using errcode = 'P0001';
       end if;
     end;
   end if;
@@ -1350,10 +1350,10 @@ begin
   if new.idea_id is not null and (tg_op = 'INSERT' or new.idea_id is distinct from old.idea_id) then
     select i.project_id into v_idea_project from public.items i where i.id = new.idea_id and i.kind = 'idea';
     if not found then
-      raise exception 'La chat si può collegare solo a un''idea';
+      raise exception 'chat_idea_not_found' using errcode = 'P0002';
     end if;
     if new.project_id is not null and v_idea_project is distinct from new.project_id then
-      raise exception 'cross_project';
+      raise exception 'cross_project' using errcode = 'P0001';
     end if;
   end if;
   return new;
@@ -1414,11 +1414,11 @@ begin
     new.edited_at := null;
     new.deleted_at := null;
     if exists (select 1 from public.chats c where c.id = new.chat_id and c.archived_at is not null) then
-      raise exception 'Questa chat è archiviata';
+      raise exception 'chat_archived' using errcode = 'P0001';
     end if;
     if new.reply_to is not null
        and not exists (select 1 from public.chat_messages m where m.id = new.reply_to and m.chat_id = new.chat_id) then
-      raise exception 'Si può rispondere solo a un messaggio della stessa chat';
+      raise exception 'reply_other_chat' using errcode = 'P0001';
     end if;
     return new;
   end if;
@@ -1429,7 +1429,7 @@ begin
   new.author_id := old.author_id;
   new.created_at := old.created_at;
   if old.deleted_at is not null then
-    raise exception 'Il messaggio è già stato eliminato';
+    raise exception 'message_deleted' using errcode = 'P0001';
   end if;
   -- Un messaggio eliminato perde davvero il testo.
   if new.deleted_at is not null then
@@ -2378,7 +2378,7 @@ declare
   v_id bigint;
 begin
   if p_job is null or p_job not in ('mentions', 'weekly') then
-    raise exception 'Invio sconosciuto: %', p_job;
+    raise exception 'unknown_job' using errcode = '22023';
   end if;
   if to_regclass('vault.decrypted_secrets') is null or to_regnamespace('net') is null then
     return null;
@@ -2714,6 +2714,8 @@ begin
 end
 $$;
 
+-- Il motivo è un codice in snake_case, mai una frase: la pagina pubblica lo mette in parole nella lingua di chi risponde
+-- (server in assets/js/public/texts.js). Gli errori delle altre funzioni sono codici con il loro SQLSTATE (docs/PROGETTI.md).
 create or replace function public.survey_error(p_reason text, p_question text default null)
 returns jsonb
 language sql
@@ -2813,17 +2815,17 @@ declare
   v_total integer;
 begin
   if jsonb_typeof(p_answers) is distinct from 'object' or jsonb_typeof(v_meta) <> 'object' then
-    return public.survey_error('Risposte non valide.');
+    return public.survey_error('invalid_answers');
   end if;
   if octet_length(p_answers::text) + octet_length(v_meta::text) >= 20480 then
-    return public.survey_error('Le risposte sono troppo lunghe.');
+    return public.survey_error('answers_too_long');
   end if;
 
   select * into s from public.survey_by_token(p_token);
   if s.id is null then
-    return public.survey_error('Questionario non trovato.');
+    return public.survey_error('survey_not_found');
   elsif s.status is distinct from 'aperto' then
-    return public.survey_error('Il questionario è chiuso.');
+    return public.survey_error('survey_closed');
   end if;
 
   -- Un bot che compila il campo nascosto riceve «ok», ma non si salva nulla.
@@ -2833,12 +2835,12 @@ begin
 
   if jsonb_typeof(v_meta -> 'session') is distinct from 'string'
      or (v_meta ->> 'session') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
-    return public.survey_error('Sessione non valida. Ricarica la pagina.');
+    return public.survey_error('invalid_session');
   end if;
   if coalesce(jsonb_typeof(v_meta -> 'final'), 'null') not in ('boolean', 'null')
      or coalesce(jsonb_typeof(v_meta -> 'recontact'), 'null') not in ('boolean', 'null')
      or (coalesce(jsonb_typeof(v_meta -> 'device'), 'null') <> 'null' and coalesce(v_meta ->> 'device', '') not in ('telefono', 'computer')) then
-    return public.survey_error('Risposte non valide.');
+    return public.survey_error('invalid_answers');
   end if;
   v_session := (v_meta ->> 'session')::uuid;
   v_final := coalesce(v_meta -> 'final' = 'true'::jsonb, false);
@@ -2848,9 +2850,9 @@ begin
   select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
   if r.id is not null then
     if r.completed then
-      return public.survey_error('Le risposte sono già state inviate.');
+      return public.survey_error('already_submitted');
     elsif not v_final and r.saves >= 60 then
-      return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+      return public.survey_error('too_many_saves');
     end if;
   end if;
 
@@ -2865,16 +2867,16 @@ begin
       v_qid := left(v_key, -6);
       v_q := v_by_id -> v_qid;
       if v_q is null or not coalesce(v_q -> 'allow_other' = 'true'::jsonb, false) then
-        return public.survey_error('Risposte non valide.');
+        return public.survey_error('invalid_answers');
       end if;
       continue when jsonb_typeof(v_value) = 'null';
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_qid);
+        return public.survey_error('invalid_answers', v_qid);
       end if;
       v_text := public.survey_text(v_value, 100000);
       continue when v_text = '';
       if char_length(v_text) > 300 then
-        return public.survey_error('Una risposta è troppo lunga.', v_qid);
+        return public.survey_error('answer_too_long', v_qid);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_text);
       continue;
@@ -2882,7 +2884,7 @@ begin
 
     v_q := v_by_id -> v_key;
     if v_q is null then
-      return public.survey_error('Risposte non valide.');
+      return public.survey_error('invalid_answers');
     end if;
     continue when jsonb_typeof(v_value) = 'null';
     v_type := v_q ->> 'type';
@@ -2890,19 +2892,19 @@ begin
     -- «Preferisco non rispondere» ha l'id riservato non-rispondo, valido solo dove la domanda lo prevede.
     if v_type = 'scelta' then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       continue when v_value #>> '{}' = '';
       if not (
         exists (select 1 from jsonb_array_elements(v_q -> 'options') o where o ->> 'id' = v_value #>> '{}')
         or (v_value #>> '{}' = 'non-rispondo' and v_q -> 'prefer_not' = 'true'::jsonb)
       ) then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_value);
     elsif v_type = 'scelte' then
       if jsonb_typeof(v_value) <> 'array' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       continue when jsonb_array_length(v_value) = 0;
       if exists (
@@ -2914,21 +2916,21 @@ begin
               )
          )
          or (select count(distinct a) from jsonb_array_elements(v_value) a) <> jsonb_array_length(v_value) then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       if v_value ? 'non-rispondo' and jsonb_array_length(v_value) > 1 then
-        return public.survey_error('Scegli una sola risposta.', v_key);
+        return public.survey_error('one_answer_only', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_value);
     elsif v_type = 'scala' then
       v_n := public.survey_int(v_value, 1, (v_q -> 'scale' ->> 'points')::integer);
       if v_n is null then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_n);
     elsif v_type = 'numero' then
       if public.survey_int(v_value, -1000000000, 1000000000) is null then
-        return public.survey_error('Scrivi un numero intero.', v_key);
+        return public.survey_error('integer_required', v_key);
       end if;
       v_n := public.survey_int(
         v_value,
@@ -2936,27 +2938,27 @@ begin
         coalesce((v_q -> 'number' ->> 'max')::integer, 1000000000)
       );
       if v_n is null then
-        return public.survey_error('Un numero è fuori dall''intervallo ammesso.', v_key);
+        return public.survey_error('number_out_of_range', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_n);
     elsif v_type in ('breve', 'lunga') then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Risposte non valide.', v_key);
+        return public.survey_error('invalid_answers', v_key);
       end if;
       v_text := public.survey_text(v_value, 100000);
       continue when v_text = '';
       if char_length(v_text) > (case when v_type = 'breve' then 300 else 3000 end) then
-        return public.survey_error('Una risposta è troppo lunga.', v_key);
+        return public.survey_error('answer_too_long', v_key);
       end if;
       v_clean := v_clean || jsonb_build_object(v_key, v_text);
     elsif v_type = 'email' then
       if jsonb_typeof(v_value) <> 'string' then
-        return public.survey_error('Indirizzo email non valido.', v_key);
+        return public.survey_error('invalid_email', v_key);
       end if;
       v_text := lower(public.survey_text(v_value, 100000));
       continue when v_text = '';
       if char_length(v_text) > 254 or v_text !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then
-        return public.survey_error('Indirizzo email non valido.', v_key);
+        return public.survey_error('invalid_email', v_key);
       end if;
       -- L'email va solo nella sua colonna, non tra le risposte.
       v_email := v_text;
@@ -2968,7 +2970,7 @@ begin
     v_qid := v_q ->> 'id';
     if v_clean ? (v_qid || ':altro')
        and ((v_q ->> 'type' = 'scelta' and v_clean ? v_qid) or (v_q ->> 'type' = 'scelte' and v_clean -> v_qid = '["non-rispondo"]'::jsonb)) then
-      return public.survey_error('Scegli una sola risposta.', v_qid);
+      return public.survey_error('one_answer_only', v_qid);
     end if;
     if v_final and v_q -> 'required' = 'true'::jsonb and not (
       case v_q ->> 'type'
@@ -2978,16 +2980,16 @@ begin
         else v_clean ? v_qid
       end
     ) then
-      return public.survey_error('Rispondi a tutte le domande obbligatorie.', v_qid);
+      return public.survey_error('required_missing', v_qid);
     end if;
   end loop;
 
   v_recontact := coalesce(v_meta -> 'recontact' = 'true'::jsonb, false);
   if v_final then
     if v_clean = '{}'::jsonb and v_email is null then
-      return public.survey_error('Rispondi ad almeno una domanda.');
+      return public.survey_error('no_answers');
     elsif v_recontact and v_email is null then
-      return public.survey_error('Per farti ricontattare serve un indirizzo email.');
+      return public.survey_error('recontact_needs_email');
     end if;
   else
     -- A metà compilazione l'email può arrivare dopo: il consenso conta solo insieme a un indirizzo.
@@ -3021,9 +3023,9 @@ begin
     select * into r from public.survey_responses x where x.survey_id = s.id and x.session = v_session for update;
     if r.id is not null then
       if r.completed then
-        return public.survey_error('Le risposte sono già state inviate.');
+        return public.survey_error('already_submitted');
       elsif not v_final and r.saves >= 60 then
-        return public.survey_error('Troppi salvataggi: invia le risposte per concludere.');
+        return public.survey_error('too_many_saves');
       end if;
     end if;
   end if;
@@ -3036,12 +3038,12 @@ begin
       select count(*) from public.survey_limits l
       where l.survey_id = s.id and l.client = v_client and l.kind = 'session' and l.created_at > now() - interval '1 hour'
     ) >= 50 then
-      return public.survey_error('Hai già compilato questo questionario più volte. Riprova più tardi.');
+      return public.survey_error('too_many_submissions');
     end if;
     if (select count(*) from (
           select 1 from public.survey_responses x where x.survey_id = s.id and x.created_at > now() - interval '1 minute' limit 600
         ) y) >= 600 then
-      return public.survey_error('Troppe risposte in questo momento. Riprova tra qualche minuto.');
+      return public.survey_error('survey_busy');
     end if;
     -- Il totale sta in un contatore, rifatto con un conteggio solo quando manca: contarle tutte a ogni compilazione costerebbe troppo.
     select c.responses into v_total from public.survey_counts c where c.survey_id = s.id;
@@ -3051,7 +3053,7 @@ begin
       on conflict (survey_id) do update set responses = excluded.responses;
     end if;
     if v_total >= 60000 then
-      return public.survey_error('Il questionario non accetta altre risposte.');
+      return public.survey_error('survey_full');
     end if;
     insert into public.survey_responses (survey_id, session, answers, email, recontact, duration_seconds, device, completed, question_seconds)
     values (s.id, v_session, v_clean, v_email, v_recontact, v_duration, v_device, v_final, v_times);
@@ -3393,7 +3395,7 @@ begin
     join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
   loop
-    raise exception 'La tabella public.% non ha la Row Level Security attiva', t;
+    raise exception 'rls_disabled' using errcode = 'P0001', detail = 'public.' || t;
   end loop;
 end
 $$;

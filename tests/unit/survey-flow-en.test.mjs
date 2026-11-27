@@ -109,21 +109,29 @@ describe('suggerimenti e messaggi in inglese', () => {
   });
 });
 
-describe('messaggi del database in inglese', () => {
-  for (const [reason, english] of [
-    ['Rispondi a tutte le domande obbligatorie.', 'Answer all the required questions.'],
-    ['Risposte non valide.', 'Some answers are not valid.'],
-    ['Il questionario non accetta altre risposte.', 'The survey is not accepting any more answers.'],
-    ['Troppe risposte in questo momento. Riprova tra qualche minuto.', 'Too many answers right now. Please try again in a few minutes.'],
-    ['Un numero è fuori dall\'intervallo ammesso.', 'A number is outside the allowed range.'],
-    ['Le risposte sono già state inviate.', 'Your answers have already been sent.'],
+describe('codici del database in inglese', () => {
+  for (const [code, english] of [
+    ['required_missing', 'Answer all the required questions.'],
+    ['invalid_answers', 'Some answers are not valid.'],
+    ['survey_full', 'The survey is not accepting any more answers.'],
+    ['survey_busy', 'Too many answers right now. Please try again in a few minutes.'],
+    ['number_out_of_range', 'A number is outside the allowed range.'],
+    ['already_submitted', 'Your answers have already been sent.'],
   ]) {
-    it(`«${reason}» si legge «${english}»`, () => {
-      assert.equal(reasonText(reason), english);
+    it(`${code} si legge «${english}»`, () => {
+      assert.equal(reasonText(code), english);
     });
   }
 
-  it('un messaggio sconosciuto non si mostra in italiano: la pagina usa il suo messaggio di invio fallito', () => {
-    for (const reason of ['Messaggio nuovo del database.', '', null, undefined, 42]) assert.equal(reasonText(reason), null, String(reason));
+  it('ogni codice ha il suo testo inglese, senza italiano', () => {
+    const all = Object.keys(texts.server).map((code) => reasonText(code));
+    assert.ok(all.length > 15);
+    assert.deepEqual(all.filter((text) => typeof text !== 'string' || italianWords(text).length), []);
+  });
+
+  it('un codice sconosciuto, una vecchia frase italiana o un nome di Object non danno testo: la pagina usa il suo messaggio di invio fallito', () => {
+    for (const reason of ['codice_nuovo', 'Risposte non valide.', 'constructor', 'hasOwnProperty', '__proto__', '', null, undefined, 42]) {
+      assert.equal(reasonText(reason), null, String(reason));
+    }
   });
 });

@@ -46,7 +46,20 @@ Tutto richiede la verifica in due passaggi (`aal2` nel token), come prima. Un pr
 
 ### Errori
 
-Le funzioni nuove non scrivono frasi: rispondono con un codice, che il sito traduce nella lingua di chi legge (`tx.errors`).
+Il database non scrive mai frasi per le persone: ogni `raise exception` ha come messaggio un codice inglese in snake_case, senza dati personali né valori inseriti, e il sito lo traduce nella lingua di chi legge (`tx.serverErrors[codice]`). Il SQLSTATE (`using errcode`) dice di che tipo di errore si tratta:
+
+| SQLSTATE | Gruppo | Esempi |
+|---|---|---|
+| `42501` | permesso negato da una funzione | `not_allowed` |
+| `22023` | valore non valido | `invalid_project_name`, `invalid_role`, `invalid_status`, `title_required`, `invalid_timesheet`, `timesheet_overlap` |
+| `P0001` | regola violata | `last_platform_admin`, `last_project_admin`, `cross_project`, `chat_archived`, `message_deleted`, `timesheet_future_day` |
+| `P0002` | non trovato | `project_not_found`, `user_not_found`, `idea_not_found`, `expense_group_not_found` |
+
+L'elenco completo è quello dei `raise exception` di `supabase/schema.sql`, con i testi in `assets/js/i18n/it/server-errors.js` (le vecchie frasi, il riferimento) e `assets/js/i18n/en/server-errors.js`: `tests/unit/server-errors.test.mjs` controlla che ogni codice abbia il suo SQLSTATE, sempre lo stesso, e il suo testo nelle due lingue, e che nessun testo resti senza codice. Un codice nuovo si aggiunge allo schema e ai due file dei testi insieme.
+
+La pagina pubblica dei questionari non riceve eccezioni: `submit_survey` risponde `{ status: 'errore', reason, question? }` con `reason` un codice snake_case (`invalid_answers`, `already_submitted`, `survey_full`, …), i cui testi stanno in `assets/js/public/texts.js` (`server`), perché quella pagina non carica nulla del sito; lo stesso test li controlla. Gli stati delle funzioni pubbliche (`ok`, `errore`, `non_trovato`, `chiuso`, `aperto`) sono valori del protocollo e restano come sono.
+
+I codici delle funzioni dei progetti:
 
 | Caso | SQLSTATE | Messaggio |
 |---|---|---|

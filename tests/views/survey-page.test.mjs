@@ -1,5 +1,5 @@
 // La pagina pubblica dei questionari (q.html) su un dispositivo in italiano: gli stessi passaggi della versione
-// inglese, con i testi italiani di sempre e i messaggi del database mostrati come arrivano.
+// inglese, con i testi italiani di sempre e i codici del database messi in parole italiane.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { flush, setupDom, text, typeInto } from '../setup/dom.mjs';
@@ -113,21 +113,47 @@ describe('pagina pubblica in italiano', () => {
     assert.equal(text(document.querySelector('.thanks-close')), 'Ora puoi chiudere questa pagina.');
   });
 
-  it('i messaggi del database si mostrano come arrivano, anche quelli nuovi', async () => {
+  it('i codici del database si mostrano in italiano, e uno sconosciuto con il messaggio di invio fallito', async () => {
     const one = { data: { ...SURVEY, questions: SURVEY.questions.slice(0, 2) }, error: null };
-    for (const reason of ['Il questionario non accetta altre risposte.', 'Un errore nuovo del database.']) {
+    for (const [reason, shown] of [
+      ['survey_full', 'Il questionario non accetta altre risposte.'],
+      ['survey_busy', 'Troppe risposte in questo momento. Riprova tra qualche minuto.'],
+      ['codice_nuovo', 'Invio non riuscito. Riprova tra poco.'],
+      ['Il questionario non accetta altre risposte.', 'Invio non riuscito. Riprova tra poco.'],
+      [undefined, 'Invio non riuscito. Riprova tra poco.'],
+    ]) {
       await openPage({ load: one, submit: [{ status: 'errore', reason }] });
       await press('Inizia');
       option('eta', 'oltre-30').click();
       await press('Invia');
-      assert.equal(alertText(), reason);
+      assert.equal(alertText(), shown, String(reason));
     }
+    await openPage({ load: one, submit: [{ status: 'errore', reason: 'required_missing', question: 'eta' }] });
+    await press('Inizia');
+    option('eta', 'oltre-30').click();
+    await press('Invia');
+    assert.equal(text(document.querySelector('.q-error')), 'Rispondi a tutte le domande obbligatorie.');
     await openPage({ load: one, submit: ['network'] });
     await press('Inizia');
     option('eta', 'oltre-30').click();
     await press('Invia');
     assert.equal(alertText(), 'Connessione non riuscita. Controlla la rete e riprova.');
     assert.ok(button('Riprova'));
+  });
+
+  it('già inviate vale come invio riuscito solo con il suo codice: le risposte erano arrivate', async () => {
+    const one = { data: { ...SURVEY, questions: SURVEY.questions.slice(0, 2) }, error: null };
+    await openPage({ load: one, submit: ['network', { status: 'errore', reason: 'already_submitted' }] });
+    await press('Inizia');
+    option('eta', 'oltre-30').click();
+    await press('Invia');
+    await press('Riprova');
+    assert.equal(text(document.querySelector('h1')), 'Grazie!');
+    await openPage({ load: one, submit: [{ status: 'errore', reason: 'Le risposte sono già state inviate.' }] });
+    await press('Inizia');
+    option('eta', 'oltre-30').click();
+    await press('Invia');
+    assert.equal(alertText(), 'Invio non riuscito. Riprova tra poco.');
   });
 
   it('link sbagliato, questionario chiuso e caricamento fallito hanno il loro messaggio', async () => {
