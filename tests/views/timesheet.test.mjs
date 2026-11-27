@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText, typeInto } from '../setup/dom.mjs';
-import { ADVISOR, ME, OTHER, XSS, item, members, revision } from '../setup/fixtures.mjs';
+import { ADVISOR, ME, OTHER, XSS, item, members, revision, PROJECT } from '../setup/fixtures.mjs';
 
 let api;
 let AppError;
@@ -51,6 +51,7 @@ beforeEach(async () => {
   fake.reset();
   store.resetStore();
   store.state.user = { id: ME };
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   localStorage.clear();
   api.listRevisions = async () => [];
@@ -668,6 +669,7 @@ test('the team table keeps its horizontal scroll when the page is redrawn', asyn
   bruno({ week: lastWeek, entries: [entry('b1', 'mar', 600, 660)] });
   assert.notEqual(outlet.querySelector('.av-scroll'), scroller);
   assert.equal(outlet.querySelector('.av-scroll').scrollLeft, 120);
+  fake.responses.rpc.members_overview = { data: members(), error: null };
   await store.reloadMembers();
   assert.equal(outlet.querySelector('.av-scroll').scrollLeft, 120);
 });

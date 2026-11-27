@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, byText, text, typeInto } from '../setup/dom.mjs';
-import { ME, members } from '../setup/fixtures.mjs';
+import { ME, members, projects } from '../setup/fixtures.mjs';
 
 let api;
 let auth;
@@ -197,9 +197,11 @@ test('runAuthGate shows an error screen when Supabase is unreachable and retries
   await gate;
 });
 
-test('startApp refuses accounts that are not in the team', async () => {
+test('startApp refuses accounts that are in no project', async () => {
   api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
-  api.myRole = async () => null;
+  api.myProjects = async () => [];
+  api.isPlatformAdmin = async () => false;
+  api.myProfile = async () => null;
   assert.equal(await app.startApp(root), false);
   assert.match(text(root), /Non fai parte di nessun progetto/);
 });
@@ -207,7 +209,9 @@ test('startApp refuses accounts that are not in the team', async () => {
 test('startApp builds the shell, starts realtime and the router for a member', async () => {
   store.resetStore();
   api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
-  api.myRole = async () => 'admin';
+  api.myProjects = async () => projects();
+  api.isPlatformAdmin = async () => false;
+  api.myProfile = async () => null;
   api.membersOverview = async () => members();
   api.listItems = async () => [];
   api.commentCounts = async () => new Map();

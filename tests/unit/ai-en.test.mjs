@@ -6,6 +6,7 @@ import { useLanguage } from '../setup/language.mjs';
 useLanguage('en');
 const { api } = await import('../../assets/js/lib/api.js');
 const { AI_TASKS, MAX_CONTEXT, askClaude, buildContext, itemText } = await import('../../assets/js/ai.js');
+const store = await import('../../assets/js/store.js');
 
 const original = { ...api };
 afterEach(() => Object.assign(api, original));

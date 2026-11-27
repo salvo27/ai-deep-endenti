@@ -1,7 +1,9 @@
-import { test, afterEach } from 'node:test';
+import { test, describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from '../../assets/js/lib/api.js';
 import { AI_TASKS, MAX_CONTEXT, askClaude, buildContext, itemText } from '../../assets/js/ai.js';
+import * as store from '../../assets/js/store.js';
+import { PROJECT, PROJECT2 } from '../setup/fixtures.mjs';
 
 const original = { ...api };
 afterEach(() => Object.assign(api, original));
@@ -77,4 +79,32 @@ test('un nome ereditato da ogni oggetto non è un compito valido e non arriva a 
     await assert.rejects(askClaude(task, 'x'), /non valida/, task);
   }
   assert.equal(calls, 0);
+});
+
+describe('corpo della richiesta a Claude', () => {
+  afterEach(() => store.resetStore());
+
+  // La funzione di Claude controlla che chi chiede sia nel progetto e risponde nella lingua di chi legge.
+  for (const [project, lang] of [[PROJECT, 'it'], [PROJECT2, 'it']]) {
+    it(`porta il progetto aperto (${project.slice(-1)}) e la lingua in uso (${lang})`, async () => {
+      store.setProject({ id: project, name: 'P', role: 'member' });
+      let sent = null;
+      api.invokeClaude = async (task, context, meta) => {
+        sent = { task, context, meta };
+        return { text: 'ok' };
+      };
+      await askClaude('critique', 'contesto');
+      assert.deepEqual(sent, { task: 'critique', context: 'contesto', meta: { project, language: lang } });
+    });
+  }
+
+  it('senza progetto aperto non inventa un progetto', async () => {
+    let sent = null;
+    api.invokeClaude = async (task, context, meta) => {
+      sent = meta;
+      return { text: 'ok' };
+    };
+    await askClaude('critique', 'contesto');
+    assert.deepEqual(sent, { project: null, language: 'it' });
+  });
 });

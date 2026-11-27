@@ -6,7 +6,7 @@ import { notFoundView, registerRoutes } from '../../assets/js/app.js';
 import { startRouter } from '../../assets/js/router.js';
 import { surveyTemplate } from '../../assets/js/survey-template.js';
 import { addDays, thisMonday } from '../../assets/js/availability.js';
-import { ADVISOR, IDS, ME, OTHER, boardItems, item, members, revision } from '../setup/fixtures.mjs';
+import { ADVISOR, IDS, ME, OTHER, PROJECT, boardItems, item, members, revision } from '../setup/fixtures.mjs';
 
 const extraIdeas = [
   ['Idea gamma con un titolo piuttosto lungo per vedere come va a capo', 'esplorazione'],
@@ -51,6 +51,7 @@ const surveyResponses = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 store.state.user = { id: ME };
+store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
 store.setMembers(members());
 // Spese di fantasia: un gruppo con una persona senza account e movimenti in due valute.
 const EXPENSES = 'ffffffff-0000-4000-8000-000000000001';

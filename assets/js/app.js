@@ -1,10 +1,11 @@
-// i18n: da tradurre
 import { api } from './lib/api.js';
 import { h, mount, toast } from './lib/dom.js';
+import { isUuid } from './lib/validate.js';
 import { CONFIG } from './config.js';
+import { language, tx } from './i18n/index.js';
 import { notMemberScreen, errorScreen } from './auth.js';
-import { loadAll, on, startRealtime, startSync, state, stopRealtime, stopSync, syncItems, trackPresence } from './store.js';
-import { addRedirect, addRoute, onRouteChange, startRouter, stopRouter } from './router.js';
+import { loadAll, on, setProject, setProjects, startRealtime, startSync, state, stopRealtime, stopSync, syncItems, trackPresence } from './store.js';
+import { addRedirect, addRoute, onRouteChange, parseHash, startRouter, stopRouter } from './router.js';
 import { buildShell } from './views/shell.js';
 import { startNotifications, stopNotifications } from './notifications.js';
 import { sweepNoteImages } from './notes.js';
@@ -29,40 +30,43 @@ import { profileView } from './views/profile.js';
 import { squadView } from './views/squad.js';
 import { guideView } from './views/guide.js';
 import { expenseGroupView, expensesView } from './views/expenses.js';
+import { projectsView } from './views/projects.js';
 import { emptyState } from './views/components.js';
 
+// The addresses are the same in every language: emails, bookmarks and shared links point to them.
 export function registerRoutes() {
   addRoute('/', dashboardView);
-  addRoute('/idee', ideasView);
+  addRoute('/idee', ideasView); // i18n-ignore: address
   addRoute('/idea/:id/:tab?', ideaView);
   addRoute('/elemento/:id/:tab?', itemView);
-  addRoute('/esperimenti', listView('experiment'));
-  addRoute('/interviste', listView('interview'));
-  addRoute('/questionari', surveysView);
-  addRoute('/questionario/:id/:tab?', surveyView);
-  addRoute('/decisioni', listView('decision'));
-  addRoute('/contatti', contactsView);
+  addRoute('/esperimenti', listView('experiment')); // i18n-ignore: address
+  addRoute('/interviste', listView('interview')); // i18n-ignore: address
+  addRoute('/questionari', surveysView); // i18n-ignore: address
+  addRoute('/questionario/:id/:tab?', surveyView); // i18n-ignore: address
+  addRoute('/decisioni', listView('decision')); // i18n-ignore: address
+  addRoute('/contatti', contactsView); // i18n-ignore: address
   addRoute('/chat/:id?', chatView);
-  addRoute('/nuovo/:kind', editorView);
-  addRoute('/modifica/:id', editorView);
-  addRoute('/valutazione', scoringView);
-  addRoute('/generatore', generatorView);
-  addRoute('/squadra/:tab?', squadView);
-  addRoute('/guida/:tab?', guideView);
-  addRedirect('/concetti', '/guida/concetti');
-  addRoute('/storico', logView);
-  addRoute('/storico/:id', itemHistoryView);
+  addRoute('/nuovo/:kind', editorView); // i18n-ignore: address
+  addRoute('/modifica/:id', editorView); // i18n-ignore: address
+  addRoute('/valutazione', scoringView); // i18n-ignore: address
+  addRoute('/generatore', generatorView); // i18n-ignore: address
+  addRoute('/squadra/:tab?', squadView); // i18n-ignore: address
+  addRoute('/guida/:tab?', guideView); // i18n-ignore: address
+  addRedirect('/concetti', '/guida/concetti'); // i18n-ignore: address
+  addRoute('/storico', logView); // i18n-ignore: address
+  addRoute('/storico/:id', itemHistoryView); // i18n-ignore: address
   addRoute('/diff/:id/:to/:from?', diffView);
-  addRoute('/cestino', trashView);
-  addRoute('/membri', teamView);
-  addRoute('/spese', expensesView);
-  addRoute('/spese/:id/:tab?', expenseGroupView);
-  addRedirect('/team', '/membri');
-  addRoute('/profilo', profileView);
+  addRoute('/cestino', trashView); // i18n-ignore: address
+  addRoute('/membri', teamView); // i18n-ignore: address
+  addRoute('/spese', expensesView); // i18n-ignore: address
+  addRoute('/spese/:id/:tab?', expenseGroupView); // i18n-ignore: address
+  addRedirect('/team', '/membri'); // i18n-ignore: address
+  addRoute('/profilo', profileView); // i18n-ignore: address
+  addRoute('/progetti', projectsView);
 }
 
 export function notFoundView(outlet) {
-  mount(outlet, emptyState('Pagina non trovata.', h('a', { class: 'btn btn-primary', href: '#/' }, 'Torna alla dashboard')));
+  mount(outlet, emptyState(tx.errors.notFound, h('a', { class: 'btn btn-primary', href: '#/' }, tx.errors.backToDashboard)));
 }
 
 // Disconnessione dopo un periodo di inattività: una sessione dimenticata aperta non resta valida per sempre.
@@ -72,7 +76,7 @@ export function startIdleLogout(minutes = CONFIG.idleLogoutMinutes, signOut = ()
     clearTimeout(timer);
     timer = setTimeout(async () => {
       await signOut();
-      toast('Sei stato disconnesso per inattività.');
+      toast(tx.auth.idleSignedOut);
     }, minutes * 60 * 1000);
   };
   const events = ['pointerdown', 'keydown', 'scroll', 'visibilitychange'];
@@ -104,14 +108,77 @@ export function startActivityPing(minutes = CONFIG.activityPingMinutes, touch = 
   };
 }
 
+// The project to open. The link of an email carries it after # (#/idea/<id>?progetto=<uuid>): it wins when it is one of
+// mine. Then the one remembered on this device, if it is still mine; then the first. Anything else is ignored.
+const PROJECT_PARAM = 'progetto';
+const PROJECT_KEY = 'progetto';
+
+export function chooseProject(projects, { linked = null, remembered = null } = {}) {
+  const mine = (id) => (isUuid(id) ? projects.find((p) => p.id === id) || null : null);
+  return mine(linked) || mine(remembered) || projects[0] || null;
+}
+
+/** The project in the address and the address without it, so it does not stay in the history nor in a later reload. */
+export function projectLink(hash) {
+  const { path, query } = parseHash(hash);
+  if (!query.has(PROJECT_PARAM)) return { linked: null, hash: hash || '#/' };
+  const linked = query.get(PROJECT_PARAM);
+  query.delete(PROJECT_PARAM);
+  const rest = query.toString();
+  return { linked, hash: `#${path}${rest ? `?${rest}` : ''}` };
+}
+
+// The storage can be missing or throw (private windows, blocked site data): then the first project opens.
+export function rememberedProject(storage = globalThis.localStorage) {
+  try {
+    return storage?.getItem(PROJECT_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberProject(id, storage = globalThis.localStorage) {
+  try {
+    storage?.setItem(PROJECT_KEY, id);
+  } catch {
+    // without storage the choice lasts until the page is closed
+  }
+}
+
+/** Opens another of my projects: the choice is saved and the page reloads, so data, presence and chats are all of it. */
+export function switchProject(id, reload = () => location.reload()) {
+  const project = state.projects.find((p) => p.id === id);
+  if (!project) return false;
+  rememberProject(project.id);
+  // The open page belongs to the old project: the new one opens on its dashboard.
+  history.replaceState(null, '', `${location.pathname}${location.search}#/`);
+  reload();
+  return true;
+}
+
+// Emails and the answers of Claude follow the language of the person: the one in use is saved in the profile.
+// Best effort: whatever happens, the site does not wait for it.
+export async function syncProfileLanguage(current = language) {
+  const profile = await api.myProfile();
+  if (!profile || profile.language === current) return false;
+  await api.updateProfile({ language: current });
+  return true;
+}
+
 let stopIdle = null;
 let stopActivity = null;
+let stopAuthChange = null;
+let stopRouteChange = null;
 
 export function stopApp() {
   stopIdle?.();
   stopIdle = null;
   stopActivity?.();
   stopActivity = null;
+  stopAuthChange?.();
+  stopAuthChange = null;
+  stopRouteChange?.();
+  stopRouteChange = null;
   stopRealtime();
   stopSync();
   stopNotifications();
@@ -120,21 +187,60 @@ export function stopApp() {
   stopRouter();
 }
 
+function listenToAuth() {
+  stopAuthChange = api.onAuthChange((event, session) => {
+    if (event === 'SIGNED_OUT') {
+      stopApp();
+      location.replace(location.pathname);
+    }
+    if (event === 'TOKEN_REFRESHED' && session) api.setRealtimeAuth().catch(() => {});
+  });
+}
+
+// A platform administrator in no project: only the Projects page, where they create one or add themselves to one.
+async function startWithoutProject(root) {
+  history.replaceState(history.state, '', '#/progetti');
+  const { outlet } = buildShell(root, { onSignOut: () => api.signOut() });
+  stopIdle = startIdleLogout();
+  listenToAuth();
+  registerRoutes();
+  await startRouter(outlet, { fallback: notFoundView });
+  return true;
+}
+
 export async function startApp(root) {
   const session = await api.getSession();
   state.user = { id: session.user.id, email: session.user.email };
-  // Ruolo e dati insieme: per chi non è nel team le regole del database restituiscono comunque liste vuote.
-  const [role, loadError] = await Promise.all([api.myRole(), loadAll().then(() => null, (error) => error)]);
-  if (!role) {
-    notMemberScreen(root);
+  try {
+    const [projects, platformAdmin] = await Promise.all([api.myProjects(), api.isPlatformAdmin()]);
+    setProjects(projects);
+    state.platformAdmin = platformAdmin === true;
+  } catch (error) {
+    errorScreen(root, error, () => location.reload());
     return false;
   }
-  if (loadError) {
-    errorScreen(root, loadError, () => location.reload());
+  syncProfileLanguage().catch(() => {});
+
+  const { linked, hash } = projectLink(location.hash);
+  const project = chooseProject(state.projects, { linked, remembered: rememberedProject() });
+  if (!project) {
+    if (state.platformAdmin) return startWithoutProject(root);
+    notMemberScreen(root, { reason: 'none' });
     return false;
   }
+  setProject(project);
+  rememberProject(project.id);
+  if (hash !== location.hash) history.replaceState(history.state, '', hash);
+
+  try {
+    await loadAll();
+  } catch (error) {
+    errorScreen(root, error, () => location.reload());
+    return false;
+  }
+  // Removed between the list of projects and the members, or the project was archived in the meantime.
   if (!state.me) {
-    notMemberScreen(root);
+    notMemberScreen(root, { reason: 'removed' });
     return false;
   }
 
@@ -149,18 +255,13 @@ export async function startApp(root) {
   sweepSurveyImages();
   stopIdle = startIdleLogout();
   stopActivity = startActivityPing();
+  // Members are not sent live any more: whoever is removed finds out at the next sync (entering a page, every minute).
   on('removed', () => {
     stopApp();
-    notMemberScreen(root);
+    notMemberScreen(root, { reason: 'removed' });
   });
-  api.onAuthChange((event, session) => {
-    if (event === 'SIGNED_OUT') {
-      stopApp();
-      location.replace(location.pathname);
-    }
-    if (event === 'TOKEN_REFRESHED' && session) api.setRealtimeAuth().catch(() => {});
-  });
-  onRouteChange((path) => {
+  listenToAuth();
+  stopRouteChange = onRouteChange((path) => {
     trackPresence({ route: path });
     syncItems();
   });

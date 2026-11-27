@@ -2,11 +2,15 @@ import { test, describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { AppError, api, toAppError } from '../../assets/js/lib/api.js';
 import { authFlags } from '../../assets/js/lib/supabase.js';
+import { PROJECT } from '../setup/fixtures.mjs';
 
 const fake = globalThis.__fakeSupabase;
 const ID = '11111111-1111-4111-8111-111111111111';
 
-beforeEach(() => fake.reset());
+beforeEach(() => {
+  fake.reset();
+  api.useProject(PROJECT);
+});
 
 test('the client uses PKCE and a persisted, auto refreshed session', () => {
   assert.equal(fake.options.auth.flowType, 'pkce');
@@ -65,8 +69,9 @@ test('listRevisions applies only the requested filters', async () => {
   fake.responses.from.revisions = { data: [], error: null };
   await api.listRevisions({ ideaId: ID, kind: 'idea', beforeId: 10, limit: 5 });
   const ops = fake.calls[0][2].map((op) => op[0]);
-  assert.deepEqual(ops, ['select', 'order', 'limit', 'or', 'eq', 'lt']);
-  assert.equal(fake.calls[0][2][3][1], `idea_id.eq.${ID},item_id.eq.${ID}`);
+  assert.deepEqual(ops, ['select', 'eq', 'order', 'limit', 'or', 'eq', 'lt']);
+  assert.deepEqual(fake.calls[0][2][1], ['eq', 'project_id', PROJECT]);
+  assert.equal(fake.calls[0][2][4][1], `idea_id.eq.${ID},item_id.eq.${ID}`);
 });
 
 test('database errors become AppError', async () => {
@@ -86,7 +91,7 @@ test('invokeClaude surfaces the function message or a generic one', async () => 
   await assert.rejects(api.invokeClaude('critique', 'x'), /non è disponibile/);
   fake.responses.functions.claude = { data: { text: 'ok' }, error: null };
   assert.deepEqual(await api.invokeClaude('critique', 'contesto'), { text: 'ok' });
-  assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'claude', { body: { task: 'critique', context: 'contesto' } }]);
+  assert.deepEqual(fake.calls.at(-1), ['functions.invoke', 'claude', { body: { task: 'critique', context: 'contesto', project: PROJECT, language: 'it' } }]);
 });
 
 test('commentCounts groups comments by item', async () => {
@@ -96,17 +101,18 @@ test('commentCounts groups comments by item', async () => {
   assert.equal(counts.get('b'), 1);
 });
 
-test('realtime subscribes to the board and chat tables and presence uses a private channel', () => {
+test('realtime subscribes to the board and chat tables of the project and presence uses a private channel', () => {
   const seen = [];
   const off = api.subscribeDb({ onItem: (r) => seen.push(['item', r]), onRevision: (r) => seen.push(['rev', r]), onStatus: (s) => seen.push(['status', s]) });
   const channel = fake.channels[0];
-  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'members', 'chats', 'chat_messages', 'mentions']);
+  assert.deepEqual(channel.handlers.map((h) => h.filter.table), ['items', 'revisions', 'comments', 'chats', 'chat_messages', 'mentions']);
   channel.emit('postgres_changes', { table: 'items', new: { id: 'x' } });
   assert.deepEqual(seen, [['status', 'SUBSCRIBED'], ['item', { id: 'x' }]]);
   off();
   assert.equal(fake.removed.length, 1);
 
   const presence = api.joinPresence(ID, () => {});
+  assert.equal(fake.channels[1].name, `board:${PROJECT}`);
   assert.equal(fake.channels[1].options.config.private, true);
   presence.track({ route: '/' });
   assert.deepEqual(fake.channels[1].tracked, [{ route: '/' }]);
@@ -185,7 +191,7 @@ test('every remaining wrapper calls the right Supabase endpoint', async () => {
   fake.responses.from.mentions = { data: [{ id: 1 }], error: null };
   assert.deepEqual(await api.listMentions(), [{ id: 1 }]);
   await api.markMentionsRead([1]);
-  assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_mentions_read').at(-1)[2], { p_ids: [1] });
+  assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_mentions_read').at(-1)[2], { p_project: PROJECT, p_ids: [1] });
   assert.deepEqual(fake.calls.filter((c) => c[0] === 'rpc' && c[1] === 'mark_chat_read').at(-1)[2], { p_chat: ID });
   await api.setRealtimeAuth();
   const off = api.onAuthChange(() => {});

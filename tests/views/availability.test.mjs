@@ -1,7 +1,7 @@
 import { test, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, flush, text, byText, typeInto } from '../setup/dom.mjs';
-import { ADVISOR, ME, OTHER, XSS, item, members } from '../setup/fixtures.mjs';
+import { ADVISOR, ME, OTHER, XSS, item, members, PROJECT } from '../setup/fixtures.mjs';
 
 let api;
 let store;
@@ -44,6 +44,7 @@ beforeEach(async () => {
   fake.reset();
   store.resetStore();
   store.state.user = { id: ME };
+  store.setProject({ id: PROJECT, name: 'Alfa', role: 'admin' });
   store.setMembers(members());
   localStorage.clear();
   api.listRevisions = async () => [];

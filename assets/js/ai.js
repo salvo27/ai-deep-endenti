@@ -1,7 +1,8 @@
 import { api, AppError } from './lib/api.js';
 import { CANVAS_BLOCKS, IMPORTANCE, KINDS, optionLabel, statusLabel } from './schema.js';
 import { fmtDate, fmtMoney } from './lib/format.js';
-import { tx } from './i18n/index.js';
+import { language, tx } from './i18n/index.js';
+import { currentProjectId } from './store.js';
 
 const t = tx.ai;
 
@@ -84,7 +85,8 @@ export function buildContext(task, { item, idea, canvases = [], experiments = []
 
 export async function askClaude(task, context) {
   if (!Object.hasOwn(AI_TASKS, task)) throw new AppError(t.errors.invalidTask, { code: 'invalid_task' });
-  const response = await api.invokeClaude(task, context);
+  // The Edge Function checks that the person is in the open project and answers in the language of the page.
+  const response = await api.invokeClaude(task, context, { project: currentProjectId(), language });
   const text = typeof response?.text === 'string' ? response.text.trim() : '';
   if (!text) throw new AppError(t.errors.emptyResponse, { code: 'empty_response' });
   return {

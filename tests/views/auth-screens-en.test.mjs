@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { useLanguage } from '../setup/language.mjs';
 import { setupDom, flush, byText, text, typeInto } from '../setup/dom.mjs';
 import { italianWords } from '../setup/italian.mjs';
+import { ME, PROJECT, members } from '../setup/fixtures.mjs';
 
 // On a device in English: the site language is decided when it loads, so the modules are imported after the choice.
 useLanguage('en');
@@ -125,7 +126,14 @@ describe('schermate di accesso in inglese', () => {
   });
 });
 
-describe('pagine in inglese', () => {
+describe('avvio in inglese', () => {
+  it('un indirizzo sconosciuto dice pagina non trovata in inglese', () => {
+    const outlet = document.createElement('main');
+    app.notFoundView(outlet);
+    assert.match(text(outlet), /Page not found/);
+    assertEnglish(outlet);
+  });
+
   it('una pagina che si rompe senza messaggio lo dice in inglese', async () => {
     router.clearRoutes();
     router.addRoute('/', () => {
@@ -135,5 +143,49 @@ describe('pagine in inglese', () => {
     await router.startRouter(outlet);
     assert.equal(text(outlet), 'Page not available.');
     router.stopRouter();
+  });
+
+  it('salva l inglese nel profilo di chi usa il sito in inglese', async () => {
+    const saved = [];
+    api.myProfile = async () => ({ user_id: ME, language: 'it' });
+    api.updateProfile = async (patch) => saved.push(patch);
+    assert.equal(await app.syncProfileLanguage(), true);
+    assert.deepEqual(saved, [{ language: 'en' }]);
+  });
+
+  it('il segnaposto della pagina Progetti è in inglese', async () => {
+    router.clearRoutes();
+    store.resetStore();
+    api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
+    api.myProjects = async () => [];
+    api.isPlatformAdmin = async () => true;
+    api.myProfile = async () => null;
+    api.onAuthChange = () => () => {};
+    assert.equal(await app.startApp(root), true);
+    await flush();
+    assert.equal(location.hash, '#/progetti');
+    // Only the page: the menu around it belongs to the shell, translated with it.
+    const page = root.querySelector('#content');
+    assert.ok(text(page).length > 0);
+    assertEnglish(page);
+  });
+
+  it('chi ha un progetto entra con la board in inglese', async () => {
+    router.clearRoutes();
+    store.resetStore();
+    api.getSession = async () => ({ user: { id: ME, email: 'anna@test.it' } });
+    api.myProjects = async () => [{ id: PROJECT, name: 'Alpha', role: 'admin' }];
+    api.isPlatformAdmin = async () => false;
+    api.myProfile = async () => null;
+    api.membersOverview = async () => members();
+    api.listItems = async () => [];
+    api.commentCounts = async () => new Map();
+    api.setRealtimeAuth = async () => {};
+    api.subscribeDb = () => () => {};
+    api.joinPresence = () => ({ track() {}, leave() {} });
+    api.onAuthChange = () => () => {};
+    api.listRevisions = async () => [];
+    assert.equal(await app.startApp(root), true);
+    assert.equal(store.currentProjectId(), PROJECT);
   });
 });
