@@ -1,2 +1,203 @@
 // Same entries as ../it/surveys.js, which is the reference: tests/unit/i18n.test.mjs checks it.
-export const surveys = {};
+// Surveys: the starting template, the checks while writing, the colours, the response statistics and the printable sheet.
+export const surveys = {
+  other: 'Other',
+  preferNot: 'Prefer not to say',
+  template: {
+    intro: 'We are [names], [who you really are, for example a group of students on course X]. We are studying how people [deal with the problem]. We are not selling anything. Your answers are anonymous and at the end, if you like, you can leave us your email for a short chat.',
+    privacy: [
+      'Who collects the data: [names], [who you are, for example students on course X]. For any questions, write to [contact email].',
+      'Why: to understand how people [deal with the problem] for our project. We sell nothing and never use the answers for advertising.',
+      'What data: only the answers you choose to give. We do not store your name, IP address or location. The email is optional and only used to contact you again, if you ask.',
+      'Anonymity: answers without an email are anonymous and results are only shown all together.',
+      'On your device: for 30 days the browser remembers when you opened the link and your answers in progress, so you can resume; after sending, only the date. No cookies or analytics.',
+      'How long: we keep the answers until [date, for example the end of the project], then delete them. We delete the email after contacting you or when you ask.',
+      'Your rights: you can ask to see, correct or delete your data by writing to [contact email], and you can contact your data protection authority.',
+      'Answering is voluntary and you can stop whenever you like.',
+    ],
+    thanksContact: 'Thank you! We will write to you in the next few days to arrange a 20-minute chat at a time that suits you. If you change your mind, just reply ‘no thanks’.',
+    thanks: 'Thank you for your time! Your answers help us understand the problem better. If later on you feel like telling us about your experience, write to us at [contact email].',
+    newQuestion: 'New question',
+    newSection: 'New section',
+    newEmail: 'If you\'re happy to talk about it in a short chat, leave us your email',
+    firstOption: 'First option',
+    secondOption: 'Second option',
+    situation: {
+      label: 'Which of these best describes your situation?',
+      options: ['[Situation 1, for example student]', '[Situation 2, for example employee]', '[Situation 3, for example freelancer]'],
+    },
+    age: { label: 'How old are you?', options: ['Under 25', '25 to 34', '35 to 44', '45 to 54', '55 or over'] },
+    lastTime: {
+      label: 'The last time [you had the problem], how long ago was it?',
+      options: ['In the last week', 'In the last month', 'In the last 6 months', 'More than 6 months ago', 'It has never happened to me'],
+    },
+    episode: { label: 'Tell us about the last time [you had the problem]: what happened and what did you do?', help: 'A few lines are enough.' },
+    howOften: { label: 'In the last 4 weeks, how many times [did you have the problem]?', help: 'Write a number, even 0.' },
+    timeLost: { label: 'The last time, how much time did it cost you?' },
+    email: { label: 'If you\'re happy to talk about it in a 15-minute chat, leave us your email', help: 'Optional. We only use it for this.' },
+  },
+  scales: {
+    frequenza: {
+      name: 'Frequency',
+      five: ['Never', 'Rarely', 'Sometimes', 'Often', 'Always'],
+      seven: ['Never', 'Almost never', 'Rarely', 'Sometimes', 'Often', 'Almost always', 'Always'],
+    },
+    quantita: {
+      name: 'Amount',
+      five: ['Not at all', 'A little', 'Moderately', 'A lot', 'A great deal'],
+      seven: ['Not at all', 'Very little', 'A little', 'Moderately', 'A lot', 'A great deal', 'Extremely'],
+    },
+    facilita: {
+      name: 'Ease',
+      five: ['Very difficult', 'Difficult', 'Neither easy nor difficult', 'Easy', 'Very easy'],
+      seven: ['Very difficult', 'Difficult', 'Somewhat difficult', 'Neither easy nor difficult', 'Somewhat easy', 'Easy', 'Very easy'],
+    },
+    qualita: {
+      name: 'Quality',
+      five: ['Very poor', 'Poor', 'Fair', 'Good', 'Excellent'],
+      seven: ['Terrible', 'Very poor', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'],
+    },
+    importanza: {
+      name: 'Importance',
+      five: ['Not at all important', 'Slightly important', 'Moderately important', 'Very important', 'Essential'],
+      seven: ['Not at all important', 'Barely important', 'Slightly important', 'Moderately important', 'Important', 'Very important', 'Essential'],
+    },
+  },
+  checks: {
+    conditional: {
+      text: (words) => `Hypothetical wording (${words.map((word) => `‘${word}’`).join(', ')}): it asks about an intention, and intentions are poor predictors of what people actually do.`,
+      hint: 'Ask about a past fact: ‘The last time you...’ or ‘In the last 4 weeks, how many times...’ instead of ‘Would you buy...’.',
+    },
+    agree: {
+      text: 'An ‘agree / disagree’ question: it pushes people to say yes and measures worse than a direct question.',
+      hint: 'Ask what you want to know: instead of ‘How much do you agree: it often happens to me’ ask ‘How often does it happen to you?’ with the labels Never, Rarely, Sometimes, Often, Always.',
+    },
+    leading: { text: 'The question suggests the answer.', hint: 'Make it neutral: instead of ‘Don’t you think it is awkward...?’ ask ‘How did it go the last time...?’.' },
+    incentive: {
+      text: 'It mentions prizes, vouchers or discounts: they attract people interested in the prize, not in the problem.',
+      hint: 'Remove the incentive: the handbook advises against it. Explain instead why you need the answers.',
+    },
+    solution: {
+      text: 'It talks about the solution: people answering tend to agree with whoever asked.',
+      hint: 'Ask about the problem and what they do today: ‘How did you solve it the last time?’.',
+    },
+    screening: {
+      text: 'It reveals who you are looking for: some people might answer just to fit in.',
+      hint: 'Ask about their situation with a multiple choice question that also has options you are not interested in, without saying which one you want.',
+    },
+    empty: { text: 'The question has no text: it will not be saved.', hint: 'Write the question or delete it.' },
+    agreeScale: { text: 'An ‘agree / disagree’ scale: it measures worse than a specific scale.', hint: 'Use labels tied to the question, for example Never, Rarely, Sometimes, Often, Always.' },
+    labels: { text: 'Not every point on the scale has a label.', hint: 'Name every point: fully labelled scales are more reliable.' },
+    options: { text: 'The question has no options: people answering will not see it.', hint: 'Add at least one option.' },
+    brackets: { text: 'There are still parts in square brackets.', hint: 'Replace them with your own text.' },
+    noQuestions: { text: 'There are no questions.', hint: 'Start from the template: a few questions about who is answering, then the problem in the past tense.' },
+    noIntro: { text: 'The introduction is missing.', hint: 'Write who you are, what you are studying and that you are not selling anything.' },
+    inIntro: (text) => `Introduction: ${text}`,
+    noPrivacy: {
+      text: 'The privacy notice is missing.',
+      hint: 'About 150 words: who you are, why you collect the data, what data, anonymity, how long you keep it, rights and a contact.',
+    },
+    thanksIncentive: { text: 'Final message: it mentions prizes, vouchers or discounts.', hint: 'Remove the incentive: the handbook advises against it.' },
+    places: {
+      intro: 'introduction',
+      privacy: 'privacy notice',
+      thanks: 'final message',
+      thanksContact: 'message for people who want to be contacted',
+      questions: (count) => (count === 1 ? '1 question' : `${count} questions`),
+    },
+    bracketsLeft: {
+      text: (places) => `Parts in square brackets still to replace: ${places.join(', ')}.`,
+      hint: 'Replace the parts in [ ] with your own text before opening the survey.',
+    },
+    tooManyProblem: {
+      text: (count, max) => `${count} questions about the problem: the handbook recommends ${max} at most.`,
+      hint: 'Keep the ones you need to decide; ask the rest in the interviews.',
+    },
+    tooManyPersona: {
+      text: (count, max) => `${count} questions about who is answering: ${max} at most are enough.`,
+      hint: 'Keep only the ones that tell you whether someone is in your target.',
+    },
+    tooManyOpen: {
+      text: (count, max) => `${count} open questions: beyond ${max}, answers get shorter and more people drop out.`,
+      hint: 'Turn the others into multiple choice questions; keep open the one that asks for a concrete episode.',
+    },
+    tooManyRequired: {
+      text: (count) => `${count} required questions: forcing people to answer makes more of them drop out.`,
+      hint: 'Leave them optional; one or two at most, for example the one that tells you whether someone is in your target.',
+    },
+    tooLong: {
+      text: (minutes, max) => `Estimated length of about ${minutes} minutes: beyond ${max}, answers get more rushed and more people drop out.`,
+      hint: 'Remove the questions you will not use to decide.',
+    },
+    noEmail: {
+      text: 'The email question is missing.',
+      hint: 'The survey is mainly for finding people to interview: add the optional email at the end.',
+    },
+  },
+  colours: { indigo: 'Indigo', blue: 'Blue', teal: 'Teal', green: 'Green', amber: 'Amber', red: 'Red', raspberry: 'Raspberry', violet: 'Violet' },
+  contrast: {
+    text: { text: 'Neither white nor black text reaches 4.5:1 on this colour: the button text would be hard to read.', hint: 'Choose a lighter or darker colour.' },
+    light: {
+      text: (ratio) => `On the light background the colour is hard to see (${ratio}): the page darkens it just enough by itself, so people answering will see a darker colour.`,
+      hint: 'To get exactly this colour, choose a darker one.',
+    },
+    dark: {
+      text: (ratio) => `On the dark background the colour is hard to see (${ratio}): the page lightens it just enough by itself, so people answering will see a lighter colour.`,
+      hint: 'To get exactly this colour, choose a lighter one.',
+    },
+  },
+  stats: {
+    flags: {
+      veloce: 'Much faster than the others',
+      lettura: 'Too fast to read the questions',
+      uguali: 'Same answer on every scale',
+      aperta: 'Open answer empty or under 3 words',
+      saltate: 'More than half the questions skipped',
+      domande: 'Several questions answered too quickly',
+    },
+    devices: { telefono: 'Phone', computer: 'Computer' },
+    funnel: { views: 'Link opened', starts: 'Started', partial: 'Stopped halfway', completed: 'Completed' },
+    csv: {
+      // The comma: what a spreadsheet in English expects, where the decimal separator is the point.
+      separator: ',',
+      response: 'Response',
+      date: 'Date',
+      status: 'Status',
+      duration: 'Duration (seconds)',
+      device: 'Device',
+      email: 'Email',
+      recontact: 'Contact again',
+      flags: 'Flags',
+      completed: 'completed',
+      partial: 'stopped',
+      yes: 'yes',
+      no: 'no',
+    },
+  },
+  print: {
+    number: {
+      range: (min, max) => `Whole number from ${min} to ${max}`,
+      min: (min) => `Whole number, at least ${min}`,
+      max: (max) => `Whole number, at most ${max}`,
+      any: 'Whole number',
+    },
+    kinds: {
+      scelta: 'One answer',
+      scelte: 'One or more answers',
+      scala: (points) => `Scale from 1 to ${points}`,
+      breve: 'Short answer',
+      lunga: 'Long answer',
+      email: 'Email, optional, to get back in touch',
+      emailRequired: 'Email, to get back in touch',
+    },
+    consent: 'You can contact me for a short chat',
+    required: '(required)',
+    summary: (count, minutes, status) => `Survey · ${count === 1 ? '1 question' : `${count} questions`} · ${minutes} · ${status}`,
+    intro: 'Introduction',
+    questions: 'Questions',
+    thanks: 'Final message',
+    thanksContact: 'Message for people who ask to be contacted',
+    privacy: 'Privacy notice',
+    documentTitle: (title) => `Survey - ${title}`,
+  },
+};

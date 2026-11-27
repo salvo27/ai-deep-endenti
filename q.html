@@ -32,11 +32,14 @@
     <link rel="modulepreload" href="assets/js/public/survey-flow.js" />
     <link rel="modulepreload" href="assets/js/public/survey-colors.js" />
     <link rel="modulepreload" href="assets/js/public/survey-time.js" />
+    <link rel="modulepreload" href="assets/js/public/texts.js" />
   </head>
   <body>
+    <!-- The page chooses the respondent's language as soon as it starts (assets/js/public/texts.js): what is written
+         here is only seen before that, or without JavaScript, so the no-JavaScript message is in both languages. -->
     <main id="survey" class="survey">
       <p class="survey-boot" role="status">Caricamento…</p>
-      <noscript><p>Per rispondere al questionario serve JavaScript.</p></noscript>
+      <noscript><p>Per rispondere al questionario serve JavaScript.</p><p lang="en">You need JavaScript to answer this survey.</p></noscript>
     </main>
   </body>
 </html>

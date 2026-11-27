@@ -1,9 +1,12 @@
-// i18n: da tradurre
 // Statistiche delle risposte a un questionario: funzioni pure, nessun accesso ai dati.
 // Le segnalazioni di qualità non cancellano mai nulla: servono solo a escludere, a scelta, le risposte sospette.
 import { SURVEY_PREFER_NOT } from './schema.js';
 import { countWords, questionWords } from './public/survey-time.js';
 import { csvCell } from './lib/format.js';
+import { tx } from './i18n/index.js';
+
+const texts = tx.surveys.stats;
+const SECTION = 'sezione'; // i18n-ignore: stored question type
 
 export const QUALITY = Object.freeze({
   speedIndex: 2, // Leiner 2019
@@ -16,16 +19,10 @@ export const QUALITY = Object.freeze({
   rushedShare: 1 / 3,
 });
 
-export const FLAG_LABELS = {
-  veloce: 'Molto più veloce degli altri',
-  lettura: 'Troppo veloce per leggere le domande',
-  uguali: 'Stessa risposta a tutte le scale',
-  aperta: 'Risposta aperta vuota o di meno di 3 parole',
-  saltate: 'Più di metà delle domande saltate',
-  domande: 'Diverse domande risposte troppo in fretta',
-};
+// Keyed by the flag codes and the device values stored in the database, which stay the same in every language.
+export const FLAG_LABELS = { ...texts.flags };
 
-export const DEVICE_LABELS = { telefono: 'Telefono', computer: 'Computer' };
+export const DEVICE_LABELS = { ...texts.devices };
 
 export function median(values) {
   const list = values.filter(Number.isFinite).sort((a, b) => a - b);
@@ -36,7 +33,7 @@ export function median(values) {
 
 export const share = (count, total) => (total > 0 ? count / total : null);
 
-export const askedQuestions = (survey) => (Array.isArray(survey?.questions) ? survey.questions : []).filter((q) => q.type !== 'sezione');
+export const askedQuestions = (survey) => (Array.isArray(survey?.questions) ? survey.questions : []).filter((q) => q.type !== SECTION);
 
 const answersOf = (response) => (response?.answers && typeof response.answers === 'object' ? response.answers : {});
 const otherText = (q, response) => {
@@ -66,7 +63,9 @@ function lastAnsweredIndex(questions, response) {
   return last;
 }
 
-const optionLabel = (q, id) => (id === SURVEY_PREFER_NOT ? 'Preferisco non rispondere' : q.options?.find((o) => o.id === id)?.label ?? null);
+const optionLabel = (q, id) => (id === SURVEY_PREFER_NOT ? tx.surveys.preferNot : q.options?.find((o) => o.id === id)?.label ?? null);
+// The name of the free text option: the team's own, or the default one.
+const otherName = (q) => q.other_label || tx.surveys.other;
 
 export function scaleLabel(q, value) {
   return q.scale?.labels?.[value - 1] || (value === 1 ? q.scale?.min_label : value === q.scale?.points ? q.scale?.max_label : '') || '';
@@ -84,7 +83,7 @@ export function answerText(q, response, { scaleWithLabel = false } = {}) {
     case 'scelte': {
       const ids = Array.isArray(value) ? value : value ? [value] : [];
       const parts = ids.map((id) => optionLabel(q, id)).filter(Boolean);
-      if (other) parts.push(`${q.other_label || 'Altro'}: ${other}`);
+      if (other) parts.push(`${otherName(q)}: ${other}`);
       return parts.join('; ');
     }
     case 'scala': {
@@ -212,7 +211,7 @@ export function qualityFlags(survey, responses) {
     if (countable.length && countable.filter((q) => hasAnswer(q, r)).length / countable.length < QUALITY.answeredShare) list.push('saltate');
     const timed = countable.filter((q) => hasAnswer(q, r) && secondsOn(r, q) !== null).length;
     const rushed = countable.filter((q) => isRushed(q, r)).length;
-    if (timed && rushed >= Math.max(QUALITY.rushedMin, Math.ceil(timed * QUALITY.rushedShare))) list.push('domande');
+    if (timed && rushed >= Math.max(QUALITY.rushedMin, Math.ceil(timed * QUALITY.rushedShare))) list.push('domande'); // i18n-ignore: flag code
     if (list.length) flags.set(r.n, list);
   }
   return flags;
@@ -234,10 +233,10 @@ export function funnelSteps(funnel) {
   const starts = Math.max(funnel?.starts ?? 0, partial + completed);
   return {
     steps: [
-      { key: 'views', label: 'Link aperto', count: views },
-      { key: 'starts', label: 'Iniziati', count: starts },
-      { key: 'partial', label: 'Interrotti a metà', count: partial },
-      { key: 'completed', label: 'Completati', count: completed },
+      { key: 'views', label: texts.funnel.views, count: views },
+      { key: 'starts', label: texts.funnel.starts, count: starts },
+      { key: 'partial', label: texts.funnel.partial, count: partial },
+      { key: 'completed', label: texts.funnel.completed, count: completed },
     ],
     completionRate: share(completed, starts),
     starts,
@@ -246,11 +245,12 @@ export function funnelSteps(funnel) {
 
 // Persona dalle risposte: la prima domanda «chi risponde» con una risposta, senza «Preferisco non rispondere».
 export function personaAnswer(survey, response) {
-  for (const q of askedQuestions(survey).filter((x) => x.role === 'persona')) {
+  for (const q of askedQuestions(survey).filter((x) => x.role === 'persona')) { // i18n-ignore: stored question role
     const value = answersOf(response)[q.id];
     if (value === SURVEY_PREFER_NOT || (Array.isArray(value) && value.includes(SURVEY_PREFER_NOT))) continue;
     const text = answerText(q, response, { scaleWithLabel: true });
-    if (text !== null && text !== '') return String(text).startsWith(`${q.other_label || 'Altro'}: `) ? String(text).slice(`${q.other_label || 'Altro'}: `.length) : String(text);
+    const prefix = `${otherName(q)}: `;
+    if (text !== null && text !== '') return String(text).startsWith(prefix) ? String(text).slice(prefix.length) : String(text);
   }
   return null;
 }
@@ -292,26 +292,28 @@ function localStamp(iso) {
 }
 
 // Una riga per risposta, con nomi di colonna leggibili e il solo numero della risposta come identificativo.
-export function responsesCsv(survey, responses, { includeEmail = false, flags = new Map(), separator = ';' } = {}) {
+// The separator is the one a spreadsheet in the language in use expects.
+export function responsesCsv(survey, responses, { includeEmail = false, flags = new Map(), separator = texts.csv.separator } = {}) {
+  const csv = texts.csv;
   const questions = askedQuestions(survey).filter((q) => q.type !== 'email');
   const headers = uniqueHeaders([
-    'Risposta',
-    'Data',
-    'Stato',
-    'Durata (secondi)',
-    'Dispositivo',
+    csv.response,
+    csv.date,
+    csv.status,
+    csv.duration,
+    csv.device,
     ...questions.map((q) => q.label),
-    ...(includeEmail ? ['Email', 'Da ricontattare'] : []),
-    'Segnalazioni',
+    ...(includeEmail ? [csv.email, csv.recontact] : []),
+    csv.flags,
   ]);
   const rows = responses.map((r) => [
     r.n,
     localStamp(r.created_at),
-    r.completed ? 'completata' : 'interrotta',
+    r.completed ? csv.completed : csv.partial,
     Number.isFinite(r.duration_seconds) ? r.duration_seconds : null,
     DEVICE_LABELS[r.device] || '',
     ...questions.map((q) => answerText(q, r)),
-    ...(includeEmail ? [r.email || '', r.email ? (r.recontact ? 'sì' : 'no') : ''] : []),
+    ...(includeEmail ? [r.email || '', r.email ? (r.recontact ? csv.yes : csv.no) : ''] : []),
     (flags.get(r.n) || []).map((code) => FLAG_LABELS[code]).join('; '),
   ]);
   return [headers, ...rows].map((row) => row.map((cell) => csvCell(cell, separator)).join(separator)).join('\r\n');

@@ -350,7 +350,9 @@ test('the public page never imports the app, the store, the router or anything t
     [...readFileSync(new URL(`assets/js/public/${file}`, ROOT), 'utf8').matchAll(/(?:import|export)\s[^'"]*?from\s*'([^']+)'|import\s*'([^']+)'/g)].map((m) => m[1] || m[2]);
   assert.deepEqual(importsOf('survey-page.js'), ['./survey-api.js', './survey-time.js', './survey-flow.js']);
   assert.deepEqual(importsOf('survey-flow.js'), ['./survey-api.js', './survey-time.js', './survey-colors.js']);
-  assert.deepEqual(importsOf('survey-time.js'), []);
+  // The minutes label is a text: survey-time.js reads it from texts.js, the page's own text module, which imports nothing.
+  assert.deepEqual(importsOf('survey-time.js'), ['./texts.js']);
+  assert.deepEqual(importsOf('texts.js'), []);
   assert.deepEqual(importsOf('survey-colors.js'), []);
 });
 
