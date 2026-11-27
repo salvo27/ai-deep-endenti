@@ -319,6 +319,41 @@ del {
   font-weight: 600;
 }
 
+/* Progetto aperto con il selettore degli altri, e il link Progetti per l'amministratore della piattaforma */
+.project-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-box:empty,
+.project-switch[hidden] {
+  display: none;
+}
+
+.project-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 0.6rem 0.4rem;
+}
+
+.project-switch-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.project-switch select {
+  width: 100%;
+}
+
+.project-name {
+  overflow-wrap: anywhere;
+}
+
 /* Profilo ed Esci restano sempre visibili in fondo al menu, anche quando l'elenco è lungo e scorre */
 .sidebar-foot {
   position: sticky;
