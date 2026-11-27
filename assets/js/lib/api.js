@@ -561,8 +561,16 @@ export const api = {
     return unwrap(supabase.from('chats').update(patch).eq('id', requireUuid(id)).select().single(), t.failed.edit);
   },
 
+  // Like every read, only the messages of the open project: a chat id from another project gives nothing.
   async listMessages(chatId, { before = null, limit = 50 } = {}) {
-    let query = supabase.from('chat_messages').select('*').eq('chat_id', requireUuid(chatId)).order('created_at', { ascending: false }).limit(limit);
+    const chat = requireUuid(chatId);
+    let query = supabase
+      .from('chat_messages')
+      .select('*')
+      .eq('project_id', projectId())
+      .eq('chat_id', chat)
+      .order('created_at', { ascending: false })
+      .limit(limit);
     if (before) query = query.lt('created_at', before);
     return ((await unwrap(query)) || []).reverse();
   },
@@ -575,7 +583,8 @@ export const api = {
   // I messaggi citati in una risposta che non sono tra quelli già caricati.
   async getMessages(ids) {
     if (!ids.length) return [];
-    return (await unwrap(supabase.from('chat_messages').select('*').in('id', ids.map(requireUuid)))) || [];
+    const wanted = ids.map(requireUuid);
+    return (await unwrap(supabase.from('chat_messages').select('*').eq('project_id', projectId()).in('id', wanted))) || [];
   },
 
   async editMessage(id, body) {

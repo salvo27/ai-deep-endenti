@@ -35,6 +35,8 @@ const READS = [
   ['listComments', () => api.listComments([ID, ID]), 'comments'],
   ['commentCounts', () => api.commentCounts(), 'comments'],
   ['listChats', () => api.listChats(), 'chats'],
+  ['listMessages', () => api.listMessages(ID), 'chat_messages'],
+  ['getMessages', () => api.getMessages([ID]), 'chat_messages'],
   ['listMentions', () => api.listMentions(), 'mentions'],
   ['auditLog', () => api.auditLog(), 'audit_log'],
 ];

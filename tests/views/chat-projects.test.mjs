@@ -162,6 +162,34 @@ describe('chat del progetto aperto', () => {
     assert.match(shownText, /Messaggio di Alfa/);
   });
 
+  // A link to a chat of another of my projects (pasted in a note, an old bookmark) must not read it nor mark it read.
+  it('il link a una chat di un altro progetto non ne legge i messaggi e non la segna letta', async () => {
+    const calls = [];
+    api.listMessages = async (id) => (calls.push(['listMessages', id]), []);
+    api.markChatRead = async (id) => calls.push(['markChatRead', id]);
+    const body = await visit(`#/chat/${ELSEWHERE}`);
+    await flush(3);
+    assert.match(body, /Chat non trovata/);
+    assert.deepEqual(calls, []);
+    document.dispatchEvent(new window.Event('visibilitychange'));
+    store.emit('chat-message', { row: msg({ id: 'eeeeeeee-0000-4000-8000-0000000000b6', project_id: PROJECT, chat_id: ELSEWHERE }), inserted: true });
+    await flush(3);
+    assert.deepEqual(calls, [], 'nemmeno tornando sulla scheda o con un messaggio nuovo');
+  });
+
+  it('una chat del progetto aperta prima che arrivi l elenco si legge appena l elenco arriva', async () => {
+    chat.stopChats();
+    const calls = [];
+    api.listMessages = async (id) => (calls.push(['listMessages', id]), [msg({ body: 'Primo messaggio' })]);
+    api.markChatRead = async (id) => calls.push(['markChatRead', id]);
+    await visit(`#/chat/${TOPIC}`);
+    assert.deepEqual(calls, [], 'senza elenco non si sa ancora se la chat è del progetto');
+    await chat.startChats();
+    await flush(5);
+    assert.deepEqual(calls, [['listMessages', TOPIC], ['markChatRead', TOPIC]]);
+    assert.match(text(outlet.querySelector('.chat-messages')), /Primo messaggio/);
+  });
+
   it('un messaggio del progetto con la scheda in secondo piano avvisa, con il nome del progetto', () => {
     store.writeLocal('avvisiBrowser', true);
     hideTab();

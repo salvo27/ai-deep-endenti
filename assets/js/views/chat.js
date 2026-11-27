@@ -486,19 +486,29 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
     if (isUuid(target)) jumpTo(target);
   }
 
+  // Only a chat of the open project is read and marked read. A link to a chat of another project (pasted in a note,
+  // an old bookmark) stays "not found" and leaves that chat unread; before the list arrives nobody knows yet.
+  let opened = false;
+  const openIfOfProject = () => {
+    if (opened || !chat()) return;
+    opened = true;
+    loadMessages();
+  };
+
   renderList();
   renderPanel();
   setActiveChat(chatId);
-  if (chatId) loadMessages();
+  openIfOfProject();
 
   let lastChat = JSON.stringify(chat());
   const onVisible = () => {
-    if (document.visibilityState === 'visible' && chatId) markChatRead(chatId);
+    if (document.visibilityState === 'visible' && opened) markChatRead(chatId);
   };
   document.addEventListener('visibilitychange', onVisible);
   const offs = [
     on('chats', () => {
       renderList();
+      openIfOfProject();
       const now = JSON.stringify(chat());
       if (now !== lastChat) {
         lastChat = now;
@@ -508,7 +518,7 @@ export function chatView(outlet, params, query = new URLSearchParams()) {
       }
     }),
     on('chat-message', ({ row }) => {
-      if (row.chat_id !== chatId || !ofOpenProject(row)) return;
+      if (row.chat_id !== chatId || !ofOpenProject(row) || !opened) return;
       upsert(row);
       if (document.visibilityState === 'visible') {
         markChatRead(chatId);
