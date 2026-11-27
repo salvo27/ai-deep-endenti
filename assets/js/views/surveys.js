@@ -209,18 +209,28 @@ export function surveysView(outlet, params, query) {
     );
   };
 
-  render();
-  const pending = itemsOf('survey').filter((s) => s.data.token && !counts.has(s.id));
-  Promise.all(
-    pending.map((s) =>
-      api.surveyFunnel(s.id).then(
-        (f) => counts.set(s.id, f.completed),
-        () => counts.set(s.id, null),
+  // Asked once per questionnaire, also for those opened while the list is on screen.
+  const asked = new Set();
+  const fetchCounts = () => {
+    const pending = itemsOf('survey').filter((s) => s.data.token && !asked.has(s.id));
+    if (!pending.length) return;
+    pending.forEach((s) => asked.add(s.id));
+    Promise.all(
+      pending.map((s) =>
+        api.surveyFunnel(s.id).then(
+          (f) => counts.set(s.id, f.completed),
+          () => counts.set(s.id, null),
+        ),
       ),
-    ),
-  ).then(() => alive && render());
+    ).then(() => alive && render());
+  };
+
+  render();
+  fetchCounts();
   const off = on('item', ({ item }) => {
-    if (item.kind === 'survey' || item.kind === 'idea') render();
+    if (item.kind !== 'survey' && item.kind !== 'idea') return;
+    render();
+    fetchCounts();
   });
   return () => {
     alive = false;

@@ -215,6 +215,16 @@ test('the Questionari page lists every questionnaire with status, idea, complete
   assert.ok(router.match('/questionario/x/risposte'));
 });
 
+test('a questionnaire opened while the list is on screen gets its completed responses too', async () => {
+  await visit('#/questionari');
+  const draft = () => text(outlet.querySelector(`.sv-card[data-id="${S.draft}"]`));
+  assert.match(draft(), /Mai aperto/);
+  const current = store.getItem(S.draft);
+  store.applyItem(item({ ...current, version: 2, status: 'aperto', data: { ...current.data, token: 'TokenDiProvaBozza00001' } }));
+  await flush(5);
+  assert.match(draft(), /Risposte complete: 1/);
+});
+
 test('questions are edited, reordered, duplicated, deleted and added, then saved with a merge', async () => {
   await visit(`#/questionario/${S.open}`);
   assert.deepEqual([...outlet.querySelectorAll('.tabs .tab')].map((t) => text(t)), ['Domande', 'Aspetto e impostazioni', 'Condividi', 'Risposte']);
